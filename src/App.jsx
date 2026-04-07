@@ -30,9 +30,9 @@ import {
 import { genererGabarit, genererDocumentComplet, genererDocumentsIndividuels, genererScriptCompilation } from "./utils/latex";
 import { genererHtmlEleve, genererHtmlTous, DEFAULT_HTML_CONFIG } from "./utils/html";
 // ─── Logos (dans public/logos/) ──────────────────────────────────
-const LOGO_LIGHT = "/logos/logo-light.png";
-const LOGO_DARK = "/logos/logo-dark.png";
-const SPLASH_IMG = "/logos/splash.png";
+const LOGO_LIGHT = process.env.PUBLIC_URL + "/logos/logo-light.png";
+const LOGO_DARK  = process.env.PUBLIC_URL + "/logos/logo-dark.png";
+const SPLASH_IMG = process.env.PUBLIC_URL + "/logos/splash.png";
 
 // ─── Raccourcis ──────────────────────────────────────────────────
 const gk = gradeKey;
