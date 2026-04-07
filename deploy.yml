@@ -1,0 +1,41 @@
+name: Déployer C.H.E.C.K. sur GitHub Pages
+
+on:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Récupérer le code
+        uses: actions/checkout@v4
+
+      - name: Installer Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Installer les dépendances
+        run: npm ci
+
+      - name: Construire l'application
+        run: npm run build
+        env:
+          # Nécessaire pour Create React App :
+          # remplacer "check" par le nom exact de ton dépôt GitHub
+          PUBLIC_URL: /check
+
+      - name: Déployer sur GitHub Pages
+        uses: peaceiris/actions-gh-pages@v4
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./build
+          # Force le rechargement des assets (évite le cache navigateur)
+          force_orphan: true

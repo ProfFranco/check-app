@@ -1,0 +1,18 @@
+{
+  "short_name": "C.H.E.C.K.",
+  "name": "C.H.E.C.K. — Application de correction",
+  "description": "Application de correction de copies pour enseignants",
+  "start_url": ".",
+  "display": "standalone",
+  "orientation": "any",
+  "theme_color": "#faf7f2",
+  "background_color": "#faf7f2",
+  "icons": [
+    {
+      "src": "/logos/splash.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}
