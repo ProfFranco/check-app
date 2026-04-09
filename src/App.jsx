@@ -31,8 +31,9 @@ import { genererGabarit, genererDocumentComplet, genererDocumentsIndividuels, ge
 import { genererHtmlEleve, genererHtmlTous, DEFAULT_HTML_CONFIG } from "./utils/html";
 import HelpTab from "./HelpTab";
 // ─── Logos (dans public/logos/) ──────────────────────────────────
-const LOGO_LIGHT = process.env.PUBLIC_URL + "/logos/logo-light.png";
-const LOGO_DARK  = process.env.PUBLIC_URL + "/logos/logo-dark.png";
+const LOGO_LIGHT  = process.env.PUBLIC_URL + "/logos/logo-light.png";
+const LOGO_DARK   = process.env.PUBLIC_URL + "/logos/logo-dark.png";
+const LOGO_YOUNG  = process.env.PUBLIC_URL + "/logos/logo-young.png";
 const SPLASH_IMG = process.env.PUBLIC_URL + "/logos/splash.png";
 
 // ─── Raccourcis ──────────────────────────────────────────────────
@@ -1221,7 +1222,7 @@ function retirerDsSynthese(examId) {
 
       {/* HEADER — escamotable au scroll, taille agrandie */}
       <header style={{ background: th.card, borderBottom: "2px solid " + th.headerBorder, padding: isMobile ? "8px 10px" : "10px 14px", display: "flex", alignItems: "center", gap: isMobile ? 6 : 8, position: "sticky", top: 0, zIndex: 100, boxShadow: th.shadow, flexShrink: 0 }}>
-        <img src={appTheme === "dark" ? LOGO_DARK : LOGO_LIGHT} alt="C.H.E.C.K." style={{ height: isMobile ? 32 : 42, objectFit: "contain" }} />
+        <img src={appTheme === "dark" ? LOGO_DARK : appTheme === "young" ? LOGO_YOUNG : LOGO_LIGHT} alt="C.H.E.C.K." style={{ height: isMobile ? 32 : 42, objectFit: "contain" }} />
         {/* Sélecteur de profil — toujours visible */}
         <div style={{ position: "relative" }}>
           <button onClick={function() { setShowProfileMenu(!showProfileMenu); setEditingProfileId(null); setNewProfileName(""); }}
@@ -1333,7 +1334,7 @@ function retirerDsSynthese(examId) {
       {/* MAIN — zoomé via la propriété CSS zoom (scroll natif, pas de compensation) */}
       <div style={{ flex: 1, overflowY: "auto", position: "relative" }}>
         <div style={{ zoom: isMobile ? 1 : sc }}>
-        <main style={{ padding: isMobile ? 6 : 10, maxWidth: isMobile ? "100%" : "840px", margin: "0 auto", width: "100%", boxSizing: "border-box", position: "relative", zIndex: 1, paddingBottom: isMobile ? 70 : 10 }}>
+        <main key={mode} className="tab-enter" style={{ padding: isMobile ? 6 : 10, maxWidth: isMobile ? "100%" : "840px", margin: "0 auto", width: "100%", boxSizing: "border-box", position: "relative", zIndex: 1, paddingBottom: isMobile ? 70 : 10 }}>
 
 
         {/* ═══ PREPARATION ═══ */}
@@ -1341,7 +1342,7 @@ function retirerDsSynthese(examId) {
           {/* Exam selector */}
           {exams.length > 1 && <div style={{ display: "flex", gap: 3, marginBottom: 10, flexWrap: "wrap" }}>
             {exams.map(function(ex) { return (
-              <button key={ex.id} onClick={function() { setActiveExamId(ex.id); }} style={{ padding: "4px 10px", borderRadius: th.radiusSm, cursor: "pointer", fontFamily: FONT_B, fontSize: 11, fontWeight: 600, background: activeExamId === ex.id ? th.accentBg : th.surface, border: "1px solid " + (activeExamId === ex.id ? th.accent + "55" : th.border), color: activeExamId === ex.id ? th.accent : th.textMuted }}>{ex.name}</button>
+              <button key={ex.id} onClick={function() { setActiveExamId(ex.id); }} style={{ padding: "4px 10px", borderRadius: th.radiusSm, cursor: "pointer", fontFamily: FONT_B, fontSize: 11, fontWeight: 600, background: activeExamId === ex.id ? th.accentBg : th.surface, border: "1px solid " + (activeExamId === ex.id ? th.accent + "55" : th.border), color: activeExamId === ex.id ? th.accent : th.textMuted }}>{ex.nomDS || ex.name}</button>
             ); })}
           </div>}
 

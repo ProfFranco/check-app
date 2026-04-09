@@ -10,6 +10,8 @@ style.textContent = `
   input[type="number"]::-webkit-inner-spin-button,
   input[type="number"]::-webkit-outer-spin-button { opacity: 1; }
   @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.25; } }
+  @keyframes fadeSlideIn { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }
+  .tab-enter { animation: fadeSlideIn 0.15s ease-out; }
   ::-webkit-scrollbar { width: 6px; height: 6px; }
   ::-webkit-scrollbar-track { background: transparent; }
   ::-webkit-scrollbar-thumb { background: #c8bfb0; border-radius: 3px; }
