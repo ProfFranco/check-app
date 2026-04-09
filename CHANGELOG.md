@@ -1,3 +1,16 @@
+## v 0.80 - avril 2026
+
+### Section d'aide
+- Section complètement remaniée, pour l'instant rédigée par IA
+- Apparition d'un tutoriel
+
+### Interface
+- Ajout de l'onglet "Etablissement" pour paramétrer le nom de l'établissement, de la classe, des copies corrigées
+
+### Correctifs
+- Corrections nombreuses dans le code après revue
+- Fichier de test des fonctions de calculs
+
 ## v 0.72  - avril 2026
 
 ### Distribution & infrastructure
