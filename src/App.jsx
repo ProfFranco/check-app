@@ -39,9 +39,7 @@ const LOGO_YOUNG  = process.env.PUBLIC_URL + "/logos/logo-young.png";
 const SPLASH_IMG = process.env.PUBLIC_URL + "/logos/splash.png";
 
 // ─── Raccourcis ──────────────────────────────────────────────────
-const gk = gradeKey;
-const rkk = remarkKey;
-const cc = compColor;
+
 const FONT = FONT_TITLE;
 const FONT_B = FONT_BODY;
 const MONO = FONT_MONO;
@@ -57,7 +55,7 @@ function RadarChart({ compValues, exAbsValues, exRelValues, size = 90, dark = fa
   const th = dark ? darkTheme : lightTheme;
 
   const data = mode === "comp"
-    ? COMPETENCES.map(c => ({ label: c.short, value: compValues[c.id] || 0, color: cc(c, dark) }))
+    ? COMPETENCES.map(c => ({ label: c.short, value: compValues[c.id] || 0, color: compColor(c, dark) }))
     : (mode === "exAbs" ? exAbsValues : exRelValues).map((v, i) => ({
         label: v.label, value: v.pct, color: [th.accent, th.violet, th.success, th.warning, th.danger][i % 5]
       }));
@@ -732,7 +730,7 @@ export default function App() {
       for (var exz of exam.exercises) {
         for (var qz of exz.questions) {
           if (grades["treated_" + st.id + "_" + qz.id]) return true;
-          for (var itz of qz.items) { if (grades[gk(st.id, itz.id)]) return true; }
+          for (var itz of qz.items) { if (grades[gradeKey(st.id, itz.id)]) return true; }
         }
       }
       return false;
@@ -1106,7 +1104,7 @@ function retirerDsSynthese(examId) {
   var rangMap = {}; var curRang = 1;
   allNotesRanked.forEach(function(item, i) { if (i > 0 && item.note < allNotesRanked[i - 1].note) curRang = i + 1; rangMap[item.id] = curRang; });
   var rang = rangMap[s.id] || "-";
-  var gradedCount = students.filter(function(st) { return absents[st.id] || (exam && exam.exercises.some(function(exz) { return exz.questions.some(function(qz) { return qz.items.some(function(itz) { return grades[gk(st.id, itz.id)]; }); }); })); }).length;
+  var gradedCount = students.filter(function(st) { return absents[st.id] || (exam && exam.exercises.some(function(exz) { return exz.questions.some(function(qz) { return qz.items.some(function(itz) { return grades[gradeKey(st.id, itz.id)]; }); }); })); }).length;
 
   // Malus for current student
   var remCount = exam && !absents[s.id] ? countMalusRemarks(remarks, s.id, exam, allRemarquesBase) : 0;
@@ -1405,7 +1403,7 @@ function retirerDsSynthese(examId) {
                               <input value={q.label} onChange={function(e) { updateExam(updPath(exam, ["exercises", exIdx, "questions", qIdx, "label"], e.target.value)); }} style={{ ...inp, width: 50 }} />
                               <div style={{ display: "flex", gap: 2 }}>
                                 {COMPETENCES.map(function(c) { return (
-                                  <button key={c.id} onClick={function() { toggleComp(exIdx, qIdx, c.id); }} style={{ padding: "1px 6px", fontSize: 9, fontWeight: 700, borderRadius: 3, cursor: "pointer", border: "1px solid " + (q.competences.indexOf(c.id) >= 0 ? cc(c, dark) + "55" : th.border), background: q.competences.indexOf(c.id) >= 0 ? cc(c, dark) + "22" : "transparent", color: q.competences.indexOf(c.id) >= 0 ? cc(c, dark) : th.textDim, fontFamily: FONT_B }}>{c.short}</button>
+                                  <button key={c.id} onClick={function() { toggleComp(exIdx, qIdx, c.id); }} style={{ padding: "1px 6px", fontSize: 9, fontWeight: 700, borderRadius: 3, cursor: "pointer", border: "1px solid " + (q.competences.indexOf(c.id) >= 0 ? compColor(c, dark) + "55" : th.border), background: q.competences.indexOf(c.id) >= 0 ? compColor(c, dark) + "22" : "transparent", color: q.competences.indexOf(c.id) >= 0 ? compColor(c, dark) : th.textDim, fontFamily: FONT_B }}>{c.short}</button>
                                 ); })}
                               </div>
                               <button onClick={function() { var n = deepClone(exam); n.exercises[exIdx].questions[qIdx].bonus = !q.bonus; updateExam(n); }} title="Question bonus (points hors maximum)" style={{ padding: "1px 5px", fontSize: 11, borderRadius: 3, cursor: "pointer", border: "1px solid " + (q.bonus ? th.warning + "55" : th.border), background: q.bonus ? th.warningBg : "transparent", color: q.bonus ? th.warning : th.textDim }}>{"\uD83C\uDF81"}</button>
@@ -1458,7 +1456,7 @@ function retirerDsSynthese(examId) {
                   <input value={st.prenom} onChange={function(e) { var n2 = students.slice(); n2[idx] = { ...n2[idx], prenom: e.target.value }; setStudents(n2); }} placeholder="Prenom" style={{ ...inp, flex: 1, fontSize: 12 }} />
                   {showGroupes && [TT_GROUPE].concat(groupesDef).map(function(g) {
                     var inG = (groupes[g.id] || []).indexOf(st.id) >= 0;
-                    return <button key={g.id} onClick={function() { var cur = groupes[g.id] || []; var n2 = {}; for (var k in groupes) n2[k] = groupes[k]; n2[g.id] = inG ? cur.filter(function(id) { return id !== st.id; }) : cur.concat([st.id]); setGroupes(n2); }} style={{ padding: "0px 5px", fontSize: 8, fontWeight: 700, borderRadius: 3, cursor: "pointer", fontFamily: FONT_B, border: "1px solid " + (inG ? cc(g, dark) + "55" : th.border), background: inG ? cc(g, dark) + "22" : "transparent", color: inG ? cc(g, dark) : th.textDim }}>{g.label}</button>;
+                    return <button key={g.id} onClick={function() { var cur = groupes[g.id] || []; var n2 = {}; for (var k in groupes) n2[k] = groupes[k]; n2[g.id] = inG ? cur.filter(function(id) { return id !== st.id; }) : cur.concat([st.id]); setGroupes(n2); }} style={{ padding: "0px 5px", fontSize: 8, fontWeight: 700, borderRadius: 3, cursor: "pointer", fontFamily: FONT_B, border: "1px solid " + (inG ? compColor(g, dark) + "55" : th.border), background: inG ? compColor(g, dark) + "22" : "transparent", color: inG ? compColor(g, dark) : th.textDim }}>{g.label}</button>;
                   })}
                   <button onClick={function() { askConfirm((st.prenom + " " + st.nom).trim() || "cet élève", function() { setStudents(students.filter(function(_, j) { return j !== idx; })); }); }} style={{ background: "none", border: "none", color: th.textDim, cursor: "pointer", fontSize: 10 }}>{"\u2715"}</button>
                 </div>
@@ -1509,9 +1507,9 @@ function retirerDsSynthese(examId) {
           {/* Competences */}
           <div style={{ display: "flex", gap: 5, marginBottom: 8 }}>
             {COMPETENCES.map(function(c) { return (
-              <div key={c.id} style={{ flex: 1, padding: "5px", borderRadius: th.radiusSm, border: "2px solid " + cc(c, dark), background: cc(c, dark) + "08", textAlign: "center" }}>
+              <div key={c.id} style={{ flex: 1, padding: "5px", borderRadius: th.radiusSm, border: "2px solid " + compColor(c, dark), background: compColor(c, dark) + "08", textAlign: "center" }}>
                 <div style={{ fontSize: 9, color: th.textMuted, textTransform: "uppercase", letterSpacing: "0.5px", fontFamily: FONT_B }}>{c.label}</div>
-                <div style={{ fontSize: 20, fontWeight: 800, color: cc(c, dark), fontFamily: MONO }}>{cnVals[c.id]}</div>
+                <div style={{ fontSize: 20, fontWeight: 800, color: compColor(c, dark), fontFamily: MONO }}>{cnVals[c.id]}</div>
               </div>); })}
             <button onClick={function() { setAbsents(function(p) { var n = {}; for (var k in p) n[k] = p[k]; n[s.id] = !p[s.id]; return n; }); }} style={{ padding: "4px 10px", borderRadius: th.radiusSm, cursor: "pointer", fontFamily: FONT_B, fontSize: 10, fontWeight: 600, background: absents[s.id] ? th.dangerBg : th.surface, border: "1px solid " + (absents[s.id] ? th.danger + "40" : th.border), color: absents[s.id] ? th.danger : th.textMuted }}>
               {absents[s.id] ? "\u2717 Abs." : "Abs.?"}
@@ -1562,13 +1560,13 @@ function retirerDsSynthese(examId) {
           {/* Questions */}
           {!absents[s.id] && exCur && exCur.questions.map(function(q) {
             var sc = questionScore(grades, s.id, q);
-            var qr = remarks[rkk(s.id, q.id)] || [];
+            var qr = remarks[remarkKey(s.id, q.id)] || [];
             return (
               <div key={q.id} style={{ background: th.card, borderRadius: th.radius, border: "1px solid " + th.border, marginBottom: 6, overflow: "hidden", boxShadow: th.shadow }}>
                 <div style={{ display: "flex", alignItems: "center", gap: 5, padding: "6px 10px", borderBottom: "1px solid " + th.border, background: th.surface }}>
                   <span style={{ fontWeight: 700, fontSize: 13, fontFamily: FONT }}>{"Q. " + q.label}</span>
                   {q.bonus && <span title="Question bonus" style={{ fontSize: 10, padding: "0 4px", borderRadius: 6, border: "1px solid " + th.warning + "55", background: th.warningBg, color: th.warning }}>{"\uD83C\uDF81 bonus"}</span>}
-                  {q.competences.map(function(cid) { var c = COMPETENCES.find(function(x) { return x.id === cid; }); return c ? <span key={c.id} style={{ fontSize: 8, fontWeight: 700, padding: "0 4px", borderRadius: 6, border: "1.5px solid " + cc(c, dark), color: cc(c, dark), fontFamily: MONO }}>{c.short}</span> : null; })}
+                  {q.competences.map(function(cid) { var c = COMPETENCES.find(function(x) { return x.id === cid; }); return c ? <span key={c.id} style={{ fontSize: 8, fontWeight: 700, padding: "0 4px", borderRadius: 6, border: "1.5px solid " + compColor(c, dark), color: compColor(c, dark), fontFamily: MONO }}>{c.short}</span> : null; })}
                   <div style={{ flex: 1 }} />
                   <AudioRecorder
                     nomDS={examNomDS}
@@ -1583,9 +1581,9 @@ function retirerDsSynthese(examId) {
                 </div>
                 <div style={{ padding: 6 }}>
                   {q.items.map(function(it) {
-                    var ch = !!grades[gk(s.id, it.id)];
+                    var ch = !!grades[gradeKey(s.id, it.id)];
                     return (
-                      <button key={it.id} onClick={function() { setGrades(function(p) { var n = {}; for (var k in p) n[k] = p[k]; n[gk(s.id, it.id)] = !p[gk(s.id, it.id)]; return n; }); }} style={{ display: "flex", alignItems: "center", gap: isMobile ? 10 : 8, width: "100%", padding: isMobile ? "14px 12px" : "11px 10px", marginBottom: 2, borderRadius: th.radiusSm, cursor: "pointer", fontFamily: FONT_B, fontSize: isMobile ? 15 : 13, textAlign: "left", background: ch ? th.success + "0a" : "transparent", border: "1.5px solid " + (ch ? th.success + "35" : th.border), color: ch ? th.text : th.textMuted, WebkitTapHighlightColor: "transparent" }}>
+                      <button key={it.id} onClick={function() { setGrades(function(p) { var n = {}; for (var k in p) n[k] = p[k]; n[gradeKey(s.id, it.id)] = !p[gradeKey(s.id, it.id)]; return n; }); }} style={{ display: "flex", alignItems: "center", gap: isMobile ? 10 : 8, width: "100%", padding: isMobile ? "14px 12px" : "11px 10px", marginBottom: 2, borderRadius: th.radiusSm, cursor: "pointer", fontFamily: FONT_B, fontSize: isMobile ? 15 : 13, textAlign: "left", background: ch ? th.success + "0a" : "transparent", border: "1.5px solid " + (ch ? th.success + "35" : th.border), color: ch ? th.text : th.textMuted, WebkitTapHighlightColor: "transparent" }}>
                         <div style={{ width: isMobile ? 28 : 22, height: isMobile ? 28 : 22, borderRadius: 4, display: "flex", alignItems: "center", justifyContent: "center", fontSize: isMobile ? 16 : 13, fontWeight: 800, background: ch ? th.success : "transparent", border: "2px solid " + (ch ? th.success : th.textDim), color: ch ? (dark ? "#1a1814" : "#fff") : "transparent", flexShrink: 0 }}>{"\u2713"}</div>
                         <span style={{ flex: 1, fontWeight: 500 }}>{it.label}</span>
                         <span style={{ fontFamily: MONO, fontSize: 11, fontWeight: 700, color: ch ? th.success : th.textDim }}>{it.points}</span>
@@ -1593,7 +1591,7 @@ function retirerDsSynthese(examId) {
                   <div style={{ display: "flex", flexWrap: "wrap", gap: 3, marginTop: 4 }}>
                     {allRemarques.map(function(rem) {
                       var act = qr.indexOf(rem.id) >= 0;
-                      return <button key={rem.id} onClick={function() { setRemarks(function(p) { var k = rkk(s.id, q.id); var c = p[k] || []; var n = {}; for (var kk in p) n[kk] = p[kk]; n[k] = c.indexOf(rem.id) >= 0 ? c.filter(function(r) { return r !== rem.id; }) : c.concat([rem.id]); return n; }); }} style={{ padding: isMobile ? "8px 12px" : "5px 9px", borderRadius: 14, cursor: "pointer", fontFamily: FONT_B, fontSize: isMobile ? 12 : 10, fontWeight: 600, background: act ? th.warningBg : "transparent", border: "1px solid " + (act ? th.warning + "40" : th.border), color: act ? th.warning : th.textMuted }}>{rem.icon + " " + rem.label}</button>; })}
+                      return <button key={rem.id} onClick={function() { setRemarks(function(p) { var k = remarkKey(s.id, q.id); var c = p[k] || []; var n = {}; for (var kk in p) n[kk] = p[kk]; n[k] = c.indexOf(rem.id) >= 0 ? c.filter(function(r) { return r !== rem.id; }) : c.concat([rem.id]); return n; }); }} style={{ padding: isMobile ? "8px 12px" : "5px 9px", borderRadius: 14, cursor: "pointer", fontFamily: FONT_B, fontSize: isMobile ? 12 : 10, fontWeight: 600, background: act ? th.warningBg : "transparent", border: "1px solid " + (act ? th.warning + "40" : th.border), color: act ? th.warning : th.textMuted }}>{rem.icon + " " + rem.label}</button>; })}
                   </div>
                   {/* Case "traitée" — visible seulement si aucun item n'est coché */}
                   {sc.earned === 0 && (
@@ -1723,7 +1721,7 @@ function retirerDsSynthese(examId) {
                 return (
                   <div key={c.id} style={{ marginBottom: 6 }}>
                     <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11, marginBottom: 2, fontFamily: FONT_B }}>
-                      <span style={{ color: cc(c, dark), fontWeight: 600 }}>{c.label}</span>
+                      <span style={{ color: compColor(c, dark), fontWeight: 600 }}>{c.label}</span>
                       <span style={{ fontFamily: MONO, color: th.textMuted }}>{pct.toFixed(0) + "%"}</span>
                     </div>
                     <PBar value={pct} max={100} color={cc(c, dark)} th={th} />
@@ -1739,7 +1737,7 @@ function retirerDsSynthese(examId) {
             const copies = filteredCorriges.filter(s =>
               exx.questions.some(q =>
                 !!grades[treatedKey(s.id, q.id)] ||
-                (q.items || []).some(it => grades[gk(s.id, it.id)])
+                (q.items || []).some(it => grades[gradeKey(s.id, it.id)])
               )
             ).length;
             const emoy = enotes.length ? enotes.reduce((a, b) => a + b, 0) / enotes.length : 0;
@@ -1753,11 +1751,11 @@ function retirerDsSynthese(examId) {
               let nb = 0, obt = 0;
               for (const ss of filteredCorriges) {
                 const qTraitee = !!grades[treatedKey(ss.id, q.id)]
-                  || (q.items || []).some(it => grades[gk(ss.id, it.id)]);
+                  || (q.items || []).some(it => grades[gradeKey(ss.id, it.id)]);
                 if (qTraitee) {
                   nb++;
                   for (const it of (q.items || []))
-                    if (grades[gk(ss.id, it.id)]) obt += parseFloat(it.points) || 0;
+                    if (grades[gradeKey(ss.id, it.id)]) obt += parseFloat(it.points) || 0;
                 }
               }
               const n = filteredCorriges.length;
@@ -1850,7 +1848,7 @@ function retirerDsSynthese(examId) {
                     <MiniRadarEx values={exVals} size={30} dark={dark} />
                     <span style={{ flex: 1, fontSize: 11, fontWeight: 500, fontFamily: FONT_B }}>{r.student.prenom} <span style={{ fontVariant: "small-caps" }}>{r.student.nom}</span></span>
                     <div style={{ display: "flex", gap: 1 }}>
-                      {COMPETENCES.map(function(c) { return <span key={c.id} style={{ fontSize: 7, fontWeight: 700, padding: "0 3px", borderRadius: 2, background: cc(c, dark) + "15", color: cc(c, dark), fontFamily: MONO }}>{cn2[c.id]}</span>; })}
+                      {COMPETENCES.map(function(c) { return <span key={c.id} style={{ fontSize: 7, fontWeight: 700, padding: "0 3px", borderRadius: 2, background: compColor(c, dark) + "15", color: compColor(c, dark), fontFamily: MONO }}>{cn2[c.id]}</span>; })}
                     </div>
                     <span style={{ fontFamily: MONO, fontSize: 12, fontWeight: 700, minWidth: 34, textAlign: "right", color: r.note20 < 8 ? th.danger : r.note20 < 12 ? th.warning : th.success }}>{r.note20.toFixed(1)}</span>
                   </div>
@@ -2872,6 +2870,9 @@ function retirerDsSynthese(examId) {
                     <div style={{ fontSize: 9, color: th.textDim, fontFamily: FONT_B, lineHeight: 1.5 }}>
                       {"Le PAT et le dépôt sont stockés dans le localStorage de votre navigateur (séparé des données métier). Ils ne sont jamais envoyés à d'autres serveurs qu'api.github.com."}
                     </div>
+                    {(githubPat || githubRepo) && <button onClick={function() { setGithubPat(""); setGithubRepo(""); localStorage.removeItem("check_github_pat"); localStorage.removeItem("check_github_repo"); }} style={{ marginTop: 6, padding: "5px 12px", borderRadius: th.radiusSm, cursor: "pointer", fontFamily: FONT_B, fontSize: 11, fontWeight: 700, background: "transparent", border: "1px solid " + th.danger, color: th.danger }}>
+                      {"🔓 Dissocier ce compte GitHub"}
+                    </button>}
                   </div>
                 </div>}
               </div>
