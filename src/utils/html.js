@@ -22,6 +22,7 @@ import {
   notesParCompetence, malusTotal,
   ratioJustesse, ratioEfficacite,
 } from "./calculs";
+import { slugify } from "./helpers";
 
 // ─── Configuration par défaut ────────────────────────────────────
 
@@ -247,7 +248,7 @@ function blocHeader(student, noteNorm, noteBrute, rang, effectif, cfg, p) {
       '</div>';
   }
 
-  var etab = ETABLISSEMENT.nom + ' · ' + ETABLISSEMENT.classe + ' · ' + ETABLISSEMENT.section;
+  var etab = ETABLISSEMENT.nom + ' · ' + ETABLISSEMENT.classe + ' · ' + ETABLISSEMENT.matricule;
   var inner = '<div style="display:flex;align-items:center;gap:14px;padding:' + hp + 'px ' + (hp + 4) + 'px;' + accentBg + '">' +
     '<div style="flex:1;min-width:0;">' +
       '<div style="font-family:' + p.headerFont + ';font-size:22px;font-weight:700;color:' + p.text + ';line-height:1.15;">' +
@@ -560,7 +561,7 @@ export function genererHtmlEleve(opts) {
   });
 
   var allNotes = presents.map(function(s) { return getNote20(s.id); });
-  var stuMalus = malusTotal(remarks, student.id, exam, malusPaliers, malusManuel);
+  var stuMalus = malusTotal(remarks, student.id, exam, malusPaliers, malusManuel, allRemarques);
   var ratioJ = ratioJustesse(grades, student.id, exam);
   var ratioE = ratioEfficacite(grades, student.id, exam);
   var commentaire = (commentaires && commentaires[student.id]) || "";
@@ -609,16 +610,9 @@ export function genererHtmlTous(opts) {
   });
 
   return presents.map(function(student) {
-    var slug = _slugify(student.nom + "_" + student.prenom);
+    var slug = slugify(student.nom + "_" + student.prenom);
     var filename = "CR_" + (nomDS || "DS").replace(/\s+/g, "_") + "_" + slug + ".html";
     var content = genererHtmlEleve(Object.assign({}, opts, { student: student, allStudents: students, rankMap: rankMap }));
     return { filename: filename, content: content };
   });
-}
-
-// ─── Helper ──────────────────────────────────────────────────────
-
-function _slugify(str) {
-  return str.normalize("NFD").replace(/[\u0300-\u036f]/g, "")
-    .replace(/[^a-zA-Z0-9_-]/g, "_").replace(/_+/g, "_").slice(0, 60);
 }

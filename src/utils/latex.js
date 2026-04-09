@@ -18,6 +18,7 @@ import {
   ratioJustesse, ratioEfficacite,
   notesParCompetence, countMalusRemarks, malusTotal,
 } from "./calculs";
+import { slugify } from "./helpers";
 
 // ─── Formatage LaTeX ─────────────────────────────────────────────
 
@@ -64,7 +65,9 @@ function escapeTex(str) {
 
 // ─── Gabarit par défaut ──────────────────────────────────────────
 
-export function genererGabarit(nomDS, dateDS) {
+export function genererGabarit(nomDS, dateDS, etab) {
+  var e = etab || ETABLISSEMENT;
+  var piedPage = [e.nom, e.classe, e.matricule].filter(Boolean).join(" - ");
   return `\\documentclass[a4paper,12pt,twoside]{article}
 \\usepackage[top=2cm,bottom=1.4cm,left=1cm,right=1cm,headheight=20pt]{geometry}
 \\usepackage[utf8]{inputenc}
@@ -96,7 +99,7 @@ export function genererGabarit(nomDS, dateDS) {
 \\pagestyle{fancy}
 \\fancyhf{}
 \\rfoot{${nomDS} du ${dateDS}}
-\\lfoot{${ETABLISSEMENT.nom} - ${ETABLISSEMENT.classe} - ${ETABLISSEMENT.section}}
+\\lfoot{${piedPage}}
 \\renewcommand{\\headrulewidth}{1pt}
 \\renewcommand{\\footrulewidth}{1pt}
 \\setlength{\\headheight}{15pt}
@@ -171,8 +174,8 @@ export function genererRapportEleve({
   tex += ` (Min ${pct(Math.min(...teAll))} Max ${pct(Math.max(...teAll))} Moy ${pct(teAll.reduce((a, b) => a + b, 0) / teAll.length)})\n`;
 
   // Malus
-  const stuMalus = malusTotal(remarks, student.id, exam, malusPaliers, malusManuel);
-  const stuRemCount = countMalusRemarks(remarks, student.id, exam);
+  const stuMalus = malusTotal(remarks, student.id, exam, malusPaliers, malusManuel, allRemarques);
+  const stuRemCount = countMalusRemarks(remarks, student.id, exam, allRemarques);
   if (stuMalus > 0) {
     tex += `\\\\ \\textbf{\\textcolor{red}{Malus :}} ${pct(stuMalus / 100)}\n`;
   }
@@ -363,7 +366,7 @@ export function genererDocumentsIndividuels({
   const gab = gabarit || genererGabarit(nomDS, dateDS);
 
   return presents.map(student => {
-    const slug = _slugify(student.nom + "_" + student.prenom);
+    const slug = slugify(student.nom + "_" + student.prenom);
     const filename = `CR_${nomDS || "DS"}_${slug}.tex`.replace(/\s+/g, "_");
     const content =
       gab +
@@ -426,13 +429,4 @@ function _buildRankAndStats(presents, getNote20) {
   };
 
   return { rankMap, stats };
-}
-
-function _slugify(str) {
-  return str
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .replace(/[^a-zA-Z0-9_-]/g, "_")
-    .replace(/_+/g, "_")
-    .slice(0, 60);
 }
