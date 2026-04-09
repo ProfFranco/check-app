@@ -22,7 +22,7 @@ import {
   notesParCompetence, malusTotal,
   ratioJustesse, ratioEfficacite,
 } from "./calculs";
-import { slugify } from "./helpers";
+import { slugify, buildAudioFilename } from "./helpers";
 
 // ─── Configuration par défaut ────────────────────────────────────
 
@@ -439,8 +439,15 @@ function blocDetailExercices(student, exam, grades, remarks, presents, allRemarq
         : p.textDim;
 
       var trStyle = estDifficile ? 'font-weight:700;' : '';
+      var qLabelHtml;
+      if (cfg.soundLinksEnabled && cfg.soundBaseUrl) {
+        var audioUrl = cfg.soundBaseUrl + buildAudioFilename(cfg.nomDS, cfg.studentNom, ex.title, q.label, cfg.soundAudioExt || "webm");
+        qLabelHtml = '<a href="' + audioUrl + '" target="_blank" style="color:' + p.accent + ';text-decoration:none;border-bottom:1px solid ' + p.accent + '44;">' + esc(q.label) + '</a>';
+      } else {
+        qLabelHtml = esc(q.label);
+      }
       html += '<tr style="' + trStyle + '">' +
-        '<td style="padding:3px 6px;border-bottom:1px solid ' + p.border + '66;color:' + p.text + ';">' + esc(q.label) + bonusMark + etoile + '</td>' +
+        '<td style="padding:3px 6px;border-bottom:1px solid ' + p.border + '66;color:' + p.text + ';">' + qLabelHtml + bonusMark + etoile + '</td>' +
         '<td style="padding:3px 6px;border-bottom:1px solid ' + p.border + '66;">' + compSpans + '</td>' +
         '<td style="padding:3px 6px;border-bottom:1px solid ' + p.border + '66;color:' + noteColor + ';font-weight:700;font-family:monospace;white-space:nowrap;">' + fmt1(qsc.earned) + '/' + fmt1(qsc.total) + '</td>' +
         '<td style="padding:3px 6px;border-bottom:1px solid ' + p.border + '66;color:' + p.textMuted + ';font-size:10px;">' + esc(remLabels) + '</td>' +
@@ -526,6 +533,11 @@ export function genererHtmlEleve(opts) {
   var cfg = Object.assign({}, DEFAULT_HTML_CONFIG, opts.htmlConfig, {
     statsEleve: Object.assign({}, DEFAULT_HTML_CONFIG.statsEleve, ((opts.htmlConfig) || {}).statsEleve),
     statsClasse: Object.assign({}, DEFAULT_HTML_CONFIG.statsClasse, ((opts.htmlConfig) || {}).statsClasse),
+    nomDS: opts.nomDS || "",
+    studentNom: (opts.student && opts.student.nom) || "",
+    soundLinksEnabled: !!opts.soundLinksEnabled,
+    soundBaseUrl: opts.soundBaseUrl || "",
+    soundAudioExt: opts.soundAudioExt || "webm",
   });
 
   var p = paletteTheme(cfg.theme);

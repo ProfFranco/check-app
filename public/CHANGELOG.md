@@ -1,3 +1,19 @@
+## v 0.9 - 9 avril 2026
+
+### Nouvelle section : vue d'ensemble
+- Ajout d'une section permettant de visualiser en un clin d'oeil les résultats des étudiants sous forme de tableau cliquable
+
+### Enregistrements audio
+- Possibilité de générer des liens url vers les enregistrements générés, si l'utilisateur donne la racine des liens en question
+
+### Interface
+- Le DS actuel devient cliquable pour sélectionner à la volée le DS analysé
+
+### Correctifs
+- Erreur de coloration des notes dans l'onglet "Correction"
+- Nom des DS dans les bulles de navigation cohérent
+- Mise à jour du fichier d'aide
+
 ## v 0.80 - avril 2026
 
 ### Section d'aide
