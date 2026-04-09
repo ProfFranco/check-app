@@ -29,7 +29,9 @@ import {
 } from "./utils/calculs";
 import { genererGabarit, genererDocumentComplet, genererDocumentsIndividuels, genererScriptCompilation } from "./utils/latex";
 import { genererHtmlEleve, genererHtmlTous, DEFAULT_HTML_CONFIG } from "./utils/html";
+import { buildAudioFilename } from "./utils/helpers";
 import HelpTab from "./HelpTab";
+import OverviewTab from "./OverviewTab";
 // ─── Logos (dans public/logos/) ──────────────────────────────────
 const LOGO_LIGHT  = process.env.PUBLIC_URL + "/logos/logo-light.png";
 const LOGO_DARK   = process.env.PUBLIC_URL + "/logos/logo-dark.png";
@@ -309,23 +311,6 @@ function AudioRecorder({ nomDS, studentNom, exTitle, qLabel, th, FONT_B, MONO })
   var chunksRef = useRef([]);
   var streamRef = useRef(null);
 
-  function slug(s) {
-    if (!s) return "x";
-    return s.normalize("NFD")
-      .replace(/[\u0300-\u036f]/g, "")
-      .replace(/[^a-zA-Z0-9]/g, "_")
-      .replace(/_+/g, "_")
-      .replace(/^_|_$/g, "")
-      .slice(0, 20);
-  }
-
-  function buildFilename(ext) {
-    return slug(nomDS || "DS") + "_" +
-           slug(studentNom || "eleve").toUpperCase() + "_" +
-           slug(exTitle || "Ex") + "_" +
-           slug(qLabel || "Q") + "." + ext;
-  }
-
   function startRec() {
     chunksRef.current = [];
     if (audioUrl) { URL.revokeObjectURL(audioUrl); setAudioUrl(null); }
@@ -359,7 +344,7 @@ function AudioRecorder({ nomDS, studentNom, exTitle, qLabel, th, FONT_B, MONO })
   }
 
   function handleDownload() {
-    var fname = buildFilename(audioExt);
+    var fname = buildAudioFilename(nomDS, studentNom, exTitle, qLabel, audioExt);
     var a = document.createElement("a");
     a.href = audioUrl;
     a.download = fname;
@@ -398,8 +383,8 @@ function AudioRecorder({ nomDS, studentNom, exTitle, qLabel, th, FONT_B, MONO })
           }
           {audioUrl && <audio src={audioUrl} controls style={{ height: 28, maxWidth: 200 }} />}
           {audioUrl && (
-            <button style={btnS(th.accent, "#fff")} onClick={handleDownload} title={buildFilename(audioExt)}>
-              {"⬇ " + buildFilename(audioExt)}
+            <button style={btnS(th.accent, "#fff")} onClick={handleDownload} title={buildAudioFilename(nomDS, studentNom, exTitle, qLabel, audioExt)}>
+              {"⬇ " + buildAudioFilename(nomDS, studentNom, exTitle, qLabel, audioExt)}
             </button>
           )}
           <button style={Object.assign({}, btnS(th.surface, th.textMuted), { border: "1px solid " + th.border, marginLeft: "auto" })} onClick={handleClose}>✕</button>
@@ -501,6 +486,9 @@ export default function App() {
   var _csvConfig = useState({ sep: ";", dec: ",", cols: { rang: true, nom: true, prenom: true, absent: true, note: true, noteNorm: true, groupe: false, competences: false, malus: false } }); var setCsvConfig = _csvConfig[1]; var csvConfig = _csvConfig[0];
   var _htmlPresets = useState([]); var setHtmlPresets = _htmlPresets[1]; var htmlPresets = _htmlPresets[0];
   var _htmlConfig = useState({ theme: "light", noteNorm: true, noteBrute: false, rang: true, statsEleve: { justesse: true, efficacite: true, malus: true }, statsClasse: { moy: true, minMax: true, sigma: false }, competences: "grid", commentaire: true, detailExercices: true, bareme: false, histogramme: true }); var setHtmlConfig = _htmlConfig[1]; var htmlConfig = _htmlConfig[0];  var _htmlStudentId = useState(null); var setHtmlStudentId = _htmlStudentId[1]; var htmlStudentId = _htmlStudentId[0];
+  var _soundLinksEnabled = useState(false); var setSoundLinksEnabled = _soundLinksEnabled[1]; var soundLinksEnabled = _soundLinksEnabled[0];
+  var _soundBaseUrl = useState(""); var setSoundBaseUrl = _soundBaseUrl[1]; var soundBaseUrl = _soundBaseUrl[0];
+  var _soundAudioExt = useState("webm"); var setSoundAudioExt = _soundAudioExt[1]; var soundAudioExt = _soundAudioExt[0];
 
   var _si = useState(0); var setSi = _si[1]; var si = _si[0];
   var _ei = useState(0); var setEi = _ei[1]; var ei = _ei[0];
@@ -508,6 +496,7 @@ export default function App() {
   var _showSearch = useState(false); var setShowSearch = _showSearch[1]; var showSearch = _showSearch[0];
   var _searchTerm = useState(""); var setSearchTerm = _searchTerm[1]; var searchTerm = _searchTerm[0];
   var _showMore = useState(false); var setShowMore = _showMore[1]; var showMore = _showMore[0];
+  var _showDsMenu = useState(false); var setShowDsMenu = _showDsMenu[1]; var showDsMenu = _showDsMenu[0];
   var _tab = useState("general"); var setTab = _tab[1]; var tab = _tab[0];
   var _statGroup = useState("all"); var setStatGroup = _statGroup[1]; var statGroup = _statGroup[0];
   var _dbLoaded = useState(false); var setDbLoaded = _dbLoaded[1]; var dbLoaded = _dbLoaded[0];
@@ -517,7 +506,7 @@ export default function App() {
   var _showGroupes = useState(false); var setShowGroupes = _showGroupes[1]; var showGroupes = _showGroupes[0];
   var _csortMode = useState("rang"); var csortMode = _csortMode[0]; var setCsortMode = _csortMode[1];
   var _confirmDelete = useState(null); var setConfirmDelete = _confirmDelete[1]; var confirmDelete = _confirmDelete[0];
-  var _exportOpen = useState({ eleves: true, enseignant: true, gabarit: false, synthese: false, github: false, sync: true }); var setExportOpen = _exportOpen[1]; var exportOpen = _exportOpen[0];
+  var _exportOpen = useState({ eleves: true, enseignant: true, gabarit: false, synthese: false, github: false, sync: true, sound: false }); var setExportOpen = _exportOpen[1]; var exportOpen = _exportOpen[0];
   var _showApropos = useState(false); var setShowApropos = _showApropos[1]; var showApropos = _showApropos[0];
   var _showChangelog = useState(false); var setShowChangelog = _showChangelog[1]; var showChangelog = _showChangelog[0];
   var _changelogText = useState(""); var setChangelogText = _changelogText[1]; var changelogText = _changelogText[0];
@@ -581,6 +570,7 @@ export default function App() {
       settingsTab: settingsTab, csvConfig: csvConfig, htmlPresets: htmlPresets,
       htmlConfig: htmlConfig, htmlStudentId: htmlStudentId,
       synthese: synthese, etablissement: etablissement,
+      soundLinksEnabled: soundLinksEnabled, soundBaseUrl: soundBaseUrl, soundAudioExt: soundAudioExt,
     }, overrides || {});
   }
 
@@ -625,6 +615,9 @@ export default function App() {
     }
     if (d.htmlStudentId !== undefined) setHtmlStudentId(d.htmlStudentId);
     if (d.synthese) setSynthese(d.synthese);
+    if (d.soundLinksEnabled !== undefined) setSoundLinksEnabled(d.soundLinksEnabled);
+    if (d.soundBaseUrl !== undefined) setSoundBaseUrl(d.soundBaseUrl);
+    if (d.soundAudioExt !== undefined) setSoundAudioExt(d.soundAudioExt);
     if (d.etablissement) setEtablissement(Object.assign({}, {
       nom: ETABLISSEMENT.nom, classe: ETABLISSEMENT.classe,
       matricule: ETABLISSEMENT.matricule, promotion: ETABLISSEMENT.promotion,
@@ -639,7 +632,7 @@ export default function App() {
       saveDB(buildAppState(), activeProfileId);
     }, 500);
     return function() { clearTimeout(timer); };
-  }, [dbLoaded, exams, students, grades, remarks, absents, groupes, activeExamId, nomDS, dateDS, seuils, normMethod, normParams, seuilDifficile, seuilReussite, gabaritTex, malusPaliers, malusMode, malusManuel, uiScale, appTheme, groupesDef, mode, commentaires, remarquesActives, remarquesCustom, remarquesOrdre, settingsTab, csvConfig, htmlPresets, htmlConfig, htmlStudentId, synthese, etablissement]);
+  }, [dbLoaded, exams, students, grades, remarks, absents, groupes, activeExamId, nomDS, dateDS, seuils, normMethod, normParams, seuilDifficile, seuilReussite, gabaritTex, malusPaliers, malusMode, malusManuel, uiScale, appTheme, groupesDef, mode, commentaires, remarquesActives, remarquesCustom, remarquesOrdre, settingsTab, csvConfig, htmlPresets, htmlConfig, htmlStudentId, synthese, etablissement, soundLinksEnabled, soundBaseUrl, soundAudioExt]);
 
   useEffect(function() { if (showSearch && searchInputRef.current) searchInputRef.current.focus(); }, [showSearch]);
   useEffect(function() { var t = setTimeout(function() { setSplash(false); }, 2000); return function() { clearTimeout(t); }; }, []);
@@ -1178,12 +1171,13 @@ function retirerDsSynthese(examId) {
       malusPaliers: malusPaliers, malusManuel: malusManuel,
       commentaires: commentaires, allRemarques: allRemarques,
       htmlConfig: htmlConfig,
+      soundLinksEnabled: soundLinksEnabled, soundBaseUrl: soundBaseUrl, soundAudioExt: soundAudioExt,
     });
   }, [htmlStudentForPreview, htmlRankMapForPreview, exam, grades, remarks, absents, students,
       examNomDS, examDateDS, seuils, seuilDifficile, seuilReussite, malusPaliers, malusManuel,
-      commentaires, allRemarques, htmlConfig]);
+      commentaires, allRemarques, htmlConfig, soundLinksEnabled, soundBaseUrl, soundAudioExt]);
 
-  var navItems = [{ id: "prep", l: "Préparation", ic: "\u2699\uFE0F" }, { id: "correct", l: "Correction", ic: "\u270F\uFE0F" }, { id: "resultats", l: "Résultats", ic: "\uD83D\uDC64" }, { id: "stats", l: "Stats", ic: "\uD83D\uDCCA" }, { id: "export", l: "Export", ic: "\uD83D\uDCC4" }, { id: "aide", l: "Aide", ic: "\u2139\uFE0F" }];  // ═══════════════════════════════════════════════════════════════
+  var navItems = [{ id: "prep", l: "Préparation", ic: "\u2699\uFE0F" }, { id: "correct", l: "Correction", ic: "\u270F\uFE0F" }, { id: "resultats", l: "Résultats", ic: "\uD83D\uDC64" }, { id: "overview", l: "Vue d\u2019ensemble", ic: "\uD83D\uDCCB" }, { id: "stats", l: "Stats", ic: "\uD83D\uDCCA" }, { id: "export", l: "Export", ic: "\uD83D\uDCC4" }, { id: "aide", l: "Aide", ic: "\u2139\uFE0F" }];  // ═══════════════════════════════════════════════════════════════
   // RENDER
   // ═══════════════════════════════════════════════════════════════
 
@@ -1200,7 +1194,7 @@ function retirerDsSynthese(examId) {
     <div style={{ fontFamily: FONT_B, background: th.bg, color: th.text, height: "100vh", display: "flex", flexDirection: "column", overflowX: "hidden", maxWidth: "100vw", fontSize: "14px" }}
          onTouchStart={isMobile && mode === "correct" ? handleTouchStart : undefined}
          onTouchEnd={isMobile && mode === "correct" ? handleTouchEnd : undefined}
-         onClick={showProfileMenu ? function() { setShowProfileMenu(false); } : undefined}>
+         onClick={function() { if (showProfileMenu) setShowProfileMenu(false); if (showDsMenu) setShowDsMenu(false); }}>
       <link href={FONTS_URL} rel="stylesheet" />
       <div style={{ position: "fixed", inset: 0, opacity: dark ? 0.025 : 0.035, backgroundImage: "repeating-linear-gradient(transparent, transparent 31px, " + th.ruledLine + " 31px, " + th.ruledLine + " 32px)", backgroundPosition: "0 8px", pointerEvents: "none", zIndex: 0 }} />
 
@@ -1268,7 +1262,38 @@ function retirerDsSynthese(examId) {
             </div>
           </div>}
         </div>
-        {!isMobile && examNomDS && <span style={{ fontSize: 13, color: th.textMuted, fontFamily: FONT, fontStyle: "italic" }}>{"\u2014 " + examNomDS + (examDateDS ? " \u00B7 " + examDateDS : "")}</span>}
+        {!isMobile && examNomDS && (function() {
+          if (exams.length <= 1) {
+            return <span style={{ fontSize: 13, color: th.textMuted, fontFamily: FONT, fontStyle: "italic" }}>{"\u2014 " + examNomDS + (examDateDS ? " \u00B7 " + examDateDS : "")}</span>;
+          }
+          return (
+            <div style={{ position: "relative" }}>
+              <button
+                onClick={function() { setShowMore(false); setShowProfileMenu(false); setShowDsMenu(function(v) { return !v; }); }}
+                style={{ background: showDsMenu ? th.accentBg : "transparent", border: "1px solid " + (showDsMenu ? th.accent + "40" : th.border), borderRadius: th.radiusSm, padding: "3px 10px", cursor: "pointer", fontFamily: FONT, fontStyle: "italic", fontSize: 13, color: showDsMenu ? th.accent : th.textMuted }}
+                title="Changer de devoir">
+                {"\u2014 " + examNomDS + (examDateDS ? " \u00B7 " + examDateDS : "") + " \u25BE"}
+              </button>
+              {showDsMenu && (
+                <div style={{ position: "absolute", left: 0, top: "100%", marginTop: 4, background: th.card, border: "1px solid " + th.border, borderRadius: th.radiusSm, boxShadow: "0 4px 16px rgba(0,0,0,0.18)", zIndex: 120, minWidth: 200, overflow: "hidden" }}
+                     onClick={function(e) { e.stopPropagation(); }}>
+                  {exams.map(function(ex) {
+                    var isActive = ex.id === activeExamId;
+                    return (
+                      <button key={ex.id}
+                        onClick={function() { setActiveExamId(ex.id); setShowDsMenu(false); }}
+                        style={{ width: "100%", display: "flex", alignItems: "center", gap: 8, padding: "9px 14px", background: isActive ? th.accentBg : "transparent", border: "none", borderBottom: "1px solid " + th.border, cursor: "pointer", fontFamily: FONT_B, fontSize: 12, color: isActive ? th.accent : th.text, textAlign: "left", fontWeight: isActive ? 700 : 400 }}>
+                        <span style={{ fontSize: 9, color: isActive ? th.accent : th.textDim }}>{isActive ? "\u25CF" : "\u25CB"}</span>
+                        <span style={{ flex: 1 }}>{ex.nomDS || ex.name}</span>
+                        {ex.dateDS && <span style={{ fontSize: 10, color: th.textDim, fontFamily: MONO }}>{ex.dateDS}</span>}
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          );
+        })()}
         {exam && mode === "correct" && <span style={{ fontSize: isMobile ? 10 : 11, color: th.accent, fontWeight: 600, fontFamily: MONO, background: th.accentBg, padding: "3px 8px", borderRadius: 10, border: "1px solid " + th.accent + "25" }}>{gradedCount + "/" + students.length}</span>}
         <div style={{ flex: 1 }} />
         {!isMobile && <div style={{ display: "flex", gap: 2 }}>
@@ -1474,7 +1499,7 @@ function retirerDsSynthese(examId) {
             </div>
             <RadarChart compValues={cpVals} exAbsValues={eAbsVals} exRelValues={eRelVals} size={105} dark={dark} />
             <div style={{ textAlign: "right", minWidth: 70 }}>
-              <div style={{ fontFamily: MONO, fontSize: 24, fontWeight: 700, color: th.success }}>{curNote.toFixed(1)}<span style={{ fontSize: 11, color: th.textDim }}>/20</span></div>
+              <div style={{ fontFamily: MONO, fontSize: 24, fontWeight: 700, color: curNote >= 14 ? th.success : curNote >= 10 ? th.warning : th.danger }}>{curNote.toFixed(1)}<span style={{ fontSize: 11, color: th.textDim }}>/20</span></div>
               {isNorm && <div style={{ fontFamily: MONO, fontSize: 11, color: th.textDim }}>{"brut " + curBrut.toFixed(1)}</div>}
               <div style={{ fontFamily: MONO, fontSize: 12, color: th.textDim }}>{stuTot + "/" + et + " pts"}</div>
             </div>
@@ -1836,6 +1861,24 @@ function retirerDsSynthese(examId) {
         })()}
         </div>}
 
+        {/* ═══ VUE D'ENSEMBLE ═══ */}
+        {mode === "overview" && (function() {
+          if (!exam) return <div style={{ textAlign: "center", padding: 40, color: th.textMuted, fontFamily: FONT_B }}>{"Créez d'abord un devoir dans l'onglet Préparation."}</div>;
+          return (
+            <OverviewTab
+              exam={exam}
+              students={students}
+              grades={grades}
+              absents={absents}
+              th={th}
+              FONT={FONT}
+              FONT_B={FONT_B}
+              MONO={MONO}
+              onNavigate={function(studentIdx, exIdx) { setSi(studentIdx); setEi(exIdx); setMode("correct"); }}
+            />
+          );
+        })()}
+
         {/* ═══ AIDE ═══ */}
         {mode === "aide" && <HelpTab th={th} FONT={FONT} FONT_B={FONT_B} MONO={MONO} />}
        
@@ -1957,6 +2000,7 @@ function retirerDsSynthese(examId) {
                       getNote20: getNote20, getBrut20: getBrut20, rankMap: htmlRankMap,
                       malusPaliers: malusPaliers, malusManuel: malusManuel,
                       commentaires: commentaires, allRemarques: allRemarques, htmlConfig: htmlConfig,
+                      soundLinksEnabled: soundLinksEnabled, soundBaseUrl: soundBaseUrl, soundAudioExt: soundAudioExt,
                     });
                     var slug = (htmlStudent.nom + "_" + htmlStudent.prenom).normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-zA-Z0-9_-]/g, "_");
                     downloadFile(content, "CR_" + (examNomDS || "DS").replace(/\s+/g, "_") + "_" + slug + ".html", "text/html;charset=utf-8;");
@@ -1977,6 +2021,7 @@ function retirerDsSynthese(examId) {
                       getNote20: getNote20, getBrut20: getBrut20,
                       malusPaliers: malusPaliers, malusManuel: malusManuel,
                       commentaires: commentaires, allRemarques: allRemarques, htmlConfig: htmlConfig,
+                      soundLinksEnabled: soundLinksEnabled, soundBaseUrl: soundBaseUrl, soundAudioExt: soundAudioExt,
                     });
                     var el = document.createElement("script");
                     el.src = "https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js";
@@ -2010,6 +2055,7 @@ function retirerDsSynthese(examId) {
                       seuilDifficile: seuilDifficile, seuilReussite: seuilReussite, getNote20: getNote20,
                       malusPaliers: malusPaliers, malusManuel: malusManuel,
                       commentaires: commentaires, allRemarques: allRemarques,
+                      soundLinksEnabled: soundLinksEnabled, soundBaseUrl: soundBaseUrl, soundAudioExt: soundAudioExt,
                     });
                     var doc = docs.find(function(d) { return d.filename.indexOf(
                       (htmlStudent.nom + "_" + htmlStudent.prenom).normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-zA-Z0-9_-]/g, "_").slice(0, 30)
@@ -2033,6 +2079,7 @@ function retirerDsSynthese(examId) {
                         seuilDifficile: seuilDifficile, seuilReussite: seuilReussite, getNote20: getNote20,
                         malusPaliers: malusPaliers, malusManuel: malusManuel,
                         commentaires: commentaires, allRemarques: allRemarques,
+                        soundLinksEnabled: soundLinksEnabled, soundBaseUrl: soundBaseUrl, soundAudioExt: soundAudioExt,
                       });
                       var script = genererScriptCompilation(examNomDS);
                       var el = document.createElement("script");
@@ -2074,6 +2121,7 @@ function retirerDsSynthese(examId) {
                       seuilDifficile: seuilDifficile, seuilReussite: seuilReussite, getNote20: getNote20,
                       malusPaliers: malusPaliers, malusManuel: malusManuel,
                       commentaires: commentaires, allRemarques: allRemarques,
+                      soundLinksEnabled: soundLinksEnabled, soundBaseUrl: soundBaseUrl, soundAudioExt: soundAudioExt,
                     });
                     downloadFile(tex, "CR_" + (examNomDS || "DS") + ".tex", "text/x-tex");
                   }}
@@ -2192,7 +2240,7 @@ function retirerDsSynthese(examId) {
 {/* MODAL À PROPOS */}
 {showApropos && <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.4)", zIndex: 200, display: "flex", alignItems: "center", justifyContent: "center" }} onClick={function() { setShowApropos(false); }}>
         <div style={{ background: th.card, borderRadius: 12, border: "1px solid " + th.border, padding: "28px 32px", width: showChangelog ? 580 : 360, maxWidth: "95vw", transition: "width 0.2s", boxShadow: "0 8px 32px rgba(0,0,0,0.2)", textAlign: "center" }} onClick={function(e) { e.stopPropagation(); }}>
-          <div style={{ fontSize: 13, fontFamily: MONO, color: th.textDim, marginBottom: 4, letterSpacing: 2 }}>{"v\u00A00.80"}</div>
+          <div style={{ fontSize: 13, fontFamily: MONO, color: th.textDim, marginBottom: 4, letterSpacing: 2 }}>{"v\u00A00.90"}</div>
           <div style={{ fontSize: 26, fontWeight: 700, fontFamily: FONT, color: th.text, marginBottom: 6 }}>{"C.H.E.C.K."}</div>
           <div style={{ fontSize: 11, color: th.textMuted, fontFamily: FONT_B, lineHeight: 1.6, marginBottom: 20 }}>
             {"Correcteur Hautement Efficace avec Cases à Kocher"}
@@ -2357,6 +2405,7 @@ function retirerDsSynthese(examId) {
                 {/* Normalisation */}
                 <div style={{ fontSize: 11, fontWeight: 700, color: th.textMuted, fontFamily: FONT_B, marginBottom: 8, textTransform: "uppercase", letterSpacing: 1 }}>Normalisation</div>
                 {[
+                  { id: "none",             label: "Brute /20 (aucune normalisation)", info: "La note affichée est directement le score ramené sur 20, sans transformation." },
                   { id: "proportional",     label: "Proportionnelle (moy→cible)",   info: "Toutes les notes sont multipliées pour que la moyenne devienne la cible." },
                   { id: "proportional_max", label: "Proportionnelle (max→cible)",   info: "Toutes les notes sont multipliées pour que la meilleure note devienne la cible." },
                   { id: "affine",           label: "Affine (moy + σ)",               info: "Transformation affine : la moyenne devient moyenneCible et l'écart-type devient sigmaCible." },
@@ -2752,6 +2801,40 @@ function retirerDsSynthese(examId) {
                         style={{ flex: 1, padding: "6px", borderRadius: th.radiusSm, cursor: htmlPresets.length ? "pointer" : "not-allowed", fontFamily: FONT_B, fontSize: 11, fontWeight: 700, background: th.surface, border: "1px solid " + th.border, color: htmlPresets.length ? th.text : th.textDim }}>{"↩ Restaurer"}</button>
                     </div>
                     {htmlPresets.length > 0 && <div style={{ fontSize: 9, color: th.textDim, fontFamily: FONT_B, marginTop: 4 }}>{"Preset enregistré."}</div>}
+                  </div>
+                </div>}
+
+                {/* ── Liens audio ── */}
+                {SectionHeader("sound", "🔊", "Liens audio")}
+                {exportOpen.sound && <div style={{ marginBottom: 16 }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
+                    <label style={{ display: "flex", alignItems: "center", gap: 6, cursor: "pointer", fontSize: 12, fontFamily: FONT_B, fontWeight: 700, color: th.text }}>
+                      <input type="checkbox" checked={soundLinksEnabled} onChange={function(e) { setSoundLinksEnabled(e.target.checked); }} />
+                      {"Activer les liens audio dans les exports"}
+                    </label>
+                  </div>
+                  <div style={{ marginBottom: 8 }}>
+                    <div style={{ fontSize: 10, fontWeight: 700, color: th.textMuted, fontFamily: FONT_B, marginBottom: 3 }}>{"URL de base"}</div>
+                    <input type="text" value={soundBaseUrl} disabled={!soundLinksEnabled}
+                      onChange={function(e) { setSoundBaseUrl(e.target.value); }}
+                      placeholder="https://monserveur.fr/sons/"
+                      style={{ width: "100%", background: soundLinksEnabled ? th.card : th.surface, border: "1px solid " + th.border, color: soundLinksEnabled ? th.text : th.textDim, borderRadius: 4, padding: "5px 8px", fontSize: 12, fontFamily: MONO, outline: "none", opacity: soundLinksEnabled ? 1 : 0.5 }} />
+                  </div>
+                  <div style={{ marginBottom: 10 }}>
+                    <div style={{ fontSize: 10, fontWeight: 700, color: th.textMuted, fontFamily: FONT_B, marginBottom: 3 }}>{"Extension audio"}</div>
+                    <div style={{ display: "flex", gap: 12 }}>
+                      {[{ v: "webm", l: "webm (Chrome/Chromium)" }, { v: "mp4", l: "mp4 (Safari)" }].map(function(o) { return (
+                        <label key={o.v} style={{ display: "flex", alignItems: "center", gap: 5, cursor: soundLinksEnabled ? "pointer" : "not-allowed", fontSize: 11, fontFamily: FONT_B, color: soundAudioExt === o.v && soundLinksEnabled ? th.text : th.textMuted, opacity: soundLinksEnabled ? 1 : 0.5 }}>
+                          <input type="radio" name="soundAudioExt" value={o.v} checked={soundAudioExt === o.v} disabled={!soundLinksEnabled} onChange={function() { setSoundAudioExt(o.v); }} /> {o.l}
+                        </label>
+                      ); })}
+                    </div>
+                  </div>
+                  <div style={{ fontSize: 10, color: th.textMuted, fontFamily: FONT_B, lineHeight: 1.6, marginBottom: 6 }}>
+                    {"Choisissez l'extension selon votre navigateur d'enregistrement : "}<code>{"webm"}</code>{" pour Chrome/Chromium, "}<code>{"mp4"}</code>{" pour Safari."}
+                  </div>
+                  <div style={{ fontSize: 10, color: th.textMuted, fontFamily: FONT_B, lineHeight: 1.6 }}>
+                    {"Si votre gabarit LaTeX est personnalisé, ajoutez "}<code>{"\\usepackage[colorlinks=true,urlcolor=blue!60!black]{hyperref}"}</code>{" dans le préambule."}
                   </div>
                 </div>}
 

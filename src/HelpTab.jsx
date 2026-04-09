@@ -469,7 +469,7 @@ function HelpTab({ th, FONT, FONT_B, MONO }) {
       {/* En-tête */}
       <div style={{ marginBottom: 20 }}>
         <div style={{ fontFamily: FONT, fontSize: 22, fontWeight: 700, color: th.text, marginBottom: 4 }}>Guide d'utilisation</div>
-        <div style={{ fontFamily: FONT_B, fontSize: 12, color: th.textMuted }}>C.H.E.C.K. v 0.80</div>
+        <div style={{ fontFamily: FONT_B, fontSize: 12, color: th.textMuted }}>C.H.E.C.K. v 0.90</div>
       </div>
 
       {/* Onglets internes */}
@@ -644,7 +644,8 @@ function HelpTab({ th, FONT, FONT_B, MONO }) {
 
             <H>Commentaire et audio</H>
             <Li>Un commentaire libre par élève peut être saisi dans le champ texte — il apparaît dans tous les rapports.</Li>
-            <Li>Le bouton 🎙️ dans l'en-tête de chaque question permet d'enregistrer un commentaire audio téléchargeable.</Li>
+            <Li>Le bouton 🎙️ dans l'en-tête de chaque question permet d'enregistrer un commentaire audio téléchargeable. Le fichier est nommé automatiquement : <code style={{ fontFamily: MONO, fontSize: 10 }}>DS_ELEVE_Exercice_Question.ext</code>.</Li>
+            <Li>Pour que les élèves puissent écouter ces enregistrements depuis leur rapport, activez les <strong>Liens audio</strong> dans Réglages → Export → 🔊 Liens audio. Renseignez l'URL de base du dossier où vous hébergez les fichiers sons, et choisissez l'extension selon votre navigateur d'enregistrement (<code style={{ fontFamily: MONO, fontSize: 10 }}>webm</code> pour Chrome, <code style={{ fontFamily: MONO, fontSize: 10 }}>mp4</code> pour Safari).</Li>
           </RefSection>
 
           {/* ── Résultats ── */}
@@ -672,6 +673,59 @@ function HelpTab({ th, FONT, FONT_B, MONO }) {
               </div>
             </SimWindow>
             {tip("L'élève affiché ici est le même que celui utilisé pour les exports individuels dans l'onglet Export.", th.accent)}
+          </RefSection>
+
+          {/* ── Vue d'ensemble ── */}
+          <RefSection id="overview" icon="📋" titre="Vue d'ensemble">
+            <H>Tableau élèves × questions</H>
+            <Li>L'onglet 📋 affiche un tableau récapitulatif : une ligne par élève (absents exclus), une colonne par question ou item, avec le nombre de points obtenus et un code couleur de réussite.</Li>
+            <SimWindow label="Extrait de tableau">
+              <div style={{ overflowX: "auto" }}>
+                <table style={{ borderCollapse: "collapse", width: "100%", fontSize: 10, fontFamily: MONO }}>
+                  <thead>
+                    <tr>
+                      {["Élève", "Q.1", "Q.2", "Q.3", "Total"].map(function(h) {
+                        return <th key={h} style={{ padding: "3px 8px", background: th.surface, color: th.textMuted, borderBottom: "1px solid " + th.border, textAlign: h === "Élève" ? "left" : "center" }}>{h}</th>;
+                      })}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {[
+                      { name: "Dupont J.", vals: [2, 4, 0], totRatio: 0.6 },
+                      { name: "Martin A.", vals: [2, 2, 3], totRatio: 0.7 },
+                      { name: "Petit L.",  vals: [0, 1, 0], totRatio: 0.1 },
+                    ].map(function(row, i) {
+                      var ratios = [1, 0.8, 0];
+                      return (
+                        <tr key={i}>
+                          <td style={{ padding: "3px 8px", fontFamily: FONT_B, color: th.text }}>{row.name}</td>
+                          {row.vals.map(function(v, j) {
+                            var r = ratios[j];
+                            var bg = r >= 0.75 ? th.success + "22" : r >= 0.5 ? th.warning + "22" : th.danger + "22";
+                            var col = r >= 0.75 ? th.success : r >= 0.5 ? th.warning : th.danger;
+                            return <td key={j} style={{ padding: "3px 8px", textAlign: "center", background: bg, color: col, fontWeight: 700 }}>{v}</td>;
+                          })}
+                          <td style={{ padding: "3px 8px", textAlign: "right", fontWeight: 700, color: row.totRatio >= 0.75 ? th.success : row.totRatio >= 0.5 ? th.warning : th.danger }}>{(row.totRatio * 10).toFixed(1) + "/10"}</td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </SimWindow>
+
+            <H>Code couleur</H>
+            <Li>🟢 Vert : ≥ 75 % des points. 🟡 Orange : ≥ 50 %. 🔴 Rouge : {"<"} 50 %. Les cases non tentées (aucun item coché, question non marquée « traitée ») restent neutres.</Li>
+
+            <H>Tri</H>
+            <Li>Cliquez sur l'en-tête <strong>Élève</strong> pour trier alphabétiquement. Cliquez sur une colonne question pour trier par taux de réussite. Un deuxième clic inverse le tri, un troisième revient à l'ordre par défaut.</Li>
+
+            <H>Navigation vers la Correction</H>
+            <Li>Un clic sur n'importe quelle cellule du tableau bascule directement vers l'onglet Correction, positionné sur l'élève et l'exercice correspondants — idéal pour rectifier une erreur de saisie.</Li>
+
+            <H>Granularité</H>
+            <Li>Par défaut, une colonne par <strong>question</strong>. Activez le mode <strong>⊞ Items</strong> pour détailler chaque critère de notation individuellement.</Li>
+            {tip("Si vous repérez une colonne anormalement rouge ou verte par rapport aux autres, vérifiez la question correspondante — une erreur de barème est souvent à l'origine.", th.warning)}
           </RefSection>
 
           {/* ── Stats ── */}
@@ -747,6 +801,7 @@ function HelpTab({ th, FONT, FONT_B, MONO }) {
 
             <H>📤 Export</H>
             <Li>Configurez les colonnes du CSV, le thème et les blocs des rapports HTML (note brute, compétences, histogramme, barème…). Enregistrez un preset.</Li>
+            <Li><strong>🔊 Liens audio</strong> : activez pour rendre les labels de questions cliquables dans les exports HTML et LaTeX, pointant vers les fichiers audio hébergés. Renseignez l'URL de base (ex. <code style={{ fontFamily: MONO, fontSize: 10 }}>https://monserveur.fr/sons/</code>) et l'extension (<code style={{ fontFamily: MONO, fontSize: 10 }}>webm</code> ou <code style={{ fontFamily: MONO, fontSize: 10 }}>mp4</code>). En LaTeX, les liens apparaissent en bleu discret sans encadré. Si vous utilisez un gabarit personnalisé, ajoutez <code style={{ fontFamily: MONO, fontSize: 10 }}>\usepackage[colorlinks=true,urlcolor=blue!60!black]&#123;hyperref&#125;</code> dans le préambule.</Li>
           </RefSection>
 
           {/* ── Raccourcis ── */}

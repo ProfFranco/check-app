@@ -18,7 +18,7 @@ import {
   ratioJustesse, ratioEfficacite,
   notesParCompetence, countMalusRemarks, malusTotal,
 } from "./calculs";
-import { slugify } from "./helpers";
+import { slugify, buildAudioFilename } from "./helpers";
 
 // ─── Formatage LaTeX ─────────────────────────────────────────────
 
@@ -86,6 +86,7 @@ export function genererGabarit(nomDS, dateDS, etab) {
 \\usepackage{libertine}
 \\usepackage{pgfplots}
 \\pgfplotsset{compat=newest}
+\\usepackage[colorlinks=true,urlcolor=blue!60!black]{hyperref}
 
 \\tcbset{
   mybox/.style={colback=blue!10, colframe=black, boxrule=1pt, arc=4pt,
@@ -116,6 +117,7 @@ export function genererRapportEleve({
   allStudents, nomDS, seuils, seuilDifficile, seuilReussite,
   getNote20, rankMap, stats, malusPaliers, malusManuel,
   commentaires, allRemarques,
+  soundLinksEnabled, soundBaseUrl, soundAudioExt,
 }) {
   const et = examTotal(exam);
   const scoreBrut = studentTotal(grades, student.id, exam);
@@ -237,7 +239,14 @@ export function genererRapportEleve({
       const remKey = `${student.id}__${q.id}`;
 
       // Ligne question dans le tableau
-      tex += `${bold}${escapeTex(q.label)}${marqueurBonus}${marqueurEtoile} & ${encodeCompetences(q.competences)} & ${num(sc.earned)}/${num(sc.total)} & ${encodeRemarks(remarks[remKey], allRemarques)} \\\\\n`;
+      var qLabelTex;
+      if (soundLinksEnabled && soundBaseUrl) {
+        var audioUrl = soundBaseUrl + buildAudioFilename(nomDS, student.nom, ex.title, q.label, soundAudioExt || "webm");
+        qLabelTex = `\\href{${audioUrl}}{\\textcolor{blue!50!black}{${escapeTex(q.label)}}}`;
+      } else {
+        qLabelTex = escapeTex(q.label);
+      }
+      tex += `${bold}${qLabelTex}${marqueurBonus}${marqueurEtoile} & ${encodeCompetences(q.competences)} & ${num(sc.earned)}/${num(sc.total)} & ${encodeRemarks(remarks[remKey], allRemarques)} \\\\\n`;
 
 
     });
@@ -328,6 +337,7 @@ export function genererDocumentComplet({
   gabarit, exam, students, grades, remarks, absents,
   nomDS, dateDS, seuils, seuilDifficile, seuilReussite, getNote20,
   malusPaliers, malusManuel, commentaires, allRemarques,
+  soundLinksEnabled, soundBaseUrl, soundAudioExt,
 }) {
   const presents = students.filter(s => !absents[s.id]);
 
@@ -344,6 +354,7 @@ export function genererDocumentComplet({
       allStudents: students, nomDS, seuils, seuilDifficile, seuilReussite,
       getNote20, rankMap, stats, malusPaliers, malusManuel,
       commentaires, allRemarques,
+      soundLinksEnabled, soundBaseUrl, soundAudioExt,
     });
   }
 
@@ -360,6 +371,7 @@ export function genererDocumentsIndividuels({
   gabarit, exam, students, grades, remarks, absents,
   nomDS, dateDS, seuils, seuilDifficile, seuilReussite, getNote20,
   malusPaliers, malusManuel, commentaires, allRemarques,
+  soundLinksEnabled, soundBaseUrl, soundAudioExt,
 }) {
   const presents = students.filter(s => !absents[s.id]);
   const { rankMap, stats } = _buildRankAndStats(presents, getNote20);
@@ -375,6 +387,7 @@ export function genererDocumentsIndividuels({
         allStudents: students, nomDS, seuils, seuilDifficile, seuilReussite,
         getNote20, rankMap, stats, malusPaliers, malusManuel,
         commentaires, allRemarques,
+        soundLinksEnabled, soundBaseUrl, soundAudioExt,
       }) +
       `\\end{document}\n`;
     return { filename, content };
