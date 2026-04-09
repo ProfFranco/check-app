@@ -25,10 +25,11 @@ import {
   notesParCompetence, competencePct,
   exercisePctAbsolute, exercisePctRelative,
   countMalusRemarks, malusAuto, malusTotal,
-  normaliser, importCSV, downloadFile, treatedKey,
+  normaliser, importCSV, downloadFile, treatedKey, validateState
 } from "./utils/calculs";
 import { genererGabarit, genererDocumentComplet, genererDocumentsIndividuels, genererScriptCompilation } from "./utils/latex";
 import { genererHtmlEleve, genererHtmlTous, DEFAULT_HTML_CONFIG } from "./utils/html";
+import HelpTab from "./HelpTab";
 // ─── Logos (dans public/logos/) ──────────────────────────────────
 const LOGO_LIGHT = process.env.PUBLIC_URL + "/logos/logo-light.png";
 const LOGO_DARK  = process.env.PUBLIC_URL + "/logos/logo-dark.png";
@@ -487,12 +488,14 @@ export default function App() {
   var _commentaires = useState({}); var setCommentaires = _commentaires[1]; var commentaires = _commentaires[0];
   var _remarquesActives = useState(DEFAULT_REMARQUES_ACTIVES); var setRemarquesActives = _remarquesActives[1]; var remarquesActives = _remarquesActives[0];
   var _remarquesCustom = useState([]); var setRemarquesCustom = _remarquesCustom[1]; var remarquesCustom = _remarquesCustom[0];
+  var allRemarquesBase = REMARQUES.concat(remarquesCustom);
   var _remarquesOrdre = useState([]); var setRemarquesOrdre = _remarquesOrdre[1]; var remarquesOrdre = _remarquesOrdre[0];
   var _newRemLabel = useState(""); var setNewRemLabel = _newRemLabel[1]; var newRemLabel = _newRemLabel[0];
   var _newRemIcon = useState("\uD83D\uDCCC"); var setNewRemIcon = _newRemIcon[1]; var newRemIcon = _newRemIcon[0];
   var _newRemMalus = useState(true); var setNewRemMalus = _newRemMalus[1]; var newRemMalus = _newRemMalus[0];
   var _showSettings = useState(false); var setShowSettings = _showSettings[1]; var showSettings = _showSettings[0];
   var _settingsTab = useState("calcul"); var setSettingsTab = _settingsTab[1]; var settingsTab = _settingsTab[0];
+  var _correctionOpen = useState({ remarques: true, groupes: false }); var setCorrectionOpen = _correctionOpen[1]; var correctionOpen = _correctionOpen[0];
   var _showDebug = useState(false); var setShowDebug = _showDebug[1]; var showDebug = _showDebug[0];
   var _csvConfig = useState({ sep: ";", dec: ",", cols: { rang: true, nom: true, prenom: true, absent: true, note: true, noteNorm: true, groupe: false, competences: false, malus: false } }); var setCsvConfig = _csvConfig[1]; var csvConfig = _csvConfig[0];
   var _htmlPresets = useState([]); var setHtmlPresets = _htmlPresets[1]; var htmlPresets = _htmlPresets[0];
@@ -553,46 +556,7 @@ export default function App() {
       setActiveProfileId(meta.activeId);
       return loadDB(meta.activeId);
     }).then(function(saved) {
-      if (saved) {
-        if (saved.exams) setExams(saved.exams);
-        if (saved.students) setStudents(saved.students);
-        if (saved.grades) setGrades(saved.grades);
-        if (saved.remarks) setRemarks(saved.remarks);
-        if (saved.absents) setAbsents(saved.absents);
-        if (saved.groupes) setGroupes(saved.groupes);
-        if (saved.activeExamId) setActiveExamId(saved.activeExamId);
-        if (saved.nomDS) setNomDS(saved.nomDS);
-        if (saved.dateDS) setDateDS(saved.dateDS);
-        if (saved.seuils) setSeuils(saved.seuils);
-        if (saved.normMethod) setNormMethod(saved.normMethod);
-        if (saved.normParams) setNormParams(saved.normParams);
-        if (saved.seuilDifficile) setSeuilDifficile(saved.seuilDifficile);
-        if (saved.seuilReussite !== undefined) setSeuilReussite(saved.seuilReussite);
-        if (saved.gabaritTex) setGabaritTex(saved.gabaritTex);
-        if (saved.malusPaliers) setMalusPaliers(saved.malusPaliers);
-        if (saved.malusMode) setMalusMode(saved.malusMode);
-        if (saved.malusManuel) setMalusManuel(saved.malusManuel);
-        if (saved.uiScale) setUiScale(saved.uiScale);
-        if (saved.appTheme !== undefined) setAppTheme(saved.appTheme);
-        else if (saved.dark !== undefined) setAppTheme(saved.dark ? "dark" : "light"); // migration
-        if (saved.groupesDef) setGroupesDef(saved.groupesDef);
-        if (saved.mode) setMode(saved.mode);
-        if (saved.commentaires) setCommentaires(saved.commentaires);
-        if (saved.remarquesActives) setRemarquesActives(saved.remarquesActives);
-        if (saved.remarquesCustom) setRemarquesCustom(saved.remarquesCustom);
-        if (saved.remarquesOrdre) setRemarquesOrdre(saved.remarquesOrdre);
-        if (saved.settingsTab) setSettingsTab(saved.settingsTab);
-        if (saved.csvConfig) setCsvConfig(saved.csvConfig);
-        if (saved.htmlPresets) setHtmlPresets(saved.htmlPresets);
-        if (saved.htmlConfig) { var sc2 = saved.htmlConfig; setHtmlConfig(Object.assign({}, DEFAULT_HTML_CONFIG, sc2, { statsEleve: Object.assign({}, DEFAULT_HTML_CONFIG.statsEleve, sc2.statsEleve), statsClasse: Object.assign({}, DEFAULT_HTML_CONFIG.statsClasse, sc2.statsClasse) })); }
-        if (saved.htmlStudentId !== undefined) setHtmlStudentId(saved.htmlStudentId);
-        if (saved.synthese) setSynthese(saved.synthese);
-        if (saved.etablissement) setEtablissement(Object.assign({}, {
-          nom: ETABLISSEMENT.nom, classe: ETABLISSEMENT.classe,
-          matricule: ETABLISSEMENT.matricule, promotion: ETABLISSEMENT.promotion,
-          anneeScolaire: ETABLISSEMENT.anneeScolaire,
-        }, saved.etablissement));
-      }
+      if (saved) restoreState(saved);
       setDbLoaded(true);
       // Charger la config GitHub depuis localStorage (stockée séparément des données métier)
       var savedPat = localStorage.getItem("check_github_pat") || "";
@@ -602,15 +566,81 @@ export default function App() {
     });
   }, []);
 
+  // ─── Construction de l'objet d'état complet (source unique) ────
+  function buildAppState(overrides) {
+    return Object.assign({
+      exams: exams, students: students, grades: grades, remarks: remarks,
+      absents: absents, groupes: groupes, activeExamId: activeExamId,
+      nomDS: nomDS, dateDS: dateDS, seuils: seuils, normMethod: normMethod,
+      normParams: normParams, seuilDifficile: seuilDifficile, seuilReussite: seuilReussite,
+      gabaritTex: gabaritTex, malusPaliers: malusPaliers, malusMode: malusMode,
+      malusManuel: malusManuel, uiScale: uiScale, appTheme: appTheme, groupesDef: groupesDef,
+      mode: mode, commentaires: commentaires, remarquesActives: remarquesActives,
+      remarquesCustom: remarquesCustom, remarquesOrdre: remarquesOrdre,
+      settingsTab: settingsTab, csvConfig: csvConfig, htmlPresets: htmlPresets,
+      htmlConfig: htmlConfig, htmlStudentId: htmlStudentId,
+      synthese: synthese, etablissement: etablissement,
+    }, overrides || {});
+  }
+
+  // ─── Restauration de l'état depuis un objet sauvegardé (source unique) ────
+  function restoreState(d) {
+    if (d.exams) setExams(d.exams);
+    if (d.students) setStudents(d.students);
+    if (d.grades) setGrades(d.grades);
+    if (d.remarks) setRemarks(d.remarks);
+    if (d.absents) setAbsents(d.absents);
+    if (d.groupes) setGroupes(d.groupes);
+    if (d.activeExamId) setActiveExamId(d.activeExamId);
+    if (d.nomDS) setNomDS(d.nomDS);
+    if (d.dateDS) setDateDS(d.dateDS);
+    if (d.seuils) setSeuils(d.seuils);
+    if (d.normMethod) setNormMethod(d.normMethod);
+    if (d.normParams) setNormParams(d.normParams);
+    if (d.seuilDifficile) setSeuilDifficile(d.seuilDifficile);
+    if (d.seuilReussite !== undefined) setSeuilReussite(d.seuilReussite);
+    if (d.gabaritTex) setGabaritTex(d.gabaritTex);
+    if (d.malusPaliers) setMalusPaliers(d.malusPaliers);
+    if (d.malusMode) setMalusMode(d.malusMode);
+    if (d.malusManuel) setMalusManuel(d.malusManuel);
+    if (d.uiScale) setUiScale(d.uiScale);
+    if (d.appTheme !== undefined) setAppTheme(d.appTheme);
+    else if (d.dark !== undefined) setAppTheme(d.dark ? "dark" : "light"); // migration anciens profils
+    if (d.groupesDef) setGroupesDef(d.groupesDef);
+    if (d.mode) setMode(d.mode);
+    if (d.commentaires) setCommentaires(d.commentaires);
+    if (d.remarquesActives) setRemarquesActives(d.remarquesActives);
+    if (d.remarquesCustom) setRemarquesCustom(d.remarquesCustom);
+    if (d.remarquesOrdre) setRemarquesOrdre(d.remarquesOrdre);
+    if (d.settingsTab) setSettingsTab(d.settingsTab);
+    if (d.csvConfig) setCsvConfig(d.csvConfig);
+    if (d.htmlPresets) setHtmlPresets(d.htmlPresets);
+    if (d.htmlConfig) {
+      var sc = d.htmlConfig;
+      setHtmlConfig(Object.assign({}, DEFAULT_HTML_CONFIG, sc, {
+        statsEleve: Object.assign({}, DEFAULT_HTML_CONFIG.statsEleve, sc.statsEleve),
+        statsClasse: Object.assign({}, DEFAULT_HTML_CONFIG.statsClasse, sc.statsClasse),
+      }));
+    }
+    if (d.htmlStudentId !== undefined) setHtmlStudentId(d.htmlStudentId);
+    if (d.synthese) setSynthese(d.synthese);
+    if (d.etablissement) setEtablissement(Object.assign({}, {
+      nom: ETABLISSEMENT.nom, classe: ETABLISSEMENT.classe,
+      matricule: ETABLISSEMENT.matricule, promotion: ETABLISSEMENT.promotion,
+      anneeScolaire: ETABLISSEMENT.anneeScolaire,
+    }, d.etablissement));
+  }
+
   // ─── Persistence: save to IndexedDB on changes (debounced) ───
   useEffect(function() {
     if (!dbLoaded) return;
     var timer = setTimeout(function() {
-      saveDB({ exams: exams, students: students, grades: grades, remarks: remarks, absents: absents, groupes: groupes, activeExamId: activeExamId, nomDS: nomDS, dateDS: dateDS, seuils: seuils, normMethod: normMethod, normParams: normParams, seuilDifficile: seuilDifficile, seuilReussite: seuilReussite, gabaritTex: gabaritTex, malusPaliers: malusPaliers, malusMode: malusMode, malusManuel: malusManuel, uiScale: uiScale, appTheme: appTheme, groupesDef: groupesDef, mode: mode, commentaires: commentaires, remarquesActives: remarquesActives, remarquesCustom: remarquesCustom, remarquesOrdre: remarquesOrdre, settingsTab: settingsTab, csvConfig: csvConfig, htmlPresets: htmlPresets, htmlConfig: htmlConfig, htmlStudentId: htmlStudentId,
-        synthese: synthese, etablissement: etablissement }, activeProfileId);
+      saveDB(buildAppState(), activeProfileId);
     }, 500);
     return function() { clearTimeout(timer); };
-  }, [dbLoaded, exams, students, grades, remarks, absents, groupes, activeExamId, nomDS, dateDS, seuils, normMethod, normParams, seuilDifficile, seuilReussite, gabaritTex, malusPaliers, malusMode, malusManuel, uiScale, appTheme, groupesDef, mode, commentaires, remarquesActives, remarquesCustom, remarquesOrdre, settingsTab, csvConfig, htmlPresets, htmlConfig, htmlStudentId]);  // Splash  useEffect(function() { if (showSearch && searchInputRef.current) searchInputRef.current.focus(); }, [showSearch]);
+  }, [dbLoaded, exams, students, grades, remarks, absents, groupes, activeExamId, nomDS, dateDS, seuils, normMethod, normParams, seuilDifficile, seuilReussite, gabaritTex, malusPaliers, malusMode, malusManuel, uiScale, appTheme, groupesDef, mode, commentaires, remarquesActives, remarquesCustom, remarquesOrdre, settingsTab, csvConfig, htmlPresets, htmlConfig, htmlStudentId, synthese, etablissement]);
+
+  useEffect(function() { if (showSearch && searchInputRef.current) searchInputRef.current.focus(); }, [showSearch]);
   useEffect(function() { var t = setTimeout(function() { setSplash(false); }, 2000); return function() { clearTimeout(t); }; }, []);
 
 
@@ -660,46 +690,12 @@ export default function App() {
 
   function switchProfile(profileId) {
     // Sauvegarde immédiate du profil courant avant de switcher
-    saveDB({ exams: exams, students: students, grades: grades, remarks: remarks, absents: absents, groupes: groupes, activeExamId: activeExamId, nomDS: nomDS, dateDS: dateDS, seuils: seuils, normMethod: normMethod, normParams: normParams, seuilDifficile: seuilDifficile, seuilReussite: seuilReussite, gabaritTex: gabaritTex, malusPaliers: malusPaliers, malusMode: malusMode, malusManuel: malusManuel, uiScale: uiScale, appTheme: appTheme, groupesDef: groupesDef, mode: mode, commentaires: commentaires, remarquesActives: remarquesActives, remarquesCustom: remarquesCustom, remarquesOrdre: remarquesOrdre, settingsTab: settingsTab, csvConfig: csvConfig, htmlPresets: htmlPresets, htmlConfig: htmlConfig, htmlStudentId: htmlStudentId, synthese: synthese, etablissement: etablissement }, activeProfileId);
+    saveDB(buildAppState(), activeProfileId);
     setActiveProfileId(profileId);
     saveMeta({ profiles: profiles, activeId: profileId });
     resetAppState();
     loadDB(profileId).then(function(saved) {
-      if (saved) {
-        if (saved.exams) setExams(saved.exams);
-        if (saved.students) setStudents(saved.students);
-        if (saved.grades) setGrades(saved.grades);
-        if (saved.remarks) setRemarks(saved.remarks);
-        if (saved.absents) setAbsents(saved.absents);
-        if (saved.groupes) setGroupes(saved.groupes);
-        if (saved.activeExamId) setActiveExamId(saved.activeExamId);
-        if (saved.nomDS) setNomDS(saved.nomDS);
-        if (saved.dateDS) setDateDS(saved.dateDS);
-        if (saved.commentaires) setCommentaires(saved.commentaires);
-        if (saved.malusManuel) setMalusManuel(saved.malusManuel);
-        if (saved.synthese) setSynthese(saved.synthese);
-        if (saved.seuils) setSeuils(saved.seuils);
-        if (saved.normMethod) setNormMethod(saved.normMethod);
-        if (saved.normParams) setNormParams(saved.normParams);
-        if (saved.seuilDifficile) setSeuilDifficile(saved.seuilDifficile);
-        if (saved.seuilReussite !== undefined) setSeuilReussite(saved.seuilReussite);
-        if (saved.gabaritTex) setGabaritTex(saved.gabaritTex);
-        if (saved.malusPaliers) setMalusPaliers(saved.malusPaliers);
-        if (saved.malusMode) setMalusMode(saved.malusMode);
-        if (saved.uiScale) setUiScale(saved.uiScale);
-        if (saved.appTheme !== undefined) setAppTheme(saved.appTheme);
-        if (saved.groupesDef) setGroupesDef(saved.groupesDef);
-        if (saved.mode) setMode(saved.mode);
-        if (saved.remarquesActives) setRemarquesActives(saved.remarquesActives);
-        if (saved.remarquesCustom) setRemarquesCustom(saved.remarquesCustom);
-        if (saved.remarquesOrdre) setRemarquesOrdre(saved.remarquesOrdre);
-        if (saved.settingsTab) setSettingsTab(saved.settingsTab);
-        if (saved.csvConfig) setCsvConfig(saved.csvConfig);
-        if (saved.htmlPresets) setHtmlPresets(saved.htmlPresets);
-        if (saved.htmlConfig) { var sc2 = saved.htmlConfig; setHtmlConfig(Object.assign({}, DEFAULT_HTML_CONFIG, sc2, { statsEleve: Object.assign({}, DEFAULT_HTML_CONFIG.statsEleve, sc2.statsEleve), statsClasse: Object.assign({}, DEFAULT_HTML_CONFIG.statsClasse, sc2.statsClasse) })); }
-        if (saved.htmlStudentId !== undefined) setHtmlStudentId(saved.htmlStudentId);
-        if (saved.etablissement) setEtablissement(Object.assign({}, { nom: ETABLISSEMENT.nom, classe: ETABLISSEMENT.classe, matricule: ETABLISSEMENT.matricule, promotion: ETABLISSEMENT.promotion, anneeScolaire: ETABLISSEMENT.anneeScolaire }, saved.etablissement));
-      }
+      if (saved) restoreState(saved);
     });
     setShowProfileMenu(false);
   }
@@ -758,7 +754,7 @@ export default function App() {
       if ((groupes.tt || []).indexOf(s.id) >= 0) note = clamp(note * TT_COEFF, 0, 20);
       return note;
     });
-    var getMT = function(sid) { return malusTotal(remarks, sid, exam, malusPaliers, malusManuel); };
+    var getMT = function(sid) { return malusTotal(remarks, sid, exam, malusPaliers, malusManuel, allRemarquesBase); };
     var preNorm = malusMode === "avant" ? raw20.map(function(nn, i) { return clamp(nn * (1 - getMT(corriges[i].id) / 100), 0, 20); }) : raw20;
     var normed = normaliser(preNorm, normMethod, normParams);
     var final2 = malusMode === "apres" ? normed.map(function(nn, i) { return clamp(nn * (1 - getMT(corriges[i].id) / 100), 0, 20); }) : normed;
@@ -821,7 +817,7 @@ export default function App() {
       var note20 = isAbsent ? null : getNote20(s.id);
       var brut20 = isAbsent ? null : getBrut20(s.id);
       var compNotes = isAbsent ? {} : notesParCompetence(grades, s.id, exam, seuils);
-      var malus = isAbsent ? 0 : malusTotal(remarks, s.id, exam, malusPaliers, malusManuel);
+      var malus = isAbsent ? 0 : malusTotal(remarks, s.id, exam, malusPaliers, malusManuel, allRemarquesBase);
       var grpObj = [TT_GROUPE].concat(groupesDef).find(function(g) { return (groupes[g.id] || []).indexOf(s.id) >= 0; });
       var grp = grpObj ? grpObj.label : "—";
       var row = [];
@@ -886,19 +882,7 @@ function exporterVersSynthese() {
   var filtree = synthese.filter(function(row) { return row.examId !== exam.id; });
   var nouvellesSynthese = filtree.concat(nouvelles);
   setSynthese(nouvellesSynthese);
-  saveDB(Object.assign({}, {
-    exams: exams, students: students, grades: grades, remarks: remarks,
-    absents: absents, groupes: groupes, activeExamId: activeExamId,
-    nomDS: nomDS, dateDS: dateDS, seuils: seuils, normMethod: normMethod,
-    normParams: normParams, seuilDifficile: seuilDifficile, seuilReussite: seuilReussite,
-    gabaritTex: gabaritTex, malusPaliers: malusPaliers, malusMode: malusMode,
-    malusManuel: malusManuel, uiScale: uiScale, appTheme: appTheme, groupesDef: groupesDef, mode: mode,
-    commentaires: commentaires, remarquesActives: remarquesActives,
-    remarquesCustom: remarquesCustom, remarquesOrdre: remarquesOrdre,
-    settingsTab: settingsTab, csvConfig: csvConfig, htmlPresets: htmlPresets,
-    htmlConfig: htmlConfig, htmlStudentId: htmlStudentId,
-    synthese: nouvellesSynthese, etablissement: etablissement,
-  }));
+  saveDB(buildAppState({ synthese: nouvellesSynthese }), activeProfileId);
 }
 
 function telechargerSynthese() {
@@ -934,19 +918,7 @@ function retirerDsSynthese(examId) {
   }
 
   function buildSnapshot() {
-    return JSON.stringify({
-      exams: exams, students: students, grades: grades, remarks: remarks,
-      absents: absents, groupes: groupes, activeExamId: activeExamId,
-      nomDS: nomDS, dateDS: dateDS, seuils: seuils, normMethod: normMethod,
-      normParams: normParams, seuilDifficile: seuilDifficile, seuilReussite: seuilReussite,
-      gabaritTex: gabaritTex, malusPaliers: malusPaliers, malusMode: malusMode,
-      malusManuel: malusManuel, uiScale: uiScale, appTheme: appTheme, groupesDef: groupesDef,
-      commentaires: commentaires, remarquesActives: remarquesActives,
-      remarquesCustom: remarquesCustom, remarquesOrdre: remarquesOrdre,
-      settingsTab: settingsTab, csvConfig: csvConfig, htmlPresets: htmlPresets,
-      htmlConfig: htmlConfig, htmlStudentId: htmlStudentId,
-      synthese: synthese, etablissement: etablissement,
-    });
+    return JSON.stringify(buildAppState());
   }
 
   function githubSave() {
@@ -988,28 +960,16 @@ function retirerDsSynthese(examId) {
       if (!data || !data.content) { setSyncStatus("❌ Aucune sauvegarde trouvée."); setSyncLoading(false); return; }
       var json = decodeURIComponent(escape(atob(data.content.replace(/\n/g, ""))));
       var d = JSON.parse(json);
-      if (d.exams) setExams(d.exams); if (d.students) setStudents(d.students);
-      if (d.grades) setGrades(d.grades); if (d.remarks) setRemarks(d.remarks);
-      if (d.absents) setAbsents(d.absents); if (d.groupes) setGroupes(d.groupes);
-      if (d.activeExamId) setActiveExamId(d.activeExamId);
-      if (d.nomDS) setNomDS(d.nomDS); if (d.dateDS) setDateDS(d.dateDS);
-      if (d.seuils) setSeuils(d.seuils); if (d.normMethod) setNormMethod(d.normMethod);
-      if (d.normParams) setNormParams(d.normParams);
-      if (d.seuilDifficile) setSeuilDifficile(d.seuilDifficile);
-      if (d.seuilReussite !== undefined) setSeuilReussite(d.seuilReussite);
-      if (d.gabaritTex) setGabaritTex(d.gabaritTex);
-      if (d.malusPaliers) setMalusPaliers(d.malusPaliers); if (d.malusMode) setMalusMode(d.malusMode);
-      if (d.malusManuel) setMalusManuel(d.malusManuel);
-      if (d.uiScale) setUiScale(d.uiScale); if (d.appTheme) setAppTheme(d.appTheme);
-      if (d.groupesDef) setGroupesDef(d.groupesDef);
-      if (d.commentaires) setCommentaires(d.commentaires);
-      if (d.remarquesActives) setRemarquesActives(d.remarquesActives);
-      if (d.remarquesCustom) setRemarquesCustom(d.remarquesCustom);
-      if (d.remarquesOrdre) setRemarquesOrdre(d.remarquesOrdre);
-      if (d.csvConfig) setCsvConfig(d.csvConfig); if (d.htmlPresets) setHtmlPresets(d.htmlPresets);
-      if (d.htmlConfig) { var sc3 = d.htmlConfig; setHtmlConfig(Object.assign({}, DEFAULT_HTML_CONFIG, sc3, { statsEleve: Object.assign({}, DEFAULT_HTML_CONFIG.statsEleve, sc3.statsEleve), statsClasse: Object.assign({}, DEFAULT_HTML_CONFIG.statsClasse, sc3.statsClasse) })); }
-      if (d.synthese) setSynthese(d.synthese);
-      if (d.etablissement) setEtablissement(Object.assign({}, { nom: ETABLISSEMENT.nom, classe: ETABLISSEMENT.classe, matricule: ETABLISSEMENT.matricule, promotion: ETABLISSEMENT.promotion, anneeScolaire: ETABLISSEMENT.anneeScolaire }, d.etablissement));
+      var v = validateState(d);
+      if (!v.valid) {
+        setSyncStatus("❌ Données distantes invalides : " + v.errors[0]);
+        setSyncLoading(false);
+        return;
+      }
+      if (v.warnings.length > 0) {
+        console.warn("GitHub sync — avertissements :", v.warnings);
+      }
+      restoreState(v.data);
       var now = new Date().toLocaleString("fr-FR");
       setSyncDate(now); setSyncStatus("✅ Chargé le " + now);
       setSyncLoading(false);
@@ -1022,19 +982,19 @@ function retirerDsSynthese(examId) {
     r.onload = function(ev) {
       try {
         var d = JSON.parse(ev.target.result);
-        if (d.exams) setExams(d.exams); if (d.students) setStudents(d.students);
-        if (d.grades) setGrades(d.grades); if (d.remarks) setRemarks(d.remarks);
-        if (d.absents) setAbsents(d.absents); if (d.groupes) setGroupes(d.groupes);
-        if (d.nomDS) setNomDS(d.nomDS); if (d.dateDS) setDateDS(d.dateDS);
-        if (d.seuils) setSeuils(d.seuils); if (d.normMethod) setNormMethod(d.normMethod);
-        if (d.normParams) setNormParams(d.normParams); if (d.uiScale) setUiScale(d.uiScale);
-        if (d.seuilDifficile) setSeuilDifficile(d.seuilDifficile);
-        if (d.gabaritTex) setGabaritTex(d.gabaritTex);
-        if (d.malusPaliers) setMalusPaliers(d.malusPaliers);
-        if (d.malusMode) setMalusMode(d.malusMode);
-        if (d.malusManuel) setMalusManuel(d.malusManuel);
-        if (d.commentaires) setCommentaires(d.commentaires);
-      } catch(err) { console.error("Import JSON error:", err); }
+        var v = validateState(d);
+        if (!v.valid) {
+          window.alert("Import impossible :\n" + v.errors.join("\n"));
+          return;
+        }
+        if (v.warnings.length > 0) {
+          console.warn("Import — avertissements :", v.warnings);
+        }
+        restoreState(v.data);
+      } catch(err) {
+        window.alert("Le fichier n'est pas un JSON valide.");
+        console.error("Import JSON error:", err);
+      }
     };
     r.readAsText(f); e.target.value = "";
   }
@@ -1155,15 +1115,14 @@ function retirerDsSynthese(examId) {
   var gradedCount = students.filter(function(st) { return absents[st.id] || (exam && exam.exercises.some(function(exz) { return exz.questions.some(function(qz) { return qz.items.some(function(itz) { return grades[gk(st.id, itz.id)]; }); }); })); }).length;
 
   // Malus for current student
-  var remCount = exam && !absents[s.id] ? countMalusRemarks(remarks, s.id, exam) : 0;
-  var autoMalusVal = exam && !absents[s.id] ? malusAuto(remarks, s.id, exam, malusPaliers) : 0;
+  var remCount = exam && !absents[s.id] ? countMalusRemarks(remarks, s.id, exam, allRemarquesBase) : 0;
+  var autoMalusVal = exam && !absents[s.id] ? malusAuto(remarks, s.id, exam, malusPaliers, allRemarquesBase) : 0;
   var manMalus = malusManuel[s.id] || 0;
-  var totalMalusVal = exam && !absents[s.id] ? malusTotal(remarks, s.id, exam, malusPaliers, malusManuel) : 0;
+  var totalMalusVal = exam && !absents[s.id] ? malusTotal(remarks, s.id, exam, malusPaliers, malusManuel, allRemarquesBase) : 0;
   var hasMalus = totalMalusVal > 0;
   var showMalusBar = !absents[s.id] && (remCount > 0 || manMalus > 0);
 
   // Toutes les remarques disponibles (fixes + custom), triées selon remarquesOrdre, filtrées par actives
-  var allRemarquesBase = REMARQUES.concat(remarquesCustom);
   var allRemarquesSorted = remarquesOrdre.length
     ? allRemarquesBase.slice().sort(function(a, b) {
         var ia = remarquesOrdre.indexOf(a.id); var ib = remarquesOrdre.indexOf(b.id);
@@ -1475,7 +1434,7 @@ function retirerDsSynthese(examId) {
                     var inG = (groupes[g.id] || []).indexOf(st.id) >= 0;
                     return <button key={g.id} onClick={function() { var cur = groupes[g.id] || []; var n2 = {}; for (var k in groupes) n2[k] = groupes[k]; n2[g.id] = inG ? cur.filter(function(id) { return id !== st.id; }) : cur.concat([st.id]); setGroupes(n2); }} style={{ padding: "0px 5px", fontSize: 8, fontWeight: 700, borderRadius: 3, cursor: "pointer", fontFamily: FONT_B, border: "1px solid " + (inG ? cc(g, dark) + "55" : th.border), background: inG ? cc(g, dark) + "22" : "transparent", color: inG ? cc(g, dark) : th.textDim }}>{g.label}</button>;
                   })}
-                  <button onClick={function() { askConfirm((st.prenom + " " + st.nom).trim() || "cet \u00E9l\u00E8ve", function() { setStudents(students.filter(function(_, j) { return j !== idx; })); }); }} style={{ background: "none", border: "none", color: th.textDim, cursor: "pointer", fontSize: 10 }}>{"\u2715"}</button>
+                  <button onClick={function() { askConfirm((st.prenom + " " + st.nom).trim() || "cet élève", function() { setStudents(students.filter(function(_, j) { return j !== idx; })); }); }} style={{ background: "none", border: "none", color: th.textDim, cursor: "pointer", fontSize: 10 }}>{"\u2715"}</button>
                 </div>
               ); })}
             </div>
@@ -1488,7 +1447,7 @@ function retirerDsSynthese(examId) {
           {/* Search overlay */}
           {showSearch && <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.35)", zIndex: 150, display: "flex", alignItems: "flex-start", justifyContent: "center", paddingTop: 80 }} onClick={function() { setShowSearch(false); setSearchTerm(""); }}>
             <div style={{ background: th.card, borderRadius: th.radius, border: "1px solid " + th.border, padding: 12, width: 340, boxShadow: "0 8px 32px rgba(0,0,0,0.2)" }} onClick={function(e) { e.stopPropagation(); }}>
-              <input ref={searchInputRef} value={searchTerm} onChange={function(e) { setSearchTerm(e.target.value); }} placeholder="Chercher un \u00E9l\u00E8ve\u2026" style={{ background: th.card, border: "1px solid " + th.border, color: th.text, borderRadius: 4, padding: "10px 12px", fontSize: 15, fontFamily: FONT_B, outline: "none", width: "100%", marginBottom: 6, boxSizing: "border-box" }} />
+              <input ref={searchInputRef} value={searchTerm} onChange={function(e) { setSearchTerm(e.target.value); }} placeholder="Chercher un élève" style={{ background: th.card, border: "1px solid " + th.border, color: th.text, borderRadius: 4, padding: "10px 12px", fontSize: 15, fontFamily: FONT_B, outline: "none", width: "100%", marginBottom: 6, boxSizing: "border-box" }} />
               {searchResults.map(function(o) { return (
                 <button key={o.st.id} onClick={function() { setSi(o.idx); setEi(0); setShowSearch(false); setSearchTerm(""); }}
                   style={{ display: "flex", alignItems: "center", gap: 8, width: "100%", padding: "10px 12px", marginBottom: 2, borderRadius: th.radiusSm, cursor: "pointer", fontFamily: FONT_B, fontSize: 14, textAlign: "left", background: o.idx === si ? th.accentBg : "transparent", border: "1px solid " + (o.idx === si ? th.accent + "30" : th.border), color: th.text }}>
@@ -1877,87 +1836,8 @@ function retirerDsSynthese(examId) {
         </div>}
 
         {/* ═══ AIDE ═══ */}
-        {mode === "aide" && <div style={{ maxWidth: 720, margin: "0 auto" }}>
-          <div style={{ fontFamily: FONT, fontSize: 22, fontWeight: 700, color: th.text, marginBottom: 4 }}>{"Guide d'utilisation"}</div>
-          <div style={{ fontFamily: FONT_B, fontSize: 12, color: th.textMuted, marginBottom: 20 }}>{"C.H.E.C.K. v\u00A00.72 — Lycée Joffre, MP2I"}</div>
-
-          {[
-            {
-              titre: "⚙️ Préparation",
-              contenu: [
-                "Créez un devoir surveillé (DS) via le bouton « + Nouveau devoir ». Donnez-lui un nom et une date directement dans l'en-tête.",
-                "Ajoutez des exercices, des questions et des items (critères de notation). Chaque item a un nombre de points. Chaque question est associée à une ou plusieurs compétences (A, N, R, V).",
-                "Un exercice peut recevoir un coefficient (champ ×). Une question peut être marquée bonus 🎁 : ses points s'ajoutent au score sans augmenter le maximum.",
-                "Importez vos élèves via un fichier CSV (format NOM;Prénom) ou ajoutez-les manuellement. Assignez-les à des groupes (NSI, tiers-temps) si besoin.",
-                "Les exercices et questions peuvent être réordonnés avec les boutons ▲/▼.",
-              ]
-            },
-            {
-              titre: "✏️ Correction",
-              contenu: [
-                "Naviguez d'élève en élève avec les flèches ◂/▸ ou par swipe sur tablette. La barre de progression en haut indique l'avancement global.",
-                "Cochez les items réussis. Le score se met à jour en temps réel. Si une question a été traitée sans qu'aucun item ne soit coché, utilisez « marquer traitée » pour en tenir compte dans les statistiques.",
-                "Ajoutez des remarques de présentation (rédaction, unités, soin…) par question. Les remarques comptant pour le malus déclenchent automatiquement une pénalité sur la note selon les paliers configurés dans Réglages → Calcul.",
-                "Un commentaire libre par élève peut être saisi en bas de la fiche — il apparaîtra dans les rapports.",
-              ]
-            },
-            {
-              titre: "🧑 Résultats individuels",
-              contenu: [
-                "Sélectionnez un élève dans le menu déroulant pour afficher un aperçu en temps réel de son rapport HTML.",
-                "Le thème du rapport (Clair, Sombre, Jeune) et les blocs affichés se configurent dans Réglages → 📤 Export.",
-              ]
-            },
-            {
-              titre: "📊 Stats",
-              contenu: [
-                "L'onglet Général affiche la distribution des notes, la moyenne, la médiane, le min, le max et l'écart-type.",
-                "L'onglet Exercices détaille le taux de traitement et le taux de réussite question par question. Les questions difficiles (traitées par moins de X% de la classe) apparaissent en rouge — ce seuil est réglable dans Réglages → 🎓 Évaluation.",
-                "L'onglet Classement liste les élèves par rang ou par ordre alphabétique, avec leurs notes de compétences et un radar par exercice.",
-              ]
-            },
-            {
-              titre: "📄 Export",
-              contenu: [
-                "Section « Pour les élèves » : rapport HTML individuel (distribuable par mail ou ENT, zéro dépendance), ZIP de tous les rapports HTML, rapport LaTeX individuel (.tex), ZIP de tous les .tex avec script de compilation.",
-                "Section « Pour l'enseignant » : document LaTeX complet (tous élèves), CSV récapitulatif (colonnes configurables), gabarit LaTeX éditable.",
-                "Section « Synthèse multi-DS » : CSV cumulatif de tous les DS de l'année, avec notes brutes, normalisées, rangs et compétences.",
-                "La sauvegarde/chargement JSON se fait via les boutons 💾/📂 dans la barre de navigation.",
-              ]
-            },
-            {
-              titre: "⚙️ Réglages",
-              contenu: [
-                "🎓 Évaluation : seuils de compétence (A/B/C/D/NN), seuil de question difficile, seuil de réussite pour le marqueur ✨.",
-                "📊 Calcul : méthode de normalisation des notes (6 options), paliers de malus automatique et mode d'application (avant/après normalisation).",
-                "✏️ Correction : activer, désactiver, créer et réordonner les remarques de présentation.",
-                "📤 Export : colonnes du CSV, thème et blocs des rapports HTML, preset sauvegardable.",
-              ]
-            },
-            {
-              titre: "⌨️ Raccourcis clavier (desktop, onglet Correction)",
-              contenu: [
-                "← / → : exercice précédent / suivant (avec passage automatique à l'élève suivant en fin d'exercices).",
-                "1 à 9 : saut direct à l'exercice numéro N.",
-                "Les raccourcis sont désactivés si un champ de saisie est actif.",
-              ]
-            },
-          ].map(function(section, i) {
-            return (
-              <div key={i} style={{ background: th.card, borderRadius: th.radius, border: "1px solid " + th.border, padding: "14px 16px", marginBottom: 10, boxShadow: th.shadow }}>
-                <div style={{ fontSize: 14, fontWeight: 700, fontFamily: FONT, color: th.text, marginBottom: 10 }}>{section.titre}</div>
-                {section.contenu.map(function(ligne, j) {
-                  return (
-                    <div key={j} style={{ display: "flex", gap: 8, marginBottom: 6, alignItems: "flex-start" }}>
-                      <span style={{ color: th.accent, fontSize: 10, marginTop: 3, flexShrink: 0 }}>{"▸"}</span>
-                      <span style={{ fontSize: 12, fontFamily: FONT_B, color: th.textMuted, lineHeight: 1.6 }}>{ligne}</span>
-                    </div>
-                  );
-                })}
-              </div>
-            );
-          })}
-        </div>}
+        {mode === "aide" && <HelpTab th={th} FONT={FONT} FONT_B={FONT_B} MONO={MONO} />}
+       
 
         {/* ═══ EXPORT ═══ */}
         {mode === "export" && exam && (function() {
@@ -2122,7 +2002,7 @@ function retirerDsSynthese(examId) {
                   disabled={!htmlStudent}
                   onClick={function() {
                     if (!htmlStudent) return;
-                    var currentGab = gabaritTex || genererGabarit(examNomDS, examDateDS);
+                    var currentGab = gabaritTex || genererGabarit(examNomDS, examDateDS, etablissement);
                     var docs = genererDocumentsIndividuels({
                       gabarit: currentGab, exam: exam, students: students, grades: grades, remarks: remarks, absents: absents,
                       nomDS: examNomDS, dateDS: examDateDS, seuils: seuils,
@@ -2145,7 +2025,7 @@ function retirerDsSynthese(examId) {
                     disabled={!corriges.length}
                     onClick={function() {
                       if (!corriges.length) return;
-                      var currentGab = gabaritTex || genererGabarit(examNomDS, examDateDS);
+                      var currentGab = gabaritTex || genererGabarit(examNomDS, examDateDS, etablissement);
                       var docs = genererDocumentsIndividuels({
                         gabarit: currentGab, exam: exam, students: students, grades: grades, remarks: remarks, absents: absents,
                         nomDS: examNomDS, dateDS: examDateDS, seuils: seuils,
@@ -2186,7 +2066,7 @@ function retirerDsSynthese(examId) {
                   color={th.accent}
                   disabled={!corriges.length}
                   onClick={function() {
-                    var currentGab = gabaritTex || genererGabarit(examNomDS, examDateDS);
+                    var currentGab = gabaritTex || genererGabarit(examNomDS, examDateDS, etablissement);
                     var tex = genererDocumentComplet({
                       gabarit: currentGab, exam: exam, students: students, grades: grades, remarks: remarks, absents: absents,
                       nomDS: examNomDS, dateDS: examDateDS, seuils: seuils,
@@ -2220,13 +2100,13 @@ function retirerDsSynthese(examId) {
                       <div style={{ maxHeight: gabOpen ? 600 : 0, overflow: "hidden", transition: "max-height 0.32s ease" }}>
                         <div style={{ borderTop: "1px solid " + th.border, padding: "10px 12px 12px" }}>
                           <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 6 }}>
-                            <button onClick={function() { setGabaritTex(genererGabarit(examNomDS, examDateDS)); }}
+                            <button onClick={function() { setGabaritTex(genererGabarit(examNomDS, examDateDS, etablissement)); }}
                               style={{ fontSize: 10, color: th.textMuted, background: "none", border: "1px solid " + th.border, borderRadius: 4, padding: "2px 8px", cursor: "pointer", fontFamily: FONT_B }}>
                               {"Réinitialiser"}
                             </button>
                           </div>
                           <textarea
-                            value={gabaritTex || genererGabarit(examNomDS, examDateDS)}
+                            value={gabaritTex || genererGabarit(examNomDS, examDateDS, etablissement)}
                             onChange={function(e) { setGabaritTex(e.target.value); }}
                             style={{ width: "100%", minHeight: 200, background: th.surface, border: "1px solid " + th.border, borderRadius: th.radiusSm, padding: 10, fontSize: 10, fontFamily: MONO, color: th.text, resize: "vertical", outline: "none", lineHeight: 1.5, boxSizing: "border-box" }}
                           />
@@ -2311,7 +2191,7 @@ function retirerDsSynthese(examId) {
 {/* MODAL À PROPOS */}
 {showApropos && <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.4)", zIndex: 200, display: "flex", alignItems: "center", justifyContent: "center" }} onClick={function() { setShowApropos(false); }}>
         <div style={{ background: th.card, borderRadius: 12, border: "1px solid " + th.border, padding: "28px 32px", width: showChangelog ? 580 : 360, maxWidth: "95vw", transition: "width 0.2s", boxShadow: "0 8px 32px rgba(0,0,0,0.2)", textAlign: "center" }} onClick={function(e) { e.stopPropagation(); }}>
-          <div style={{ fontSize: 13, fontFamily: MONO, color: th.textDim, marginBottom: 4, letterSpacing: 2 }}>{"v\u00A00.72"}</div>
+          <div style={{ fontSize: 13, fontFamily: MONO, color: th.textDim, marginBottom: 4, letterSpacing: 2 }}>{"v\u00A00.80"}</div>
           <div style={{ fontSize: 26, fontWeight: 700, fontFamily: FONT, color: th.text, marginBottom: 6 }}>{"C.H.E.C.K."}</div>
           <div style={{ fontSize: 11, color: th.textMuted, fontFamily: FONT_B, lineHeight: 1.6, marginBottom: 20 }}>
             {"Correcteur Hautement Efficace avec Cases à Kocher"}
@@ -2351,16 +2231,17 @@ function retirerDsSynthese(examId) {
       
 {/* SETTINGS */}
 {showSettings && <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.4)", zIndex: 200, display: "flex", alignItems: "center", justifyContent: "center" }} onClick={function() { setShowSettings(false); }}>
-        <div style={{ background: th.card, borderRadius: 12, border: "1px solid " + th.border, padding: 20, width: 440, maxHeight: "88vh", overflowY: "auto", boxShadow: "0 8px 32px rgba(0,0,0,0.2)" }} onClick={function(e) { e.stopPropagation(); }}>
+        <div style={{ background: th.card, borderRadius: 12, border: "1px solid " + th.border, padding: 20, width: 540, maxWidth: "96vw", maxHeight: "88vh", overflowY: "auto", boxShadow: "0 8px 32px rgba(0,0,0,0.2)" }} onClick={function(e) { e.stopPropagation(); }}>
           <h3 style={{ margin: "0 0 14px", fontSize: 16, fontWeight: 700, fontFamily: FONT }}>{"\u2699\uFE0F R\u00E9glages"}</h3>
 
           {/* Onglets */}
           {(function() {
             var tabs = [
-              { id: "evaluation", label: "\uD83C\uDF93 \u00C9valuation" },
-              { id: "calcul",     label: "\uD83D\uDCCA Calcul" },
-              { id: "correction", label: "\u270F\uFE0F Correction" },
-              { id: "export",     label: "\uD83D\uDCE4 Export" },
+              { id: "etablissement", label: "\uD83C\uDFEB \u00C9tablissement" },
+              { id: "evaluation",    label: "\uD83C\uDF93 \u00C9valuation" },
+              { id: "calcul",        label: "\uD83D\uDCCA Calcul" },
+              { id: "correction",    label: "\u270F\uFE0F Correction" },
+              { id: "export",        label: "\uD83D\uDCE4 Export" },
             ];
             return (
               <div style={{ display: "flex", gap: 4, marginBottom: 16, borderBottom: "2px solid " + th.border, paddingBottom: 0 }}>
@@ -2373,6 +2254,48 @@ function retirerDsSynthese(examId) {
                     </button>
                   );
                 })}
+              </div>
+            );
+          })()}
+
+          {/* ── Onglet Établissement ── */}
+          {settingsTab === "etablissement" && (function() {
+            var etabFields = [
+              { key: "nom",          label: "Nom de l'établissement", placeholder: "Lycée Joffre" },
+              { key: "classe",       label: "Classe",                 placeholder: "MP2I" },
+              { key: "matricule",    label: "Matricule / Identité (optionnel)", placeholder: "HX VI — laisser vide si inutile" },
+              { key: "promotion",    label: "Promotion",              placeholder: "232" },
+              { key: "anneeScolaire",label: "Année scolaire",         placeholder: "2024-2025" },
+            ];
+            return (
+              <div>
+                <div style={{ fontSize: 10, color: th.textMuted, fontFamily: FONT_B, marginBottom: 14, lineHeight: 1.6 }}>
+                  {"Ces informations apparaissent dans les rapports LaTeX (pied de page) et HTML (en-tête). Elles sont liées au profil actif."}
+                </div>
+                {etabFields.map(function(f) {
+                  return (
+                    <div key={f.key} style={{ marginBottom: 10 }}>
+                      <label style={{ display: "block", fontSize: 11, fontWeight: 700, color: th.textMuted, fontFamily: FONT_B, marginBottom: 3, textTransform: "uppercase", letterSpacing: 0.8 }}>
+                        {f.label}
+                      </label>
+                      <input
+                        value={etablissement[f.key] || ""}
+                        placeholder={f.placeholder}
+                        onChange={function(e) {
+                          var newEtab = Object.assign({}, etablissement, { [f.key]: e.target.value });
+                          setEtablissement(newEtab);
+                        }}
+                        style={{ width: "100%", background: th.card, border: "1px solid " + th.border, color: th.text, borderRadius: th.radiusSm, padding: "6px 10px", fontSize: 13, fontFamily: FONT_B, outline: "none" }}
+                      />
+                    </div>
+                  );
+                })}
+                <div style={{ marginTop: 14, padding: "10px 12px", background: th.accentBg, borderRadius: th.radiusSm, border: "1px solid " + th.accent + "30" }}>
+                  <div style={{ fontSize: 10, color: th.accent, fontFamily: FONT_B, fontWeight: 700, marginBottom: 2 }}>{"Aperçu pied de page LaTeX"}</div>
+                  <div style={{ fontSize: 11, fontFamily: MONO, color: th.text }}>
+                    {[etablissement.nom || "—", etablissement.classe || "—", etablissement.matricule].filter(Boolean).join(" · ")}
+                  </div>
+                </div>
               </div>
             );
           })()}
@@ -2550,8 +2473,8 @@ function retirerDsSynthese(examId) {
             );
           })()}
 
-          {/* ── Onglet Correction ── */}
-          {settingsTab === "correction" && (function() {
+  {/* ── Onglet Correction ── */}
+  {settingsTab === "correction" && (function() {
             var allR = remarquesOrdre.length
               ? REMARQUES.concat(remarquesCustom).slice().sort(function(a, b) {
                   var ia = remarquesOrdre.indexOf(a.id); var ib = remarquesOrdre.indexOf(b.id);
@@ -2565,121 +2488,146 @@ function retirerDsSynthese(examId) {
               var tmp = ids[idx]; ids[idx] = ids[j]; ids[j] = tmp;
               setRemarquesOrdre(ids);
             }
+            function accordion(key, label, open, children) {
+              return (
+                <div style={{ marginBottom: 10, border: "1px solid " + th.border, borderRadius: th.radius, overflow: "hidden" }}>
+                  <button onClick={function() { setCorrectionOpen(function(prev) { return Object.assign({}, prev, { [key]: !prev[key] }); }); }}
+                    style={{ width: "100%", display: "flex", alignItems: "center", justifyContent: "space-between", padding: "8px 12px", background: open ? th.accentBg : th.surface, border: "none", cursor: "pointer", fontFamily: FONT_B, fontSize: 11, fontWeight: 700, color: open ? th.accent : th.textMuted, letterSpacing: 0.5, textTransform: "uppercase" }}>
+                    {label}
+                    <span style={{ fontSize: 10, transition: "transform 0.2s", display: "inline-block", transform: open ? "rotate(0deg)" : "rotate(-90deg)" }}>{"▼"}</span>
+                  </button>
+                  <div style={{ maxHeight: open ? "1200px" : "0px", overflow: "hidden", transition: "max-height 0.25s ease" }}>
+                    <div style={{ padding: "10px 12px" }}>
+                      {children}
+                    </div>
+                  </div>
+                </div>
+              );
+            }
             return (
               <div>
-                <div style={{ fontSize: 10, color: th.textMuted, fontFamily: FONT_B, marginBottom: 8, lineHeight: 1.5 }}>
-                  {"Activez ou désactivez les remarques selon le DS. Les remarques personnalisées sont permanentes (disponibles pour tous les DS)."}
-                </div>
-                {allR.map(function(rem, idx) {
-                  var active = remarquesActives.indexOf(rem.id) >= 0;
-                  var isCustom = remarquesCustom.some(function(r) { return r.id === rem.id; });
-                  return (
-                    <div key={rem.id} style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 5, padding: "5px 8px", borderRadius: th.radiusSm, background: active ? th.warningBg : th.surface, border: "1px solid " + (active ? th.warning + "30" : th.border) }}>
-                      <div style={{ display: "flex", flexDirection: "column", gap: 1 }}>
-                        <button onClick={function() { moveRem(idx, -1); }} disabled={idx === 0}
-                          style={{ background: "none", border: "none", color: idx === 0 ? th.textDim : th.textMuted, cursor: idx === 0 ? "default" : "pointer", fontSize: 8, lineHeight: 1, padding: "1px 2px" }}>{"▲"}</button>
-                        <button onClick={function() { moveRem(idx, 1); }} disabled={idx === allR.length - 1}
-                          style={{ background: "none", border: "none", color: idx === allR.length - 1 ? th.textDim : th.textMuted, cursor: idx === allR.length - 1 ? "default" : "pointer", fontSize: 8, lineHeight: 1, padding: "1px 2px" }}>{"▼"}</button>
+
+                {/* ── Accordéon Remarques ── */}
+                {accordion("remarques", "✏️ Remarques", correctionOpen.remarques, (
+                  <div>
+                    <div style={{ fontSize: 10, color: th.textMuted, fontFamily: FONT_B, marginBottom: 8, lineHeight: 1.5 }}>
+                      {"Activez ou désactivez les remarques selon le DS. Les remarques personnalisées sont permanentes (disponibles pour tous les DS)."}
+                    </div>
+                    {allR.map(function(rem, idx) {
+                      var active = remarquesActives.indexOf(rem.id) >= 0;
+                      var isCustom = remarquesCustom.some(function(r) { return r.id === rem.id; });
+                      return (
+                        <div key={rem.id} style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 5, padding: "5px 8px", borderRadius: th.radiusSm, background: active ? th.warningBg : th.surface, border: "1px solid " + (active ? th.warning + "30" : th.border) }}>
+                          <div style={{ display: "flex", flexDirection: "column", gap: 1 }}>
+                            <button onClick={function() { moveRem(idx, -1); }} disabled={idx === 0}
+                              style={{ background: "none", border: "none", color: idx === 0 ? th.textDim : th.textMuted, cursor: idx === 0 ? "default" : "pointer", fontSize: 8, lineHeight: 1, padding: "1px 2px" }}>{"▲"}</button>
+                            <button onClick={function() { moveRem(idx, 1); }} disabled={idx === allR.length - 1}
+                              style={{ background: "none", border: "none", color: idx === allR.length - 1 ? th.textDim : th.textMuted, cursor: idx === allR.length - 1 ? "default" : "pointer", fontSize: 8, lineHeight: 1, padding: "1px 2px" }}>{"▼"}</button>
+                          </div>
+                          <span style={{ fontSize: 14 }}>{rem.icon}</span>
+                          <span style={{ flex: 1, fontSize: 12, fontFamily: FONT_B, color: active ? th.text : th.textMuted }}>{rem.label}</span>
+                          <span style={{ fontSize: 9, color: rem.malus ? th.danger : th.textDim, fontFamily: MONO, marginRight: 2 }}>{rem.malus ? "malus" : "info"}</span>
+                          <button onClick={function() {
+                            setRemarquesActives(active
+                              ? remarquesActives.filter(function(id) { return id !== rem.id; })
+                              : remarquesActives.concat([rem.id]));
+                          }} style={{ fontSize: 10, fontWeight: 700, padding: "2px 7px", borderRadius: 3, cursor: "pointer", fontFamily: FONT_B, border: "1px solid " + (active ? th.warning + "50" : th.border), background: active ? th.warning + "20" : "transparent", color: active ? th.warning : th.textDim }}>
+                            {active ? "ON" : "OFF"}
+                          </button>
+                          {isCustom && <button onClick={function() {
+                            setRemarquesCustom(remarquesCustom.filter(function(r) { return r.id !== rem.id; }));
+                            setRemarquesActives(remarquesActives.filter(function(id) { return id !== rem.id; }));
+                            setRemarquesOrdre(remarquesOrdre.filter(function(id) { return id !== rem.id; }));
+                          }} style={{ background: "none", border: "none", color: th.textDim, cursor: "pointer", fontSize: 11 }}>{"\u2715"}</button>}
+                        </div>
+                      );
+                    })}
+                    {/* Formulaire ajout remarque custom */}
+                    <div style={{ marginTop: 10, padding: "8px 10px", background: th.surface, borderRadius: th.radiusSm, border: "1px dashed " + th.border }}>
+                      <div style={{ fontSize: 10, fontWeight: 700, color: th.textMuted, fontFamily: FONT_B, marginBottom: 6 }}>{"+ Nouvelle remarque"}</div>
+                      <div style={{ display: "flex", gap: 5, marginBottom: 5 }}>
+                        <input value={newRemIcon} onChange={function(e) { setNewRemIcon(e.target.value); }} style={{ background: th.card, border: "1px solid " + th.border, color: th.text, borderRadius: 4, width: 36, textAlign: "center", fontSize: 16, padding: "3px", outline: "none" }} maxLength={2} />
+                        <input value={newRemLabel} onChange={function(e) { setNewRemLabel(e.target.value); }} placeholder={"Libellé\u2026"} style={{ background: th.card, border: "1px solid " + th.border, color: th.text, borderRadius: 4, flex: 1, padding: "3px 7px", fontSize: 12, fontFamily: FONT_B, outline: "none" }} />
                       </div>
-                      <span style={{ fontSize: 14 }}>{rem.icon}</span>
-                      <span style={{ flex: 1, fontSize: 12, fontFamily: FONT_B, color: active ? th.text : th.textMuted }}>{rem.label}</span>
-                      <span style={{ fontSize: 9, color: rem.malus ? th.danger : th.textDim, fontFamily: MONO, marginRight: 2 }}>{rem.malus ? "malus" : "info"}</span>
+                      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
+                        <label style={{ display: "flex", alignItems: "center", gap: 4, cursor: "pointer", fontSize: 11, fontFamily: FONT_B, color: th.textMuted }}>
+                          <input type="checkbox" checked={newRemMalus} onChange={function(e) { setNewRemMalus(e.target.checked); }} /> Compte pour le malus
+                        </label>
+                      </div>
                       <button onClick={function() {
-                        setRemarquesActives(active
-                          ? remarquesActives.filter(function(id) { return id !== rem.id; })
-                          : remarquesActives.concat([rem.id]));
-                      }} style={{ fontSize: 10, fontWeight: 700, padding: "2px 7px", borderRadius: 3, cursor: "pointer", fontFamily: FONT_B, border: "1px solid " + (active ? th.warning + "50" : th.border), background: active ? th.warning + "20" : "transparent", color: active ? th.warning : th.textDim }}>
-                        {active ? "ON" : "OFF"}
+                        var lbl = newRemLabel.trim();
+                        if (!lbl) return;
+                        var newId = "custom_" + Math.random().toString(36).slice(2, 7);
+                        var newRem = { id: newId, label: lbl, icon: newRemIcon || "\uD83D\uDCCC", malus: newRemMalus };
+                        var newCustom = remarquesCustom.concat([newRem]);
+                        var newActives = remarquesActives.concat([newId]);
+                        setRemarquesCustom(newCustom);
+                        setRemarquesActives(newActives);
+                        setNewRemLabel(""); setNewRemIcon("\uD83D\uDCCC"); setNewRemMalus(true);
+                        saveDB({ exams: exams, students: students, grades: grades, remarks: remarks, absents: absents, groupes: groupes, activeExamId: activeExamId, nomDS: examNomDS, dateDS: examDateDS, seuils: seuils, normMethod: normMethod, normParams: normParams, seuilDifficile: seuilDifficile, seuilReussite: seuilReussite, gabaritTex: gabaritTex, malusPaliers: malusPaliers, malusMode: malusMode, malusManuel: malusManuel, uiScale: uiScale, appTheme: appTheme, groupesDef: groupesDef, mode: mode, commentaires: commentaires, remarquesActives: newActives, remarquesCustom: newCustom, remarquesOrdre: remarquesOrdre, settingsTab: settingsTab, csvConfig: csvConfig, htmlPresets: htmlPresets, htmlConfig: htmlConfig, htmlStudentId: htmlStudentId });
+                      }} style={{ width: "100%", padding: "5px", borderRadius: th.radiusSm, cursor: "pointer", fontFamily: FONT_B, fontSize: 11, fontWeight: 700, background: th.accent, border: "none", color: "#fff" }}>
+                        {"Ajouter"}
                       </button>
-                      {isCustom && <button onClick={function() {
-                        setRemarquesCustom(remarquesCustom.filter(function(r) { return r.id !== rem.id; }));
-                        setRemarquesActives(remarquesActives.filter(function(id) { return id !== rem.id; }));
-                        setRemarquesOrdre(remarquesOrdre.filter(function(id) { return id !== rem.id; }));
-                      }} style={{ background: "none", border: "none", color: th.textDim, cursor: "pointer", fontSize: 11 }}>{"\u2715"}</button>}
                     </div>
-                  );
-                })}
-                {/* Formulaire ajout remarque custom */}
-                <div style={{ marginTop: 10, padding: "8px 10px", background: th.surface, borderRadius: th.radiusSm, border: "1px dashed " + th.border }}>
-                  <div style={{ fontSize: 10, fontWeight: 700, color: th.textMuted, fontFamily: FONT_B, marginBottom: 6 }}>{"+ Nouvelle remarque"}</div>
-                  <div style={{ display: "flex", gap: 5, marginBottom: 5 }}>
-                    <input value={newRemIcon} onChange={function(e) { setNewRemIcon(e.target.value); }} style={{ background: th.card, border: "1px solid " + th.border, color: th.text, borderRadius: 4, width: 36, textAlign: "center", fontSize: 16, padding: "3px", outline: "none" }} maxLength={2} />
-                    <input value={newRemLabel} onChange={function(e) { setNewRemLabel(e.target.value); }} placeholder={"Libellé\u2026"} style={{ background: th.card, border: "1px solid " + th.border, color: th.text, borderRadius: 4, flex: 1, padding: "3px 7px", fontSize: 12, fontFamily: FONT_B, outline: "none" }} />
                   </div>
-                  <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
-                    <label style={{ display: "flex", alignItems: "center", gap: 4, cursor: "pointer", fontSize: 11, fontFamily: FONT_B, color: th.textMuted }}>
-                      <input type="checkbox" checked={newRemMalus} onChange={function(e) { setNewRemMalus(e.target.checked); }} /> Compte pour le malus
-                    </label>
-                  </div>
-                  <button onClick={function() {
-                    var lbl = newRemLabel.trim();
-                    if (!lbl) return;
-                    var newId = "custom_" + Math.random().toString(36).slice(2, 7);
-                    var newRem = { id: newId, label: lbl, icon: newRemIcon || "\uD83D\uDCCC", malus: newRemMalus };
-                    var newCustom = remarquesCustom.concat([newRem]);
-                    var newActives = remarquesActives.concat([newId]);
-                    setRemarquesCustom(newCustom);
-                    setRemarquesActives(newActives);
-                    setNewRemLabel(""); setNewRemIcon("\uD83D\uDCCC"); setNewRemMalus(true);
-                    saveDB({ exams: exams, students: students, grades: grades, remarks: remarks, absents: absents, groupes: groupes, activeExamId: activeExamId, nomDS: examNomDS, dateDS: examDateDS, seuils: seuils, normMethod: normMethod, normParams: normParams, seuilDifficile: seuilDifficile, seuilReussite: seuilReussite, gabaritTex: gabaritTex, malusPaliers: malusPaliers, malusMode: malusMode, malusManuel: malusManuel, uiScale: uiScale, appTheme: appTheme, groupesDef: groupesDef, mode: mode, commentaires: commentaires, remarquesActives: newActives, remarquesCustom: newCustom, remarquesOrdre: remarquesOrdre, settingsTab: settingsTab, csvConfig: csvConfig, htmlPresets: htmlPresets, htmlConfig: htmlConfig,htmlStudentId: htmlStudentId });
-                  }} style={{ width: "100%", padding: "5px", borderRadius: th.radiusSm, cursor: "pointer", fontFamily: FONT_B, fontSize: 11, fontWeight: 700, background: th.accent, border: "none", color: "#fff" }}>
-                    {"Ajouter"}
-                  </button>
-                </div>
-{/* ── Groupes pédagogiques éditables ── */}
-<div style={{ marginTop: 18, borderTop: "1px solid " + th.border, paddingTop: 14 }}>
-                <div style={{ fontSize: 11, fontWeight: 700, color: th.textMuted, fontFamily: FONT_B, marginBottom: 4, textTransform: "uppercase", letterSpacing: 1 }}>{"Groupes pédagogiques"}</div>
-                <div style={{ fontSize: 10, color: th.textMuted, fontFamily: FONT_B, marginBottom: 10, lineHeight: 1.5 }}>
-                  {"Le groupe Tiers-temps est fixe (aménagement individuel). Vous pouvez créer ici des groupes pédagogiques (ex. NSI, option, classe)."}
-                </div>
-                {/* Groupe TT — lecture seule */}
-                <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 5, padding: "5px 8px", borderRadius: th.radiusSm, background: th.surface, border: "1px solid " + th.border, opacity: 0.7 }}>
-                  <div style={{ width: 14, height: 14, borderRadius: "50%", background: TT_GROUPE.color, flexShrink: 0 }} />
-                  <span style={{ flex: 1, fontSize: 12, fontFamily: FONT_B, color: th.textMuted }}>{TT_GROUPE.label}</span>
-                  <span style={{ fontSize: 9, color: th.textDim, fontFamily: MONO }}>{"fixe · coeff " + (4/3).toFixed(2)}</span>
-                </div>
-                {/* Groupes éditables */}
-                {groupesDef.map(function(g, idx) {
-                  return (
-                    <div key={g.id} style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 5, padding: "5px 8px", borderRadius: th.radiusSm, background: th.surface, border: "1px solid " + th.border }}>
-                      <input type="color" value={g.color} onChange={function(e) {
-                        var hex = e.target.value;
-                        var r = parseInt(hex.slice(1,3),16), gg2 = parseInt(hex.slice(3,5),16), b = parseInt(hex.slice(5,7),16);
-                        var rD = Math.min(255, Math.round(r + (255-r)*0.45));
-                        var gD = Math.min(255, Math.round(gg2 + (255-gg2)*0.45));
-                        var bD = Math.min(255, Math.round(b + (255-b)*0.45));
-                        var hexD = "#" + [rD,gD,bD].map(function(v){return v.toString(16).padStart(2,"0");}).join("");
-                        var newDef = groupesDef.map(function(x, i) { return i === idx ? Object.assign({}, x, { color: hex, colorDark: hexD }) : x; });
-                        setGroupesDef(newDef);
-                      }} style={{ width: 26, height: 26, border: "none", cursor: "pointer", borderRadius: 4, padding: 0, background: "none" }} title={"Couleur du groupe"} />
-                      <input value={g.label} onChange={function(e) {
-                        var newDef = groupesDef.map(function(x, i) { return i === idx ? Object.assign({}, x, { label: e.target.value }) : x; });
-                        setGroupesDef(newDef);
-                      }} style={{ flex: 1, background: th.card, border: "1px solid " + th.border, color: th.text, borderRadius: 4, padding: "3px 7px", fontSize: 12, fontFamily: FONT_B, outline: "none" }} />
-                      <label style={{ display: "flex", alignItems: "center", gap: 3, fontSize: 10, fontFamily: FONT_B, color: th.textMuted, cursor: "pointer", whiteSpace: "nowrap" }}>
-                        <input type="checkbox" checked={!!g.isStatGroup} onChange={function(e) {
-                          var newDef = groupesDef.map(function(x, i) { return i === idx ? Object.assign({}, x, { isStatGroup: e.target.checked }) : x; });
-                          setGroupesDef(newDef);
-                        }} /> {"Stats"}
-                      </label>
-                      <button onClick={function() {
-                        var gId = g.id;
-                        var newDef = groupesDef.filter(function(x, i) { return i !== idx; });
-                        var newGroupes = {}; for (var k in groupes) { if (k !== gId) newGroupes[k] = groupes[k]; }
-                        setGroupesDef(newDef);
-                        setGroupes(newGroupes);
-                      }} style={{ background: "none", border: "none", color: th.textDim, cursor: "pointer", fontSize: 13 }}>{"\u2715"}</button>
+                ))}
+
+                {/* ── Accordéon Groupes ── */}
+                {accordion("groupes", "👥 Groupes pédagogiques", correctionOpen.groupes, (
+                  <div>
+                    <div style={{ fontSize: 10, color: th.textMuted, fontFamily: FONT_B, marginBottom: 10, lineHeight: 1.5 }}>
+                      {"Le groupe Tiers-temps est fixe (aménagement individuel). Vous pouvez créer ici des groupes pédagogiques (ex. NSI, option, classe)."}
                     </div>
-                  );
-                })}
-                {/* Formulaire ajout groupe */}
-                <button onClick={function() {
-                  var newId = "grp_" + Math.random().toString(36).slice(2, 7);
-                  setGroupesDef(groupesDef.concat([{ id: newId, label: "Nouveau groupe", color: "#2855a0", colorDark: "#5b9bd5", isStatGroup: true }]));
-                }} style={{ width: "100%", padding: "5px", borderRadius: th.radiusSm, cursor: "pointer", fontFamily: FONT_B, fontSize: 11, fontWeight: 700, background: th.accent, border: "none", color: "#fff", marginTop: 4 }}>
-                  {"+ Ajouter un groupe"}
-                </button>
-              </div>
+                    {/* Groupe TT — lecture seule */}
+                    <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 5, padding: "5px 8px", borderRadius: th.radiusSm, background: th.surface, border: "1px solid " + th.border, opacity: 0.7 }}>
+                      <div style={{ width: 14, height: 14, borderRadius: "50%", background: TT_GROUPE.color, flexShrink: 0 }} />
+                      <span style={{ flex: 1, fontSize: 12, fontFamily: FONT_B, color: th.textMuted }}>{TT_GROUPE.label}</span>
+                      <span style={{ fontSize: 9, color: th.textDim, fontFamily: MONO }}>{"fixe · coeff " + (4/3).toFixed(2)}</span>
+                    </div>
+                    {/* Groupes éditables */}
+                    {groupesDef.map(function(g, idx) {
+                      return (
+                        <div key={g.id} style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 5, padding: "5px 8px", borderRadius: th.radiusSm, background: th.surface, border: "1px solid " + th.border }}>
+                          <input type="color" value={g.color} onChange={function(e) {
+                            var hex = e.target.value;
+                            var r = parseInt(hex.slice(1,3),16), gg2 = parseInt(hex.slice(3,5),16), b = parseInt(hex.slice(5,7),16);
+                            var rD = Math.min(255, Math.round(r + (255-r)*0.45));
+                            var gD = Math.min(255, Math.round(gg2 + (255-gg2)*0.45));
+                            var bD = Math.min(255, Math.round(b + (255-b)*0.45));
+                            var hexD = "#" + [rD,gD,bD].map(function(v){return v.toString(16).padStart(2,"0");}).join("");
+                            var newDef = groupesDef.map(function(x, i) { return i === idx ? Object.assign({}, x, { color: hex, colorDark: hexD }) : x; });
+                            setGroupesDef(newDef);
+                          }} style={{ width: 26, height: 26, border: "none", cursor: "pointer", borderRadius: 4, padding: 0, background: "none" }} title={"Couleur du groupe"} />
+                          <input value={g.label} onChange={function(e) {
+                            var newDef = groupesDef.map(function(x, i) { return i === idx ? Object.assign({}, x, { label: e.target.value }) : x; });
+                            setGroupesDef(newDef);
+                          }} style={{ flex: 1, background: th.card, border: "1px solid " + th.border, color: th.text, borderRadius: 4, padding: "3px 7px", fontSize: 12, fontFamily: FONT_B, outline: "none" }} />
+                          <label style={{ display: "flex", alignItems: "center", gap: 3, fontSize: 10, fontFamily: FONT_B, color: th.textMuted, cursor: "pointer", whiteSpace: "nowrap" }}>
+                            <input type="checkbox" checked={!!g.isStatGroup} onChange={function(e) {
+                              var newDef = groupesDef.map(function(x, i) { return i === idx ? Object.assign({}, x, { isStatGroup: e.target.checked }) : x; });
+                              setGroupesDef(newDef);
+                            }} /> {"Stats"}
+                          </label>
+                          <button onClick={function() {
+                            var gId = g.id;
+                            var newDef = groupesDef.filter(function(x, i) { return i !== idx; });
+                            var newGroupes = {}; for (var k in groupes) { if (k !== gId) newGroupes[k] = groupes[k]; }
+                            setGroupesDef(newDef);
+                            setGroupes(newGroupes);
+                          }} style={{ background: "none", border: "none", color: th.textDim, cursor: "pointer", fontSize: 13 }}>{"\u2715"}</button>
+                        </div>
+                      );
+                    })}
+                    {/* Formulaire ajout groupe */}
+                    <button onClick={function() {
+                      var newId = "grp_" + Math.random().toString(36).slice(2, 7);
+                      setGroupesDef(groupesDef.concat([{ id: newId, label: "Nouveau groupe", color: "#2855a0", colorDark: "#5b9bd5", isStatGroup: true }]));
+                    }} style={{ width: "100%", padding: "5px", borderRadius: th.radiusSm, cursor: "pointer", fontFamily: FONT_B, fontSize: 11, fontWeight: 700, background: th.accent, border: "none", color: "#fff", marginTop: 4 }}>
+                      {"+ Ajouter un groupe"}
+                    </button>
+                  </div>
+                ))}
+
               </div>
             );
           })()}
@@ -2820,6 +2768,16 @@ function retirerDsSynthese(examId) {
                       <input type="password" value={githubPat} onChange={function(e) { setGithubPat(e.target.value); localStorage.setItem("check_github_pat", e.target.value); }}
                         placeholder="ghp_xxxxxxxxxxxxxxxxxxxx"
                         style={{ width: "100%", background: th.card, border: "1px solid " + th.border, color: th.text, borderRadius: 4, padding: "5px 8px", fontSize: 12, fontFamily: MONO, outline: "none" }} />
+                    </div>
+                    <div style={{ fontSize: 11, color: th.warning, marginTop: 4, lineHeight: 1.4 }}>
+                      {"⚠️ Ce token est stocké en clair dans le navigateur (localStorage). "}                     
+                      {"Utilisez un "}
+                        <a href="https://github.com/settings/personal-access-tokens/new"
+                          target="_blank" rel="noopener noreferrer"
+                           style={{ color: th.accent }}>
+                          {"fine-grained token"}
+                       </a>
+                      {" avec accès limité à un seul dépôt privé (permission Contents: read & write uniquement)."}
                     </div>
                     <div>
                       <div style={{ fontSize: 10, fontWeight: 700, color: th.textMuted, fontFamily: FONT_B, marginBottom: 3 }}>{"Dépôt privé (compte/nom-du-dépôt)"}</div>

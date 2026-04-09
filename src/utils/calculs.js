@@ -45,7 +45,7 @@ export function questionScore(grades, studentId, question) {
    // La question est "traitée" si au moins un item est coché
   // OU si la case "traitée" est explicitement cochée
   const wasTreated = earned > 0
-    || grades[treatedKey(studentId, question.id)];
+    || !!grades[treatedKey(studentId, question.id)];
   return { earned, total, treated: wasTreated };
 }
 
@@ -225,8 +225,9 @@ export function exercisePctRelative(grades, studentId, exam, students, absents) 
  * Compte les remarques d'un élève qui comptent pour le malus.
  * Ignore les remarques dont malus === false dans la config.
  */
-export function countMalusRemarks(remarks, studentId, exam) {
-  const malusIds = REMARQUES.filter(r => r.malus).map(r => r.id);
+export function countMalusRemarks(remarks, studentId, exam, allRemarques) {
+  const source = allRemarques || REMARQUES;
+  const malusIds = source.filter(r => r.malus).map(r => r.id);
   let total = 0;
   for (const ex of exam.exercises) {
     for (const q of ex.questions) {
@@ -238,8 +239,8 @@ export function countMalusRemarks(remarks, studentId, exam) {
 }
 
 /** Malus automatique (%) basé sur les paliers */
-export function malusAuto(remarks, studentId, exam, paliers) {
-  const count = countMalusRemarks(remarks, studentId, exam);
+export function malusAuto(remarks, studentId, exam, paliers, allRemarques) {
+  const count = countMalusRemarks(remarks, studentId, exam, allRemarques);
   let pct = 0;
   const sorted = [...paliers].sort((a, b) => a.seuil - b.seuil);
   for (const p of sorted) {
@@ -249,8 +250,8 @@ export function malusAuto(remarks, studentId, exam, paliers) {
 }
 
 /** Malus total (auto + manuel), plafonné à 100% */
-export function malusTotal(remarks, studentId, exam, paliers, malusManuel) {
-  return Math.min(100, malusAuto(remarks, studentId, exam, paliers) + (malusManuel[studentId] || 0));
+export function malusTotal(remarks, studentId, exam, paliers, malusManuel, allRemarques) {
+  return Math.min(100, malusAuto(remarks, studentId, exam, paliers, allRemarques) + (malusManuel[studentId] || 0));
 }
 
 // ─── Normalisation ───────────────────────────────────────────────
@@ -374,6 +375,84 @@ export function importCSV(text) {
     }
     return null;
   }).filter(Boolean);
+}
+
+// ─── Validation des données importées ────────────────────────────
+
+/**
+ * Vérifie la structure minimale d'un objet d'état importé.
+ *
+ * Champs critiques (bloquants si absents/invalides) :
+ *   exams     — tableau, chaque exam a un id et un tableau exercises
+ *   students  — tableau, chaque student a un id, nom, prenom
+ *
+ * Champs importants (warning si absents, valeurs par défaut utilisées) :
+ *   grades, remarks, absents, groupes — objets
+ *   seuils — objet avec nonNote, D, C, B
+ *
+ * Retourne { valid, data, warnings, errors }
+ */
+export function validateState(d) {
+  var errors = [];
+  var warnings = [];
+
+  // — Type de base —
+  if (!d || typeof d !== "object" || Array.isArray(d)) {
+    return { valid: false, data: null, errors: ["Le fichier n'est pas un objet JSON valide."], warnings: [] };
+  }
+
+  // — Champs critiques —
+  if (!Array.isArray(d.exams)) {
+    errors.push("Champ 'exams' manquant ou invalide (tableau attendu).");
+  } else {
+    d.exams.forEach(function(ex, i) {
+      if (!ex || !ex.id) errors.push("Exam #" + (i + 1) + " : pas d'identifiant.");
+      if (!Array.isArray(ex.exercises)) errors.push("Exam #" + (i + 1) + " : 'exercises' manquant.");
+    });
+  }
+
+  if (!Array.isArray(d.students)) {
+    errors.push("Champ 'students' manquant ou invalide (tableau attendu).");
+  } else {
+    d.students.forEach(function(s, i) {
+      if (!s || !s.id) errors.push("Élève #" + (i + 1) + " : pas d'identifiant.");
+      if (!s || !s.nom) warnings.push("Élève #" + (i + 1) + " : nom manquant.");
+    });
+  }
+
+  if (errors.length > 0) {
+    return { valid: false, data: d, errors: errors, warnings: warnings };
+  }
+
+  // — Champs importants (fallback silencieux) —
+  if (d.grades && typeof d.grades !== "object") {
+    warnings.push("'grades' ignoré (objet attendu, " + typeof d.grades + " reçu).");
+    d.grades = {};
+  }
+  if (d.remarks && typeof d.remarks !== "object") {
+    warnings.push("'remarks' ignoré (objet attendu).");
+    d.remarks = {};
+  }
+  if (d.absents && typeof d.absents !== "object") {
+    warnings.push("'absents' ignoré (objet attendu).");
+    d.absents = {};
+  }
+
+  if (d.seuils && typeof d.seuils === "object") {
+    ["nonNote", "D", "C", "B"].forEach(function(k) {
+      if (d.seuils[k] !== undefined && typeof d.seuils[k] !== "number") {
+        warnings.push("Seuil '" + k + "' ignoré (nombre attendu).");
+        delete d.seuils[k];
+      }
+    });
+  }
+
+  if (d.malusPaliers && !Array.isArray(d.malusPaliers)) {
+    warnings.push("'malusPaliers' ignoré (tableau attendu).");
+    d.malusPaliers = undefined;
+  }
+
+  return { valid: true, data: d, errors: [], warnings: warnings };
 }
 
 // ─── Téléchargement de fichier ───────────────────────────────────
