@@ -1,3 +1,10 @@
+## v 0.91
+
+### Correctifs
+- toilettage du code et découpage en plusieurs fichiers pour une meilleure lisibilité
+- variables mal nommées remplacées
+- Dissociation GitHub possible
+
 ## v 0.9 - 9 avril 2026
 
 ### Nouvelle section : vue d'ensemble
