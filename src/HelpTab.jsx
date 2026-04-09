@@ -469,7 +469,7 @@ function HelpTab({ th, FONT, FONT_B, MONO }) {
       {/* En-tête */}
       <div style={{ marginBottom: 20 }}>
         <div style={{ fontFamily: FONT, fontSize: 22, fontWeight: 700, color: th.text, marginBottom: 4 }}>Guide d'utilisation</div>
-        <div style={{ fontFamily: FONT_B, fontSize: 12, color: th.textMuted }}>C.H.E.C.K. v 0.90</div>
+        <div style={{ fontFamily: FONT_B, fontSize: 12, color: th.textMuted }}>C.H.E.C.K. v 0.91</div>
       </div>
 
       {/* Onglets internes */}

@@ -1536,7 +1536,7 @@ function retirerDsSynthese(examId) {
 {/* MODAL À PROPOS */}
 {showApropos && <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.4)", zIndex: 200, display: "flex", alignItems: "center", justifyContent: "center" }} onClick={function() { setShowApropos(false); }}>
         <div style={{ background: th.card, borderRadius: 12, border: "1px solid " + th.border, padding: "28px 32px", width: showChangelog ? 580 : 360, maxWidth: "95vw", transition: "width 0.2s", boxShadow: "0 8px 32px rgba(0,0,0,0.2)", textAlign: "center" }} onClick={function(e) { e.stopPropagation(); }}>
-          <div style={{ fontSize: 13, fontFamily: MONO, color: th.textDim, marginBottom: 4, letterSpacing: 2 }}>{"v\u00A00.90"}</div>
+          <div style={{ fontSize: 13, fontFamily: MONO, color: th.textDim, marginBottom: 4, letterSpacing: 2 }}>{"v\u00A00.91"}</div>
           <div style={{ fontSize: 26, fontWeight: 700, fontFamily: FONT, color: th.text, marginBottom: 6 }}>{"C.H.E.C.K."}</div>
           <div style={{ fontSize: 11, color: th.textMuted, fontFamily: FONT_B, lineHeight: 1.6, marginBottom: 20 }}>
             {"Correcteur Hautement Efficace avec Cases à Kocher"}
