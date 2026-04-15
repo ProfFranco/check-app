@@ -14,7 +14,7 @@
 import { COMPETENCES, REMARQUES, ETABLISSEMENT } from "../config/settings";
 import {
   studentTotal, examTotal, noteSur20,
-  questionScore, exerciseScore,
+  questionScore, exerciseScore, bonusCompletPoints,
   ratioJustesse, ratioEfficacite,
   notesParCompetence, countMalusRemarks, malusTotal,
 } from "./calculs";
@@ -114,11 +114,14 @@ export function genererGabarit(nomDS, dateDS, etab) {
 
 export function genererRapportEleve({
   student, exam, grades, remarks, absents,
-  allStudents, nomDS, seuils, seuilDifficile, seuilReussite,
+  allStudents, nomDS, seuils, seuilDifficile, seuilReussite, seuilPiege,
   getNote20, rankMap, stats, malusPaliers, malusManuel,
   commentaires, allRemarques,
   soundLinksEnabled, soundBaseUrl, soundAudioExt,
+  bonusCompletConfig,
+  features,
 }) {
+  var ft = features || { competences: true, coefficients: true, questionBonus: true, bonusComplet: true, malusAuto: true, questionPiege: true };
   const et = examTotal(exam);
   const scoreBrut = studentTotal(grades, student.id, exam);
   const noteNorm = getNote20(student.id);
@@ -149,16 +152,22 @@ export function genererRapportEleve({
   tex += `\\begin{center}\\Large{${nomDS}} \\\\\\ \\Large{${student.prenom} \\textsc{${student.nom}}}\\end{center}\n`;
 
   // Tableau note / rang / compétences
-  tex += `\\begin{tabular}{|>{\\centering\\arraybackslash}m{0.3\\linewidth}|>{\\centering\\arraybackslash}m{0.3\\linewidth}|b{0.3\\linewidth}|}\\hline\n`;
-  tex += `\\textbf{Note} & \\textbf{Rang} & {\\centering\\textbf{Notes par comp\\'etences}} \\\\ \\hline\n`;
-  tex += `\\multirow{${COMPETENCES.length}}{*}{\\tcbox[${couleur}]{\\Huge{$${num(noteNorm)}_{/20}$}}}`;
-  tex += ` & \\multirow{${COMPETENCES.length}}{*}{\\tcbox[${couleur}]{\\Huge{$${num(rang, 0)}_{/${effectif}}$}}}`;
-
-  COMPETENCES.forEach((comp, i) => {
-    const prefix = i === 0 ? " & " : "\\cline{3-3} & & ";
-    tex += `${prefix}\\textbf{${comp.label} :} \\hfill {\\LARGE ${comps[comp.id]}} \\\\ `;
-  });
-  tex += `\\hline\\end{tabular}\n`;
+  if (ft.competences) {
+    tex += `\\begin{tabular}{|>{\\centering\\arraybackslash}m{0.3\\linewidth}|>{\\centering\\arraybackslash}m{0.3\\linewidth}|b{0.3\\linewidth}|}\\hline\n`;
+    tex += `\\textbf{Note} & \\textbf{Rang} & {\\centering\\textbf{Notes par comp\\'etences}} \\\\ \\hline\n`;
+    tex += `\\multirow{${COMPETENCES.length}}{*}{\\tcbox[${couleur}]{\\Huge{$${num(noteNorm)}_{/20}$}}}`;
+    tex += ` & \\multirow{${COMPETENCES.length}}{*}{\\tcbox[${couleur}]{\\Huge{$${num(rang, 0)}_{/${effectif}}$}}}`;
+    COMPETENCES.forEach((comp, i) => {
+      const prefix = i === 0 ? " & " : "\\cline{3-3} & & ";
+      tex += `${prefix}\\textbf{${comp.label} :} \\hfill {\\LARGE ${comps[comp.id]}} \\\\ `;
+    });
+    tex += `\\hline\\end{tabular}\n`;
+  } else {
+    tex += `\\begin{tabular}{|>{\\centering\\arraybackslash}m{0.45\\linewidth}|>{\\centering\\arraybackslash}m{0.45\\linewidth}|}\\hline\n`;
+    tex += `\\textbf{Note} & \\textbf{Rang} \\\\ \\hline\n`;
+    tex += `\\tcbox[${couleur}]{\\Huge{$${num(noteNorm)}_{/20}$}} & \\tcbox[${couleur}]{\\Huge{$${num(rang, 0)}_{/${effectif}}$}} \\\\ \\hline\n`;
+    tex += `\\end{tabular}\n`;
+  }
 
 // Stats de points bruts (calculées indépendamment de la normalisation)
   const brutsPts = presents.map(s => studentTotal(grades, s.id, exam));
@@ -196,7 +205,7 @@ export function genererRapportEleve({
       ex.questions.some(q => q.items.some(it => grades[`${s.id}__${it.id}`]))).length;
     if (copies === 0) return;
 
-    const enotes = presents.map(s => exerciseScore(grades, s.id, ex).earned);
+    const enotes = presents.map(s => exerciseScore(grades, s.id, ex, bonusCompletConfig).earned);
     const emoy = enotes.reduce((a, b) => a + b, 0) / enotes.length;
     const emin = Math.min(...enotes);
     const emax = Math.max(...enotes);
@@ -225,17 +234,20 @@ export function genererRapportEleve({
         q.items.some(it => grades[`${s.id}__${it.id}`])
         || grades["treated_" + s.id + "_" + q.id]
       ).length;
-      const estDifficile = nbTraitants < presents.length * seuilDifficile / 100;
+      const tauxTraitement = presents.length > 0 ? (nbTraitants / presents.length) * 100 : 0;
+      const estDifficile = tauxTraitement < seuilDifficile;
+      const estPiege = tauxTraitement >= 50 && sc.total > 0 && (sc.earned / sc.total) * 100 < (seuilPiege || 30);
 
       // Marqueur ✨ : question difficile ET réussie par l'élève (score >= seuilReussite%)
       const pctReussite = sc.total > 0 ? (sc.earned / sc.total) * 100 : 0;
       const estReussie = pctReussite >= seuilReussite;
       const marqueurEtoile = estDifficile && estReussie ? " \\textbf{\\large✨}" : "";
+      const marqueurPiege = (ft.questionPiege && estPiege) ? " \\textbf{\\large⚠️}" : "";
 
       // Marqueur 🎁 pour les questions bonus
       const marqueurBonus = q.bonus ? " \\textbf{\\large🎁}" : "";
 
-      const bold = estDifficile ? "\\bfseries " : "";
+      const bold = estDifficile ? "\\bfseries " : estPiege ? "\\color{orange}\\bfseries " : "";
       const remKey = `${student.id}__${q.id}`;
 
       // Ligne question dans le tableau
@@ -246,7 +258,7 @@ export function genererRapportEleve({
       } else {
         qLabelTex = escapeTex(q.label);
       }
-      tex += `${bold}${qLabelTex}${marqueurBonus}${marqueurEtoile} & ${encodeCompetences(q.competences)} & ${num(sc.earned)}/${num(sc.total)} & ${encodeRemarks(remarks[remKey], allRemarques)} \\\\\n`;
+      tex += `${bold}${qLabelTex}${marqueurBonus}${marqueurEtoile}${marqueurPiege} & ${encodeCompetences(q.competences)} & ${num(sc.earned)}/${num(sc.total)} & ${encodeRemarks(remarks[remKey], allRemarques)} \\\\\n`;
 
 
     });
@@ -280,7 +292,7 @@ export function genererRapportEleve({
     tex += `(${nbBins},0)};\n`;
 
     // Ligne rouge : score de l'élève
-    const stuExScore = exerciseScore(grades, student.id, ex).earned;
+    const stuExScore = exerciseScore(grades, student.id, ex, bonusCompletConfig).earned;
     tex += `\\draw[red, thick, dashed] (axis cs:${stuExScore.toFixed(1)},0) -- (axis cs:${stuExScore.toFixed(1)},${maxBin + 1});\n`;
     tex += `\\end{axis}\n`;
     tex += `\\end{tikzpicture}\n`;
@@ -289,8 +301,8 @@ export function genererRapportEleve({
   });
 
   // ── Barème détaillé global — toutes questions traitées, en 2 colonnes ──
-  const tousItems = exam.exercises.flatMap(ex =>
-    ex.questions.flatMap(q => {
+  const tousItems = exam.exercises.flatMap(ex => {
+    const qItems = ex.questions.flatMap(q => {
       const aTraite = q.items.some(it => grades[`${student.id}__${it.id}`])
         || grades["treated_" + student.id + "_" + q.id];
       if (!aTraite) return [];
@@ -301,9 +313,22 @@ export function genererRapportEleve({
         label: it.label,
         earned: grades[`${student.id}__${it.id}`] ? (parseFloat(it.points) || 0) : 0,
         total: parseFloat(it.points) || 0,
+        isBonusComplet: false,
       }));
-    })
-  );
+    });
+    // Ligne bonus exercice complet si déclenché
+    if (ex.bonusComplet && bonusCompletConfig) {
+      const bonusPts = bonusCompletPoints(grades, student.id, ex, bonusCompletConfig);
+      if (bonusPts > 0) {
+        qItems.push({
+          exTitle: ex.title, qLabel: null, bonus: false,
+          label: "Bonus exercice complet",
+          earned: bonusPts, total: bonusPts, isBonusComplet: true,
+        });
+      }
+    }
+    return qItems;
+  });
 
   if (tousItems.length > 0) {
     tex += `\\newpage\n`;
@@ -317,9 +342,13 @@ export function genererRapportEleve({
         tex += `\\multicolumn{3}{l}{{\\footnotesize\\textbf{${escapeTex(it.exTitle)}}}} \\\\\n`;
         lastEx = it.exTitle;
       }
-      const bonusMark = it.bonus ? " {\\tiny🎁}" : "";
-      const check = it.earned > 0 ? "$\\surd$\\ " : "\\phantom{$\\surd$}\\ ";
-      tex += `{\\footnotesize ${check}[Q.${escapeTex(it.qLabel)}${bonusMark}] ${escapeTex(it.label)}} & {\\footnotesize ${num(it.total)}} & {\\footnotesize ${num(it.earned)}} \\\\\n`;
+      if (it.isBonusComplet) {
+        tex += `{\\footnotesize \\textcolor{green!50!black}{\\textbf{🏆 ${escapeTex(it.label)}}}} & {\\footnotesize +${num(it.total)}} & {\\footnotesize \\textcolor{green!50!black}{+${num(it.earned)}}} \\\\\n`;
+      } else {
+        const bonusMark = it.bonus ? " {\\tiny🎁}" : "";
+        const check = it.earned > 0 ? "$\\surd$\\ " : "\\phantom{$\\surd$}\\ ";
+        tex += `{\\footnotesize ${check}[Q.${escapeTex(it.qLabel)}${bonusMark}] ${escapeTex(it.label)}} & {\\footnotesize ${num(it.total)}} & {\\footnotesize ${num(it.earned)}} \\\\\n`;
+      }
     });
     tex += `\\end{longtable}\n`;
   }
@@ -335,9 +364,11 @@ export function genererRapportEleve({
 
 export function genererDocumentComplet({
   gabarit, exam, students, grades, remarks, absents,
-  nomDS, dateDS, seuils, seuilDifficile, seuilReussite, getNote20,
+  nomDS, dateDS, seuils, seuilDifficile, seuilReussite, seuilPiege, getNote20,
   malusPaliers, malusManuel, commentaires, allRemarques,
   soundLinksEnabled, soundBaseUrl, soundAudioExt,
+  bonusCompletConfig,
+  features,
 }) {
   const presents = students.filter(s => !absents[s.id]);
 
@@ -351,10 +382,12 @@ export function genererDocumentComplet({
   for (const student of presents) {
     doc += genererRapportEleve({
       student, exam, grades, remarks, absents,
-      allStudents: students, nomDS, seuils, seuilDifficile, seuilReussite,
+      allStudents: students, nomDS, seuils, seuilDifficile, seuilReussite, seuilPiege,
       getNote20, rankMap, stats, malusPaliers, malusManuel,
       commentaires, allRemarques,
       soundLinksEnabled, soundBaseUrl, soundAudioExt,
+      bonusCompletConfig,
+      features,
     });
   }
 
@@ -369,9 +402,11 @@ export function genererDocumentComplet({
 
 export function genererDocumentsIndividuels({
   gabarit, exam, students, grades, remarks, absents,
-  nomDS, dateDS, seuils, seuilDifficile, seuilReussite, getNote20,
+  nomDS, dateDS, seuils, seuilDifficile, seuilReussite, seuilPiege, getNote20,
   malusPaliers, malusManuel, commentaires, allRemarques,
   soundLinksEnabled, soundBaseUrl, soundAudioExt,
+  bonusCompletConfig,
+  features,
 }) {
   const presents = students.filter(s => !absents[s.id]);
   const { rankMap, stats } = _buildRankAndStats(presents, getNote20);
@@ -384,10 +419,12 @@ export function genererDocumentsIndividuels({
       gab +
       genererRapportEleve({
         student, exam, grades, remarks, absents,
-        allStudents: students, nomDS, seuils, seuilDifficile, seuilReussite,
+        allStudents: students, nomDS, seuils, seuilDifficile, seuilReussite, seuilPiege,
         getNote20, rankMap, stats, malusPaliers, malusManuel,
         commentaires, allRemarques,
         soundLinksEnabled, soundBaseUrl, soundAudioExt,
+        bonusCompletConfig,
+        features,
       }) +
       `\\end{document}\n`;
     return { filename, content };

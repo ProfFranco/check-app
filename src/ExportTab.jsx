@@ -12,7 +12,8 @@ export default function ExportTab({
   examNomDS, examDateDS,
   presents, corriges,
   students, grades, remarks, absents,
-  seuils, seuilDifficile, seuilReussite,
+  seuils, seuilDifficile, seuilReussite, seuilPiege, bonusCompletConfig,
+  features,
   malusPaliers, malusManuel,
   commentaires, allRemarques,
   htmlConfig, htmlStudentId,
@@ -31,6 +32,7 @@ export default function ExportTab({
   retirerDsSynthese,
   telechargerSynthese,
 }) {
+  var ft = features || { competences: true, coefficients: true, questionBonus: true, bonusComplet: true, malusAuto: true, questionPiege: true };
   // ── Helpers locaux ──────────────────────────────────────────
   var htmlStudent = corriges.find(function(s) { return s.id === htmlStudentId; }) || corriges[0];
   var htmlRankMap = {};
@@ -142,11 +144,13 @@ export default function ExportTab({
             var content = genererHtmlEleve({
               student: htmlStudent, exam: exam, grades: grades, remarks: remarks, absents: absents,
               allStudents: students, nomDS: examNomDS, dateDS: examDateDS, seuils: seuils,
-              seuilDifficile: seuilDifficile, seuilReussite: seuilReussite,
+              seuilDifficile: seuilDifficile, seuilReussite: seuilReussite, seuilPiege: seuilPiege,
               getNote20: getNote20, getBrut20: getBrut20, rankMap: htmlRankMap,
               malusPaliers: malusPaliers, malusManuel: malusManuel,
               commentaires: commentaires, allRemarques: allRemarques, htmlConfig: htmlConfig,
               soundLinksEnabled: soundLinksEnabled, soundBaseUrl: soundBaseUrl, soundAudioExt: soundAudioExt,
+              bonusCompletConfig: bonusCompletConfig,
+              features: ft,
             });
             var slug = (htmlStudent.nom + "_" + htmlStudent.prenom).normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-zA-Z0-9_-]/g, "_");
             downloadFile(content, "CR_" + (examNomDS || "DS").replace(/\s+/g, "_") + "_" + slug + ".html", "text/html;charset=utf-8;");
@@ -163,11 +167,13 @@ export default function ExportTab({
             var docs = genererHtmlTous({
               exam: exam, students: students, grades: grades, remarks: remarks, absents: absents,
               nomDS: examNomDS, dateDS: examDateDS, seuils: seuils,
-              seuilDifficile: seuilDifficile, seuilReussite: seuilReussite,
+              seuilDifficile: seuilDifficile, seuilReussite: seuilReussite, seuilPiege: seuilPiege,
               getNote20: getNote20, getBrut20: getBrut20,
               malusPaliers: malusPaliers, malusManuel: malusManuel,
               commentaires: commentaires, allRemarques: allRemarques, htmlConfig: htmlConfig,
               soundLinksEnabled: soundLinksEnabled, soundBaseUrl: soundBaseUrl, soundAudioExt: soundAudioExt,
+              bonusCompletConfig: bonusCompletConfig,
+              features: ft,
             });
             var el = document.createElement("script");
             el.src = "https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js";
@@ -198,10 +204,12 @@ export default function ExportTab({
             var docs = genererDocumentsIndividuels({
               gabarit: currentGab, exam: exam, students: students, grades: grades, remarks: remarks, absents: absents,
               nomDS: examNomDS, dateDS: examDateDS, seuils: seuils,
-              seuilDifficile: seuilDifficile, seuilReussite: seuilReussite, getNote20: getNote20,
+              seuilDifficile: seuilDifficile, seuilReussite: seuilReussite, seuilPiege: seuilPiege, getNote20: getNote20,
               malusPaliers: malusPaliers, malusManuel: malusManuel,
               commentaires: commentaires, allRemarques: allRemarques,
               soundLinksEnabled: soundLinksEnabled, soundBaseUrl: soundBaseUrl, soundAudioExt: soundAudioExt,
+              bonusCompletConfig: bonusCompletConfig,
+              features: ft,
             });
             var doc = docs.find(function(d) { return d.filename.indexOf(
               (htmlStudent.nom + "_" + htmlStudent.prenom).normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-zA-Z0-9_-]/g, "_").slice(0, 30)
@@ -222,10 +230,12 @@ export default function ExportTab({
               var docs = genererDocumentsIndividuels({
                 gabarit: currentGab, exam: exam, students: students, grades: grades, remarks: remarks, absents: absents,
                 nomDS: examNomDS, dateDS: examDateDS, seuils: seuils,
-                seuilDifficile: seuilDifficile, seuilReussite: seuilReussite, getNote20: getNote20,
+                seuilDifficile: seuilDifficile, seuilReussite: seuilReussite, seuilPiege: seuilPiege, getNote20: getNote20,
                 malusPaliers: malusPaliers, malusManuel: malusManuel,
                 commentaires: commentaires, allRemarques: allRemarques,
                 soundLinksEnabled: soundLinksEnabled, soundBaseUrl: soundBaseUrl, soundAudioExt: soundAudioExt,
+                bonusCompletConfig: bonusCompletConfig,
+                features: ft,
               });
               var script = genererScriptCompilation(examNomDS);
               var el = document.createElement("script");
@@ -264,10 +274,12 @@ export default function ExportTab({
             var tex = genererDocumentComplet({
               gabarit: currentGab, exam: exam, students: students, grades: grades, remarks: remarks, absents: absents,
               nomDS: examNomDS, dateDS: examDateDS, seuils: seuils,
-              seuilDifficile: seuilDifficile, seuilReussite: seuilReussite, getNote20: getNote20,
+              seuilDifficile: seuilDifficile, seuilReussite: seuilReussite, seuilPiege: seuilPiege, getNote20: getNote20,
               malusPaliers: malusPaliers, malusManuel: malusManuel,
               commentaires: commentaires, allRemarques: allRemarques,
               soundLinksEnabled: soundLinksEnabled, soundBaseUrl: soundBaseUrl, soundAudioExt: soundAudioExt,
+              bonusCompletConfig: bonusCompletConfig,
+              features: ft,
             });
             downloadFile(tex, "CR_" + (examNomDS || "DS") + ".tex", "text/x-tex");
           }}

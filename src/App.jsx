@@ -11,15 +11,16 @@ import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 
 // ─── Imports depuis les modules du projet ────────────────────────
 import {
-  COMPETENCES, REMARQUES, TYPES_GROUPES, TT_GROUPE,
-  DEFAULT_SEUILS, DEFAULT_SEUIL_DIFFICILE,
+  APP_VERSION, COMPETENCES, REMARQUES, TYPES_GROUPES, TT_GROUPE, FEATURE_PRESETS, DEFAULT_FEATURES,
+  DEFAULT_SEUILS, DEFAULT_SEUIL_DIFFICILE, DEFAULT_SEUIL_PIEGE,
   DEFAULT_MALUS_PALIERS, DEFAULT_MALUS_MODE,
   DEFAULT_NORM, TT_COEFF, DEFAULT_REMARQUES_ACTIVES, ETABLISSEMENT,
+  DEFAULT_BONUS_COMPLET,
 } from "./config/settings";
 import { lightTheme, darkTheme, youngTheme, FONT_TITLE, FONT_BODY, FONT_MONO, FONTS_URL } from "./config/theme";
 import {
   uid, gradeKey, remarkKey, clamp, compColor,
-  questionScore, exerciseScore, studentTotal, examTotal, noteSur20,
+  questionScore, exerciseScore, bonusCompletPoints, studentTotal, examTotal, noteSur20,
   studentTotalWeighted, examTotalWeighted,
   ratioJustesse, ratioEfficacite,
   notesParCompetence, competencePct,
@@ -31,7 +32,7 @@ import { genererGabarit, genererDocumentComplet, genererDocumentsIndividuels, ge
 import { genererHtmlEleve, genererHtmlTous, DEFAULT_HTML_CONFIG } from "./utils/html";
 import { buildAudioFilename } from "./utils/helpers";
 import { loadDB, saveDB, loadMeta, saveMeta, initProfiles, profileDBName, openNamedDB } from "./utils/db";
-import { RadarChart, MiniRadar, MiniRadarEx, Histo, PBar } from "./components/Charts";
+import { RadarChart, MiniRadar, MiniRadarEx, Histo, PBar, ProgressionChart, ProgressionRadar } from "./components/Charts";
 import AudioRecorder from "./components/AudioRecorder";
 import DebugModal from "./components/DebugModal";
 import SettingsModal from "./SettingsModal";
@@ -83,6 +84,8 @@ export default function App() {
   var _normParams = useState(DEFAULT_NORM.params); var setNormParams = _normParams[1]; var normParams = _normParams[0];
   var _seuilDifficile = useState(DEFAULT_SEUIL_DIFFICILE); var setSeuilDifficile = _seuilDifficile[1]; var seuilDifficile = _seuilDifficile[0];
   var _seuilReussite = useState(50); var setSeuilReussite = _seuilReussite[1]; var seuilReussite = _seuilReussite[0];
+  var _seuilPiege = useState(DEFAULT_SEUIL_PIEGE); var setSeuilPiege = _seuilPiege[1]; var seuilPiege = _seuilPiege[0];
+  var _bonusCompletConfig = useState(DEFAULT_BONUS_COMPLET); var setBonusCompletConfig = _bonusCompletConfig[1]; var bonusCompletConfig = _bonusCompletConfig[0];
   var _gabaritTex = useState(""); var setGabaritTex = _gabaritTex[1]; var gabaritTex = _gabaritTex[0];
   var _malusPaliers = useState(DEFAULT_MALUS_PALIERS); var setMalusPaliers = _malusPaliers[1]; var malusPaliers = _malusPaliers[0];
   var _malusMode = useState(DEFAULT_MALUS_MODE); var setMalusMode = _malusMode[1]; var malusMode = _malusMode[0];
@@ -121,7 +124,11 @@ export default function App() {
   var _collapsedExams = useState({}); var setCollapsedExams = _collapsedExams[1]; var collapsedExams = _collapsedExams[0];
   var _showGroupes = useState(false); var setShowGroupes = _showGroupes[1]; var showGroupes = _showGroupes[0];
   var _csortMode = useState("rang"); var csortMode = _csortMode[0]; var setCsortMode = _csortMode[1];
+  var _progressionStudentId = useState(null); var progressionStudentId = _progressionStudentId[0]; var setProgressionStudentId = _progressionStudentId[1];
+  var _progressionShowNorm = useState(false); var progressionShowNorm = _progressionShowNorm[0]; var setProgressionShowNorm = _progressionShowNorm[1];
+  var _progressionViewMode = useState("courbe"); var progressionViewMode = _progressionViewMode[0]; var setProgressionViewMode = _progressionViewMode[1];
   var _confirmDelete = useState(null); var setConfirmDelete = _confirmDelete[1]; var confirmDelete = _confirmDelete[0];
+  var _featOpen = useState(true); var setFeatOpen = _featOpen[1]; var featOpen = _featOpen[0];
   var _exportOpen = useState({ eleves: true, enseignant: true, gabarit: false, synthese: false, github: false, sync: true, sound: false }); var setExportOpen = _exportOpen[1]; var exportOpen = _exportOpen[0];
   var _showApropos = useState(false); var setShowApropos = _showApropos[1]; var showApropos = _showApropos[0];
   var _showChangelog = useState(false); var setShowChangelog = _showChangelog[1]; var showChangelog = _showChangelog[0];
@@ -178,7 +185,7 @@ export default function App() {
       exams: exams, students: students, grades: grades, remarks: remarks,
       absents: absents, groupes: groupes, activeExamId: activeExamId,
       nomDS: nomDS, dateDS: dateDS, seuils: seuils, normMethod: normMethod,
-      normParams: normParams, seuilDifficile: seuilDifficile, seuilReussite: seuilReussite,
+      normParams: normParams, seuilDifficile: seuilDifficile, seuilReussite: seuilReussite, seuilPiege: seuilPiege, bonusCompletConfig: bonusCompletConfig,
       gabaritTex: gabaritTex, malusPaliers: malusPaliers, malusMode: malusMode,
       malusManuel: malusManuel, uiScale: uiScale, appTheme: appTheme, groupesDef: groupesDef,
       mode: mode, commentaires: commentaires, remarquesActives: remarquesActives,
@@ -192,7 +199,9 @@ export default function App() {
 
   // ─── Restauration de l'état depuis un objet sauvegardé (source unique) ────
   function restoreState(d) {
-    if (d.exams) setExams(d.exams);
+    if (d.exams) setExams(d.exams.map(function(ex) {
+      return Object.assign({}, ex, { features: Object.assign({}, DEFAULT_FEATURES, ex.features || {}) });
+    }));
     if (d.students) setStudents(d.students);
     if (d.grades) setGrades(d.grades);
     if (d.remarks) setRemarks(d.remarks);
@@ -206,6 +215,8 @@ export default function App() {
     if (d.normParams) setNormParams(d.normParams);
     if (d.seuilDifficile) setSeuilDifficile(d.seuilDifficile);
     if (d.seuilReussite !== undefined) setSeuilReussite(d.seuilReussite);
+    if (d.seuilPiege !== undefined) setSeuilPiege(d.seuilPiege);
+    if (d.bonusCompletConfig) setBonusCompletConfig(Object.assign({}, DEFAULT_BONUS_COMPLET, d.bonusCompletConfig));
     if (d.gabaritTex) setGabaritTex(d.gabaritTex);
     if (d.malusPaliers) setMalusPaliers(d.malusPaliers);
     if (d.malusMode) setMalusMode(d.malusMode);
@@ -248,7 +259,7 @@ export default function App() {
       saveDB(buildAppState(), activeProfileId);
     }, 500);
     return function() { clearTimeout(timer); };
-  }, [dbLoaded, exams, students, grades, remarks, absents, groupes, activeExamId, nomDS, dateDS, seuils, normMethod, normParams, seuilDifficile, seuilReussite, gabaritTex, malusPaliers, malusMode, malusManuel, uiScale, appTheme, groupesDef, mode, commentaires, remarquesActives, remarquesCustom, remarquesOrdre, settingsTab, csvConfig, htmlPresets, htmlConfig, htmlStudentId, synthese, etablissement, soundLinksEnabled, soundBaseUrl, soundAudioExt]);
+  }, [dbLoaded, exams, students, grades, remarks, absents, groupes, activeExamId, nomDS, dateDS, seuils, normMethod, normParams, seuilDifficile, seuilReussite, seuilPiege, bonusCompletConfig, gabaritTex, malusPaliers, malusMode, malusManuel, uiScale, appTheme, groupesDef, mode, commentaires, remarquesActives, remarquesCustom, remarquesOrdre, settingsTab, csvConfig, htmlPresets, htmlConfig, htmlStudentId, synthese, etablissement, soundLinksEnabled, soundBaseUrl, soundAudioExt]);
 
   useEffect(function() { if (showSearch && searchInputRef.current) searchInputRef.current.focus(); }, [showSearch]);
   useEffect(function() { var t = setTimeout(function() { setSplash(false); }, 2000); return function() { clearTimeout(t); }; }, []);
@@ -281,6 +292,7 @@ export default function App() {
   }, [mode, isMobile, ei, si, exam, students.length]);
 
   var exam = exams.find(function(e) { return e.id === activeExamId; }) || exams[0] || null;
+  var ft = exam ? Object.assign({}, DEFAULT_FEATURES, exam.features || {}) : DEFAULT_FEATURES;
   var et = exam ? examTotal(exam) : 0;
   // Nom et date lus depuis l'exam actif (avec repli sur états globaux pour rétrocompatibilité)
   var examNomDS = exam ? (exam.nomDS !== undefined ? exam.nomDS : nomDS) : nomDS;
@@ -360,7 +372,12 @@ export default function App() {
     if (!exam || !corriges.length) return { map: {} };
     var etW = examTotalWeighted(exam);
     var raw20 = corriges.map(function(s) {
-      var note = etW > 0 ? noteSur20(studentTotalWeighted(grades, s.id, exam), etW) : 0;
+      // Score pondéré incluant le bonus exercice complet
+      var totalPondere = exam.exercises.reduce(function(sum, ex) {
+        var coeff = ex.coeff !== undefined ? ex.coeff : 1;
+        return sum + exerciseScore(grades, s.id, ex, bonusCompletConfig).earned * coeff;
+      }, 0);
+      var note = etW > 0 ? noteSur20(totalPondere, etW) : 0;
       if ((groupes.tt || []).indexOf(s.id) >= 0) note = clamp(note * TT_COEFF, 0, 20);
       return note;
     });
@@ -371,7 +388,7 @@ export default function App() {
     var map = {};
     corriges.forEach(function(s, i) { map[s.id] = { brut: raw20[i], norm: final2[i] }; });
     return { map: map };
-  }, [exam, corriges, grades, et, normMethod, normParams, groupes, malusPaliers, malusMode, malusManuel, remarks]);
+  }, [exam, corriges, grades, et, normMethod, normParams, groupes, malusPaliers, malusMode, malusManuel, remarks, bonusCompletConfig]);
 
   function getNote20(sid) { var e = normData.map[sid]; return e ? e.norm : 0; }
   function getBrut20(sid) { var e = normData.map[sid]; return e ? e.brut : 0; }
@@ -612,7 +629,7 @@ function retirerDsSynthese(examId) {
   // ─── Exam CRUD ───
   function createExam() {
     var id = uid();
-    var newExam = { id: id, name: "Nouveau DS", nomDS: "", dateDS: "", exercises: [{ id: uid(), title: "Exercice 1", questions: [{ id: uid(), label: "1", competences: ["R"], items: [{ id: uid(), label: "Item 1", points: 1 }] }] }] };
+    var newExam = { id: id, name: "Nouveau DS", nomDS: "", dateDS: "", features: { preset: "standard", competences: true, coefficients: false, questionBonus: true, bonusComplet: false, malusAuto: true, questionPiege: false }, exercises: [{ id: uid(), title: "Exercice 1", questions: [{ id: uid(), label: "1", competences: ["R"], items: [{ id: uid(), label: "Item 1", points: 1 }] }] }] };
     setExams(exams.concat([newExam]));
     setActiveExamId(id);
   }
@@ -722,7 +739,7 @@ function retirerDsSynthese(examId) {
   var rangMap = {}; var curRang = 1;
   allNotesRanked.forEach(function(item, i) { if (i > 0 && item.note < allNotesRanked[i - 1].note) curRang = i + 1; rangMap[item.id] = curRang; });
   var rang = rangMap[s.id] || "-";
-  var gradedCount = students.filter(function(st) { return absents[st.id] || (exam && exam.exercises.some(function(exz) { return exz.questions.some(function(qz) { return qz.items.some(function(itz) { return grades[gradeKey(st.id, itz.id)]; }); }); })); }).length;
+  var gradedCount = corriges.length;
 
   // Malus for current student
   var remCount = exam && !absents[s.id] ? countMalusRemarks(remarks, s.id, exam, allRemarquesBase) : 0;
@@ -781,17 +798,20 @@ function retirerDsSynthese(examId) {
     return genererHtmlEleve({
       student: htmlStudentForPreview, exam: exam, grades: grades, remarks: remarks, absents: absents,
       allStudents: students, nomDS: examNomDS, dateDS: examDateDS, seuils: seuils,
-      seuilDifficile: seuilDifficile, seuilReussite: seuilReussite,
+      seuilDifficile: seuilDifficile, seuilReussite: seuilReussite, seuilPiege: seuilPiege,
       getNote20: getNote20, getBrut20: getBrut20,
       rankMap: htmlRankMapForPreview,
       malusPaliers: malusPaliers, malusManuel: malusManuel,
       commentaires: commentaires, allRemarques: allRemarques,
       htmlConfig: htmlConfig,
       soundLinksEnabled: soundLinksEnabled, soundBaseUrl: soundBaseUrl, soundAudioExt: soundAudioExt,
+      bonusCompletConfig: bonusCompletConfig,
+      features: ft,
     });
   }, [htmlStudentForPreview, htmlRankMapForPreview, exam, grades, remarks, absents, students,
       examNomDS, examDateDS, seuils, seuilDifficile, seuilReussite, malusPaliers, malusManuel,
-      commentaires, allRemarques, htmlConfig, soundLinksEnabled, soundBaseUrl, soundAudioExt]);
+      commentaires, allRemarques, htmlConfig, soundLinksEnabled, soundBaseUrl, soundAudioExt,
+      bonusCompletConfig]);
 
   var navItems = [{ id: "prep", l: "Préparation", ic: "\u2699\uFE0F" }, { id: "correct", l: "Correction", ic: "\u270F\uFE0F" }, { id: "resultats", l: "Résultats", ic: "\uD83D\uDC64" }, { id: "overview", l: "Vue d\u2019ensemble", ic: "\uD83D\uDCCB" }, { id: "stats", l: "Stats", ic: "\uD83D\uDCCA" }, { id: "export", l: "Export", ic: "\uD83D\uDCC4" }, { id: "aide", l: "Aide", ic: "\u2139\uFE0F" }];  // ═══════════════════════════════════════════════════════════════
   // RENDER
@@ -910,7 +930,7 @@ function retirerDsSynthese(examId) {
             </div>
           );
         })()}
-        {exam && mode === "correct" && <span style={{ fontSize: isMobile ? 10 : 11, color: th.accent, fontWeight: 600, fontFamily: MONO, background: th.accentBg, padding: "3px 8px", borderRadius: 10, border: "1px solid " + th.accent + "25" }}>{gradedCount + "/" + students.length}</span>}
+        {exam && mode === "correct" && <span style={{ fontSize: isMobile ? 10 : 11, color: th.accent, fontWeight: 600, fontFamily: MONO, background: th.accentBg, padding: "3px 8px", borderRadius: 10, border: "1px solid " + th.accent + "25" }}>{gradedCount + "/" + presents.length}</span>}
         <div style={{ flex: 1 }} />
         {!isMobile && <div style={{ display: "flex", gap: 2 }}>
           {navItems.map(function(nn) { return (
@@ -966,16 +986,16 @@ function retirerDsSynthese(examId) {
         <input ref={fileRef} type="file" accept=".json" onChange={loadJSONFile} style={{ display: "none" }} />
       </header>
       {/* Barre de progression — correction uniquement */}
-      {mode === "correct" && exam && students.length > 0 && (
+      {mode === "correct" && exam && presents.length > 0 && (
         <div style={{ height: 3, background: th.border, flexShrink: 0 }}>
-          <div style={{ height: "100%", background: th.success, width: (gradedCount / students.length * 100) + "%", transition: "width 0.4s" }} />
+          <div style={{ height: "100%", background: th.success, width: (gradedCount / presents.length * 100) + "%", transition: "width 0.4s" }} />
         </div>
       )}
 
       {/* MAIN — zoomé via la propriété CSS zoom (scroll natif, pas de compensation) */}
       <div style={{ flex: 1, overflowY: "auto", position: "relative" }}>
         <div style={{ zoom: isMobile ? 1 : sc }}>
-        <main key={mode} className="tab-enter" style={{ padding: isMobile ? 6 : 10, maxWidth: isMobile ? "100%" : "840px", margin: "0 auto", width: "100%", boxSizing: "border-box", position: "relative", zIndex: 1, paddingBottom: isMobile ? 70 : 10 }}>
+        <main key={mode === "resultats" ? "resultats-stable" : mode} className="tab-enter" style={{ padding: isMobile ? 6 : 10, maxWidth: isMobile ? "100%" : "840px", margin: "0 auto", width: "100%", boxSizing: "border-box", position: "relative", zIndex: 1, paddingBottom: isMobile ? 70 : 10 }}>
 
 
         {/* ═══ PREPARATION ═══ */}
@@ -998,6 +1018,91 @@ function retirerDsSynthese(examId) {
               <button onClick={function(e) { e.stopPropagation(); askConfirm("le devoir \u00AB\u00A0" + examNomDS + "\u00A0\u00BB", function() { deleteExam(exam.id); }); }} style={{ background: th.dangerBg, border: "none", color: th.danger, borderRadius: th.radiusSm, padding: "4px 6px", cursor: "pointer", fontSize: 12 }}>{"\u2717"}</button>
             </div>
             {!collapsedExams[exam.id] && <div style={{ padding: 10 }}>
+              {/* ── Fonctionnalités du devoir ── */}
+              {(function() {
+                var ft = exam.features || DEFAULT_FEATURES;
+                var PRESETS_UI = [
+                  { key: "simple",   icon: "\u2659", name: "Simple",       desc: "Juste noter" },
+                  { key: "standard", icon: "\u265C", name: "Standard",     desc: "+ comp\u00e9tences" },
+                  { key: "complet",  icon: "\u2654", name: "Complet",      desc: "Tout activ\u00e9" },
+                  { key: "custom",   icon: "\u265E", name: "Personnalis\u00e9", desc: "\u00c0 la carte" },
+                ];
+                var FEATURES_UI = [
+                  { id: "competences",   label: "Comp\u00e9tences A/N/R/V",           tip: "Associe chaque question \u00e0 une comp\u00e9tence (Analyser, Nommer, Raisonner, V\u00e9rifier). Active le radar et les stats d\u00e9taill\u00e9es." },
+                  { id: "coefficients",  label: "Coefficients \u00d7",               tip: "Pond\u00e8re chaque exercice par un coefficient multiplicateur. Utile pour des DS \u00e0 bar\u00e8me in\u00e9gal." },
+                  { id: "questionBonus", label: "Questions bonus \uD83C\uDF81",       tip: "Les points de ces questions s\u2019ajoutent \u00e0 la note sans augmenter le maximum du DS." },
+                  { id: "bonusComplet",  label: "Bonus exercice complet \uD83C\uDFC6", tip: "Accorde un bonus automatique si un \u00e9l\u00e8ve r\u00e9ussit tous les items d\u2019un exercice. Seuil configurable dans les R\u00e9glages." },
+                  { id: "malusAuto",     label: "Malus automatiques",               tip: "Les remarques de pr\u00e9sentation d\u00e9comptent automatiquement des points selon les R\u00e9glages." },
+                  { id: "questionPiege", label: "Questions pi\u00e8ges \u26a0",       tip: "Signale les questions o\u00f9 la majorit\u00e9 \u00e9choue malgr\u00e9 un bon score global. Mis en \u00e9vidence dans les Stats." },
+                ];
+                function setPreset(key) {
+                  var n = deepClone(exam);
+                  if (key !== "custom") {
+                    n.features = Object.assign({ preset: key }, FEATURE_PRESETS[key]);
+                  } else {
+                    n.features = Object.assign({}, ft, { preset: "custom" });
+                  }
+                  updateExam(n);
+                }
+                function toggleFeat(id) {
+                  var n = deepClone(exam);
+                  var cur = Object.assign({}, DEFAULT_FEATURES, n.features || {});
+                  cur[id] = !cur[id];
+                  cur.preset = "custom";
+                  n.features = cur;
+                  updateExam(n);
+                }
+                return (
+                  <div style={{ marginBottom: 10, border: "1px solid " + th.border, borderRadius: th.radiusSm, background: th.card, overflow: "hidden" }}>
+                    <div onClick={function() { setFeatOpen(!featOpen); }} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "8px 12px", cursor: "pointer", background: th.surface }}>
+                      <span style={{ fontSize: 12, fontWeight: 600, fontFamily: FONT_B, color: th.text, display: "flex", alignItems: "center", gap: 6 }}>
+                        <span style={{ fontSize: 13 }}>{"\u2699"}</span>{"Fonctionnalit\u00e9s du devoir"}
+                      </span>
+                      <span style={{ fontSize: 10, color: th.textMuted, transform: featOpen ? "rotate(90deg)" : "none", transition: "transform 0.2s", display: "inline-block" }}>{"\u25ba"}</span>
+                    </div>
+                    {featOpen && <div style={{ padding: "10px 12px" }}>
+                      <div style={{ display: "grid", gridTemplateColumns: "repeat(4, minmax(0, 1fr))", gap: 6, marginBottom: 10 }}>
+                        {PRESETS_UI.map(function(p) {
+                          var active = ft.preset === p.key;
+                          return (
+                            <div key={p.key} onClick={function() { setPreset(p.key); }} style={{ border: "1.5px solid " + (active ? th.accent : th.border), borderRadius: th.radiusSm, padding: "8px 4px", cursor: "pointer", textAlign: "center", background: active ? th.accentBg : th.surface }}>
+                              <div style={{ fontSize: 18, color: th.text, marginBottom: 2, lineHeight: 1 }}>{p.icon}</div>
+                              <div style={{ fontSize: 11, fontWeight: 600, fontFamily: FONT_B, color: active ? th.accent : th.text, marginBottom: 1 }}>{p.name}</div>
+                              <div style={{ fontSize: 9, color: th.textMuted, fontFamily: FONT_B }}>{p.desc}</div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                      {ft.preset !== "custom"
+                        ? <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
+                            {FEATURES_UI.map(function(f) {
+                              var on = ft[f.id];
+                              return (
+                                <span key={f.id} style={{ fontSize: 10, padding: "2px 8px", borderRadius: 20, fontWeight: 600, fontFamily: FONT_B, border: "1px solid " + (on ? th.accent + "35" : th.border), background: on ? th.accentBg : th.surface, color: on ? th.accent : th.textDim, textDecoration: on ? "none" : "line-through", opacity: on ? 1 : 0.6 }}>{f.label}</span>
+                              );
+                            })}
+                          </div>
+                        : <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                            {FEATURES_UI.map(function(f) {
+                              var on = ft[f.id];
+                              return (
+                                <div key={f.id} onClick={function() { toggleFeat(f.id); }} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "6px 10px", borderRadius: th.radiusSm, border: "1px solid " + th.border, background: th.surface, cursor: "pointer", gap: 8 }}>
+                                  <div style={{ display: "flex", alignItems: "center", gap: 6, flex: 1, minWidth: 0 }}>
+                                    <span style={{ fontSize: 11, fontWeight: 600, fontFamily: FONT_B, color: th.text }}>{f.label}</span>
+                                    <span title={f.tip} style={{ width: 14, height: 14, borderRadius: "50%", border: "1px solid " + th.border, fontSize: 8, fontWeight: 700, display: "inline-flex", alignItems: "center", justifyContent: "center", color: th.textMuted, background: th.surface, cursor: "help", flexShrink: 0 }}>{"i"}</span>
+                                  </div>
+                                  <div style={{ width: 28, height: 16, borderRadius: 8, background: on ? th.accent : th.border, position: "relative", flexShrink: 0 }}>
+                                    <div style={{ position: "absolute", top: 2, left: on ? 12 : 2, width: 12, height: 12, borderRadius: "50%", background: "#fff", transition: "left 0.18s" }}></div>
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
+                      }
+                    </div>}
+                  </div>
+                );
+              })()}
               {exam.exercises.map(function(ex, exIdx) {
                 var exPts = ex.questions.reduce(function(s2, q) { return s2 + q.items.reduce(function(si2, it) { return si2 + (+it.points || 0); }, 0); }, 0);
                 var isCol = collapsed[ex.id];
@@ -1007,7 +1112,8 @@ function retirerDsSynthese(examId) {
                       <span style={{ fontSize: 10, color: th.textDim, transform: isCol ? "rotate(-90deg)" : "none", transition: "0.15s" }}>{"\u25BC"}</span>
                       <input value={ex.title} onChange={function(e) { e.stopPropagation(); updateExam(updPath(exam, ["exercises", exIdx, "title"], e.target.value)); }} onClick={function(e) { e.stopPropagation(); }} style={{ ...inp, flex: 1, fontWeight: 600, background: "transparent", border: "none" }} />
                       <span style={{ fontFamily: MONO, fontSize: 10, color: th.textMuted }}>{exPts + "pts"}</span>
-                      <input type="number" min="0" step="0.5" value={ex.coeff !== undefined ? ex.coeff : 1} onClick={function(e) { e.stopPropagation(); }} onChange={function(e) { e.stopPropagation(); var v = Math.max(0, parseFloat(e.target.value) || 0); updateExam(updPath(exam, ["exercises", exIdx, "coeff"], v)); }} style={{ ...inp, width: 46, fontSize: 10, fontFamily: MONO, textAlign: "center", color: th.accent, padding: "2px 3px" }} title={"Coefficient \u00D7 " + (ex.coeff !== undefined ? ex.coeff : 1)} />
+                      {ft.coefficients && <input type="number" min="0" step="0.5" value={ex.coeff !== undefined ? ex.coeff : 1} onClick={function(e) { e.stopPropagation(); }} onChange={function(e) { e.stopPropagation(); var v = Math.max(0, parseFloat(e.target.value) || 0); updateExam(updPath(exam, ["exercises", exIdx, "coeff"], v)); }} style={{ ...inp, width: 46, fontSize: 10, fontFamily: MONO, textAlign: "center", color: th.accent, padding: "2px 3px" }} title={"Coefficient \u00D7 " + (ex.coeff !== undefined ? ex.coeff : 1)} />}
+                      {ft.bonusComplet && <button onClick={function(e) { e.stopPropagation(); var n = deepClone(exam); n.exercises[exIdx].bonusComplet = !ex.bonusComplet; updateExam(n); }} title={"Bonus exercice complet : " + (ex.bonusComplet ? "activé" : "désactivé")} style={{ padding: "1px 5px", fontSize: 12, borderRadius: 3, cursor: "pointer", border: "1px solid " + (ex.bonusComplet ? th.success + "55" : th.border), background: ex.bonusComplet ? th.success + "18" : "transparent", color: ex.bonusComplet ? th.success : th.textDim }}>{"🏆"}</button>}
                       <button onClick={function(e) { e.stopPropagation(); moveExercise(exIdx, -1); }} disabled={exIdx === 0} style={{ background: "none", border: "none", color: exIdx === 0 ? th.textDim : th.textMuted, cursor: exIdx === 0 ? "default" : "pointer", fontSize: 10, padding: "0 2px" }} title="Monter">{"▲"}</button>
                       <button onClick={function(e) { e.stopPropagation(); moveExercise(exIdx, 1); }} disabled={exIdx === exam.exercises.length - 1} style={{ background: "none", border: "none", color: exIdx === exam.exercises.length - 1 ? th.textDim : th.textMuted, cursor: exIdx === exam.exercises.length - 1 ? "default" : "pointer", fontSize: 10, padding: "0 2px" }} title="Descendre">{"▼"}</button>
                       <button onClick={function(e) { e.stopPropagation(); askConfirm("l\u2019exercice \u00AB\u00A0" + ex.title + "\u00A0\u00BB", function() { delAt(exIdx); }); }} style={{ background: "none", border: "none", color: th.textDim, cursor: "pointer", fontSize: 11 }}>{"\u2715"}</button>
@@ -1019,12 +1125,12 @@ function retirerDsSynthese(examId) {
                             <div style={{ display: "flex", alignItems: "center", gap: 4, marginBottom: 3 }}>
                               <span style={{ color: th.textMuted, fontSize: 10, fontWeight: 700, minWidth: 18 }}>Q.</span>
                               <input value={q.label} onChange={function(e) { updateExam(updPath(exam, ["exercises", exIdx, "questions", qIdx, "label"], e.target.value)); }} style={{ ...inp, width: 50 }} />
-                              <div style={{ display: "flex", gap: 2 }}>
+                              {ft.competences && <div style={{ display: "flex", gap: 2 }}>
                                 {COMPETENCES.map(function(c) { return (
                                   <button key={c.id} onClick={function() { toggleComp(exIdx, qIdx, c.id); }} style={{ padding: "1px 6px", fontSize: 9, fontWeight: 700, borderRadius: 3, cursor: "pointer", border: "1px solid " + (q.competences.indexOf(c.id) >= 0 ? compColor(c, dark) + "55" : th.border), background: q.competences.indexOf(c.id) >= 0 ? compColor(c, dark) + "22" : "transparent", color: q.competences.indexOf(c.id) >= 0 ? compColor(c, dark) : th.textDim, fontFamily: FONT_B }}>{c.short}</button>
                                 ); })}
-                              </div>
-                              <button onClick={function() { var n = deepClone(exam); n.exercises[exIdx].questions[qIdx].bonus = !q.bonus; updateExam(n); }} title="Question bonus (points hors maximum)" style={{ padding: "1px 5px", fontSize: 11, borderRadius: 3, cursor: "pointer", border: "1px solid " + (q.bonus ? th.warning + "55" : th.border), background: q.bonus ? th.warningBg : "transparent", color: q.bonus ? th.warning : th.textDim }}>{"\uD83C\uDF81"}</button>
+                              </div>}
+                              {ft.questionBonus && <button onClick={function() { var n = deepClone(exam); n.exercises[exIdx].questions[qIdx].bonus = !q.bonus; updateExam(n); }} title="Question bonus (points hors maximum)" style={{ padding: "1px 5px", fontSize: 11, borderRadius: 3, cursor: "pointer", border: "1px solid " + (q.bonus ? th.warning + "55" : th.border), background: q.bonus ? th.warningBg : "transparent", color: q.bonus ? th.warning : th.textDim }}>{"\uD83C\uDF81"}</button>}
                               <div style={{ flex: 1 }} />
                               <span style={{ fontFamily: MONO, fontSize: 9, color: th.textMuted }}>{q.items.reduce(function(s2, it) { return s2 + (+it.points || 0); }, 0) + "pts"}</span>
                               <button onClick={function() { moveQuestion(exIdx, qIdx, -1); }} disabled={qIdx === 0} style={{ background: "none", border: "none", color: qIdx === 0 ? th.textDim : th.textMuted, cursor: qIdx === 0 ? "default" : "pointer", fontSize: 9, padding: "0 1px" }} title="Monter">{"▲"}</button>
@@ -1123,7 +1229,7 @@ function retirerDsSynthese(examId) {
           </div>
 
           {/* Competences */}
-          <div style={{ display: "flex", gap: 5, marginBottom: 8 }}>
+          {ft.competences && <div style={{ display: "flex", gap: 5, marginBottom: 8 }}>
             {COMPETENCES.map(function(c) { return (
               <div key={c.id} style={{ flex: 1, padding: "5px", borderRadius: th.radiusSm, border: "2px solid " + compColor(c, dark), background: compColor(c, dark) + "08", textAlign: "center" }}>
                 <div style={{ fontSize: 9, color: th.textMuted, textTransform: "uppercase", letterSpacing: "0.5px", fontFamily: FONT_B }}>{c.label}</div>
@@ -1132,10 +1238,10 @@ function retirerDsSynthese(examId) {
             <button onClick={function() { setAbsents(function(p) { var n = {}; for (var k in p) n[k] = p[k]; n[s.id] = !p[s.id]; return n; }); }} style={{ padding: "4px 10px", borderRadius: th.radiusSm, cursor: "pointer", fontFamily: FONT_B, fontSize: 10, fontWeight: 600, background: absents[s.id] ? th.dangerBg : th.surface, border: "1px solid " + (absents[s.id] ? th.danger + "40" : th.border), color: absents[s.id] ? th.danger : th.textMuted }}>
               {absents[s.id] ? "\u2717 Abs." : "Abs.?"}
             </button>
-          </div>
+          </div>}
 
           {/* Malus */}
-          {showMalusBar && <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8, padding: "6px 10px", borderRadius: th.radiusSm, background: hasMalus ? th.dangerBg : th.surface, border: "1px solid " + (hasMalus ? th.danger + "30" : th.border) }}>
+          {ft.malusAuto && showMalusBar && <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8, padding: "6px 10px", borderRadius: th.radiusSm, background: hasMalus ? th.dangerBg : th.surface, border: "1px solid " + (hasMalus ? th.danger + "30" : th.border) }}>
             <span style={{ fontSize: 11, fontFamily: FONT_B, color: hasMalus ? th.danger : th.textMuted }}>
               {remCount + " remarque" + (remCount > 1 ? "s" : "")}
               {autoMalusVal > 0 && <span style={{ fontWeight: 700 }}>{" malus " + autoMalusVal + "%"}</span>}
@@ -1166,12 +1272,12 @@ function retirerDsSynthese(examId) {
           {/* Exercise tabs */}
           <div style={{ display: "flex", gap: 3, marginBottom: 8 }}>
             {exam.exercises.map(function(x, i) {
-              var sc = exerciseScore(grades, s.id, x);
+              var sc = exerciseScore(grades, s.id, x, bonusCompletConfig);
               var xt = x.questions.reduce(function(ss, q) { return ss + q.items.reduce(function(si2, it) { return si2 + (+it.points || 0); }, 0); }, 0);
               return (
                 <button key={x.id} onClick={function() { setEi(i); }} style={{ flex: 1, padding: "6px 3px", borderRadius: th.radiusSm, cursor: "pointer", fontFamily: FONT_B, fontSize: 10, fontWeight: 600, background: i === ei ? th.accent + "15" : "transparent", border: "1.5px solid " + (i === ei ? th.accent + "50" : th.border), color: i === ei ? th.accent : th.textMuted }}>
                   <div>{x.title.length > 20 ? x.title.slice(0, 18) + "\u2026" : x.title}</div>
-                  <div style={{ fontSize: 9, fontFamily: MONO, opacity: 0.7 }}>{sc.earned + "/" + xt}</div>
+                  <div style={{ fontSize: 9, fontFamily: MONO, opacity: 0.7 }}>{sc.earned + "/" + xt}{sc.bonus > 0 ? " 🏆" : ""}</div>
                 </button>); })}
           </div>
 
@@ -1184,7 +1290,7 @@ function retirerDsSynthese(examId) {
                 <div style={{ display: "flex", alignItems: "center", gap: 5, padding: "6px 10px", borderBottom: "1px solid " + th.border, background: th.surface }}>
                   <span style={{ fontWeight: 700, fontSize: 13, fontFamily: FONT }}>{"Q. " + q.label}</span>
                   {q.bonus && <span title="Question bonus" style={{ fontSize: 10, padding: "0 4px", borderRadius: 6, border: "1px solid " + th.warning + "55", background: th.warningBg, color: th.warning }}>{"\uD83C\uDF81 bonus"}</span>}
-                  {q.competences.map(function(cid) { var c = COMPETENCES.find(function(x) { return x.id === cid; }); return c ? <span key={c.id} style={{ fontSize: 8, fontWeight: 700, padding: "0 4px", borderRadius: 6, border: "1.5px solid " + compColor(c, dark), color: compColor(c, dark), fontFamily: MONO }}>{c.short}</span> : null; })}
+                  {ft.competences && q.competences.map(function(cid) { var c = COMPETENCES.find(function(x) { return x.id === cid; }); return c ? <span key={c.id} style={{ fontSize: 8, fontWeight: 700, padding: "0 4px", borderRadius: 6, border: "1.5px solid " + compColor(c, dark), color: compColor(c, dark), fontFamily: MONO }}>{c.short}</span> : null; })}
                   <div style={{ flex: 1 }} />
                   <AudioRecorder
                     nomDS={examNomDS}
@@ -1311,8 +1417,8 @@ function retirerDsSynthese(examId) {
                 {g.label}
               </button>); })}
             <div style={{ flex: 1 }} />
-            {["general", "exercices", "classement"].map(function(t) { return (
-              <button key={t} onClick={function() { setTab(t); }} style={{ padding: "6px 10px", borderRadius: th.radiusSm, cursor: "pointer", fontFamily: FONT_B, fontSize: 11, fontWeight: 600, background: tab === t ? th.accent + "18" : "transparent", border: "1px solid " + (tab === t ? th.accent + "40" : th.border), color: tab === t ? th.accent : th.textMuted }}>{t === "general" ? "G\u00E9n\u00E9ral" : t === "exercices" ? "Exercices" : "Classement"}</button>); })}
+            {["general", "exercices", "classement", "progression"].map(function(t) { return (
+              <button key={t} onClick={function() { setTab(t); }} style={{ padding: "6px 10px", borderRadius: th.radiusSm, cursor: "pointer", fontFamily: FONT_B, fontSize: 11, fontWeight: 600, background: tab === t ? th.accent + "18" : "transparent", border: "1px solid " + (tab === t ? th.accent + "40" : th.border), color: tab === t ? th.accent : th.textMuted }}>{t === "general" ? "G\u00E9n\u00E9ral" : t === "exercices" ? "Exercices" : t === "classement" ? "Classement" : "Progression"}</button>); })}
           </div>
 
           {tab === "general" && <div>
@@ -1330,7 +1436,7 @@ function retirerDsSynthese(examId) {
               })} colorFn={function(nn) { return nn < 8 ? th.danger + "aa" : nn < 12 ? th.warning + "aa" : th.success + "aa"; }} th={th}
                 moyLine={statMoy} medLine={statMed} />
             </div>
-            <div style={{ background: th.card, borderRadius: th.radius, border: "1px solid " + th.border, padding: 12, boxShadow: th.shadow }}>
+            {ft.competences && <div style={{ background: th.card, borderRadius: th.radius, border: "1px solid " + th.border, padding: 12, boxShadow: th.shadow }}>
               <div style={{ fontSize: 12, fontWeight: 700, marginBottom: 6, fontFamily: FONT }}>{"Comp\u00E9tences"}</div>
               {COMPETENCES.map(function(c) {
                 var tp = 0, ep = 0;
@@ -1342,9 +1448,9 @@ function retirerDsSynthese(examId) {
                       <span style={{ color: compColor(c, dark), fontWeight: 600 }}>{c.label}</span>
                       <span style={{ fontFamily: MONO, color: th.textMuted }}>{pct.toFixed(0) + "%"}</span>
                     </div>
-                    <PBar value={pct} max={100} color={cc(c, dark)} th={th} />
+                    <PBar value={pct} max={100} color={compColor(c, dark)} th={th} />
                   </div>); })}
-            </div>
+            </div>}
           </div>}
           {tab === "exercices" && exam.exercises.map((exx, i) => {
             const exT = exx.questions.reduce((s, q) =>
@@ -1377,11 +1483,14 @@ function retirerDsSynthese(examId) {
                 }
               }
               const n = filteredCorriges.length;
+              const tauxTraitement = n > 0 ? (nb / n) * 100 : 0;
+              const tauxReussite   = nb > 0 && tot > 0 ? (obt / (nb * tot)) * 100 : 0;
               return {
                 q, tot, nb,
-                tauxTraitement: n > 0 ? (nb / n) * 100 : 0,
-                tauxReussite:   nb > 0 && tot > 0 ? (obt / (nb * tot)) * 100 : 0,
-                diff: nb > 0 && (obt / (nb * tot)) * 100 < seuilDifficile,
+                tauxTraitement,
+                tauxReussite,
+                difficile: tauxTraitement < seuilDifficile,
+                piege: tauxTraitement >= 50 && tauxReussite < seuilPiege,
               };
             });
             return (
@@ -1407,14 +1516,14 @@ function retirerDsSynthese(examId) {
                   </div>
                   {qStats.map((qs, j) => (
                     <div key={j} style={{ display: "flex", alignItems: "center", gap: 5, marginBottom: 3 }}>
-                      <span style={{ fontWeight: qs.diff ? 700 : 500, fontSize: 10, minWidth: 28,
-                          color: qs.diff ? th.danger : th.text, fontFamily: FONT_B }}>
-                        {"Q." + qs.q.label}
+                      <span style={{ fontWeight: (qs.difficile || qs.piege) ? 700 : 500, fontSize: 10, minWidth: 28,
+                          color: qs.difficile ? th.danger : qs.piege ? th.warning : th.text, fontFamily: FONT_B }}>
+                        {"Q." + qs.q.label}{ft.questionPiege && qs.piege ? " ⚠️" : ""}
                       </span>
                       {/* Barre traitement — rouge si question difficile */}
                       <div style={{ flex: 1, display: "flex", alignItems: "center", gap: 3 }}>
                         <PBar value={qs.tauxTraitement} max={100}
-                          color={qs.diff ? th.danger : th.textMuted} h={5} th={th} />
+                          color={qs.difficile ? th.danger : qs.piege ? th.warning : th.textMuted} h={5} th={th} />
                         <span style={{ fontFamily: MONO, fontSize: 9,
                             color: qs.diff ? th.danger : th.textMuted, minWidth: 26, textAlign: "right" }}>
                           {qs.tauxTraitement.toFixed(0) + "%"}
@@ -1475,6 +1584,71 @@ function retirerDsSynthese(examId) {
             </div>
           );
         })()}
+        {tab === "progression" && (function() {
+          if (!synthese.length) return (
+            <div style={{ textAlign: "center", padding: 40, color: th.textMuted, fontFamily: FONT_B, fontSize: 13 }}>
+              {"Aucune donnée de progression. Utilisez la Synthèse multi-DS dans l'onglet Export pour alimenter cet historique."}
+            </div>
+          );
+          // Élèves ayant au moins une entrée dans synthese
+          var progStudents = students.filter(function(s) {
+            return synthese.some(function(r) { return r.studentId === s.id; });
+          });
+          var selId = progressionStudentId || (progStudents[0] ? progStudents[0].id : null);
+          // Données de l'élève sélectionné : une entrée par DS (trié par date)
+          var examIds = [];
+          synthese.forEach(function(r) { if (examIds.indexOf(r.examId) < 0) examIds.push(r.examId); });
+          // Trier les examIds par dsDate
+          examIds.sort(function(a, b) {
+            var ra = synthese.find(function(r) { return r.examId === a; });
+            var rb = synthese.find(function(r) { return r.examId === b; });
+            if (!ra || !rb) return 0;
+            return (ra.dsDate || "").localeCompare(rb.dsDate || "");
+          });
+          var progData = examIds.map(function(eid) {
+            var rowEleve = synthese.find(function(r) { return r.examId === eid && r.studentId === selId; });
+            var rowsDS = synthese.filter(function(r) { return r.examId === eid; });
+            var moyBrute = rowsDS.length ? rowsDS.reduce(function(s, r) { return s + (r.noteBrute || 0); }, 0) / rowsDS.length : null;
+            var moyNorm = rowsDS.length ? rowsDS.reduce(function(s, r) { return s + (r.noteNorm || 0); }, 0) / rowsDS.length : null;
+            var dsNom = rowsDS[0] ? (rowsDS[0].dsNom || eid) : eid;
+            return {
+              dsNom: dsNom,
+              noteEleve: rowEleve ? (progressionShowNorm ? rowEleve.noteNorm : rowEleve.noteBrute) : null,
+              moyClasse: progressionShowNorm ? moyNorm : moyBrute,
+            };
+          });
+          return (
+            <div>
+              {/* Sélecteur élève + toggle */}
+              <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12, flexWrap: "wrap" }}>
+                <select value={selId || ""} onChange={function(e) { setProgressionStudentId(e.target.value); }}
+                  style={{ flex: 1, minWidth: 160, padding: "5px 8px", borderRadius: th.radiusSm, border: "1px solid " + th.border, background: th.card, color: th.text, fontFamily: FONT_B, fontSize: 12 }}>
+                  {progStudents.map(function(s) { return (
+                    <option key={s.id} value={s.id}>{s.nom + " " + s.prenom}</option>
+                  ); })}
+                </select>
+                <button onClick={function() { setProgressionShowNorm(function(v) { return !v; }); }}
+                  style={{ padding: "5px 12px", borderRadius: th.radiusSm, cursor: "pointer", fontFamily: FONT_B, fontSize: 11, fontWeight: 600, background: progressionShowNorm ? th.accent + "18" : "transparent", border: "1px solid " + (progressionShowNorm ? th.accent + "40" : th.border), color: progressionShowNorm ? th.accent : th.textMuted }}>
+                  {progressionShowNorm ? "Normalisée" : "Brute"}
+                </button>
+                {["courbe", "radar"].map(function(m) { return (
+                  <button key={m} onClick={function() { setProgressionViewMode(m); }}
+                    style={{ padding: "5px 10px", borderRadius: th.radiusSm, cursor: "pointer", fontFamily: FONT_B, fontSize: 13, background: progressionViewMode === m ? th.accent + "18" : "transparent", border: "1px solid " + (progressionViewMode === m ? th.accent + "40" : th.border), color: progressionViewMode === m ? th.accent : th.textMuted }}>
+                    {m === "courbe" ? "📈" : "🕸️"}
+                  </button>); })}
+              </div>
+              {/* Graphe */}
+              <div style={{ background: th.card, borderRadius: th.radius, border: "1px solid " + th.border, padding: 12, boxShadow: th.shadow }}>
+                {progressionViewMode === "radar" && progData.length <= 8
+                  ? <ProgressionRadar data={progData} th={th} FONT_B={FONT_B} MONO={MONO} />
+                  : progressionViewMode === "radar"
+                    ? <div style={{ textAlign: "center", padding: 16, color: th.textMuted, fontFamily: FONT_B, fontSize: 11 }}>{"Trop de DS pour un radar (> 8) — affichage en courbe."}<br /><ProgressionChart data={progData} th={th} FONT_B={FONT_B} MONO={MONO} /></div>
+                    : <ProgressionChart data={progData} th={th} FONT_B={FONT_B} MONO={MONO} />
+                }
+              </div>
+            </div>
+          );
+        })()}
         </div>}
 
         {/* ═══ VUE D'ENSEMBLE ═══ */}
@@ -1506,7 +1680,8 @@ function retirerDsSynthese(examId) {
           examNomDS={examNomDS} examDateDS={examDateDS}
           presents={presents} corriges={corriges}
           students={students} grades={grades} remarks={remarks} absents={absents}
-          seuils={seuils} seuilDifficile={seuilDifficile} seuilReussite={seuilReussite}
+          seuils={seuils} seuilDifficile={seuilDifficile} seuilReussite={seuilReussite} seuilPiege={seuilPiege} bonusCompletConfig={bonusCompletConfig}
+          features={ft}
           malusPaliers={malusPaliers} malusManuel={malusManuel}
           commentaires={commentaires} allRemarques={allRemarques}
           htmlConfig={htmlConfig} htmlStudentId={htmlStudentId}
@@ -1536,7 +1711,7 @@ function retirerDsSynthese(examId) {
 {/* MODAL À PROPOS */}
 {showApropos && <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.4)", zIndex: 200, display: "flex", alignItems: "center", justifyContent: "center" }} onClick={function() { setShowApropos(false); }}>
         <div style={{ background: th.card, borderRadius: 12, border: "1px solid " + th.border, padding: "28px 32px", width: showChangelog ? 580 : 360, maxWidth: "95vw", transition: "width 0.2s", boxShadow: "0 8px 32px rgba(0,0,0,0.2)", textAlign: "center" }} onClick={function(e) { e.stopPropagation(); }}>
-          <div style={{ fontSize: 13, fontFamily: MONO, color: th.textDim, marginBottom: 4, letterSpacing: 2 }}>{"v\u00A00.91"}</div>
+          <div style={{ fontSize: 13, fontFamily: MONO, color: th.textDim, marginBottom: 4, letterSpacing: 2 }}>{"v\u00A0" + APP_VERSION}</div>
           <div style={{ fontSize: 26, fontWeight: 700, fontFamily: FONT, color: th.text, marginBottom: 6 }}>{"C.H.E.C.K."}</div>
           <div style={{ fontSize: 11, color: th.textMuted, fontFamily: FONT_B, lineHeight: 1.6, marginBottom: 20 }}>
             {"Correcteur Hautement Efficace avec Cases à Kocher"}
@@ -1545,7 +1720,7 @@ function retirerDsSynthese(examId) {
           </div>
           <button onClick={function() {
             if (!changelogText) {
-              fetch("/CHANGELOG.md").then(function(r) { return r.text(); }).then(function(t) { setChangelogText(t); }).catch(function() { setChangelogText("_(changelog non disponible)_"); });
+              fetch(process.env.PUBLIC_URL + "/CHANGELOG.md").then(function(r) { return r.text(); }).then(function(t) { setChangelogText(t); }).catch(function() { setChangelogText("_(changelog non disponible)_"); });
             }
             setShowChangelog(!showChangelog);
           }} style={{ width: "100%", padding: "9px", borderRadius: th.radiusSm, cursor: "pointer", fontFamily: FONT_B, fontSize: 12, fontWeight: 700, background: th.accentBg, border: "1px solid " + th.accent + "30", color: th.accent, marginBottom: 8 }}>
@@ -1557,10 +1732,10 @@ function retirerDsSynthese(examId) {
                 var parts = s.split(/\*\*(.+?)\*\*/g);
                 return parts.map(function(p, j) { return j % 2 === 1 ? <strong key={j}>{p}</strong> : p; });
               };
-              if (line.startsWith("## "))  return <div key={i} style={{ fontWeight: 700, fontSize: 13, color: th.text, marginTop: 10, marginBottom: 2 }}>{line.slice(3)}</div>;
               if (line.startsWith("### ")) return <div key={i} style={{ fontWeight: 700, color: th.accent, marginTop: 6, marginBottom: 1 }}>{line.slice(4)}</div>;
+              if (line.startsWith("## "))  return <div key={i} style={{ fontWeight: 700, fontSize: 13, color: th.text, marginTop: 10, marginBottom: 2 }}>{line.slice(3)}</div>;
               if (line.startsWith("- "))   return <div key={i} style={{ paddingLeft: 12 }}>{"• "}{inlineBold(line.slice(2))}</div>;
-              if (line.trim() === "")      return <div key={i} style={{ height: 4 }} />;
+              if (line.trim() === "" || line.trim() === "---") return <div key={i} style={{ height: 4 }} />;
               return <div key={i}>{inlineBold(line)}</div>;
             })}
           </div>}
@@ -1584,6 +1759,8 @@ function retirerDsSynthese(examId) {
         normParams={normParams} setNormParams={setNormParams}
         seuilDifficile={seuilDifficile} setSeuilDifficile={setSeuilDifficile}
         seuilReussite={seuilReussite} setSeuilReussite={setSeuilReussite}
+        seuilPiege={seuilPiege} setSeuilPiege={setSeuilPiege}
+        bonusCompletConfig={bonusCompletConfig} setBonusCompletConfig={setBonusCompletConfig}
         malusPaliers={malusPaliers} setMalusPaliers={setMalusPaliers}
         malusMode={malusMode} setMalusMode={setMalusMode}
         remarquesCustom={remarquesCustom} setRemarquesCustom={setRemarquesCustom}
