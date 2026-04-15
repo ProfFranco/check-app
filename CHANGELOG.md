@@ -1,3 +1,34 @@
+## v 1.0 — avril 2026
+
+### Architecture
+- Découpage du composant principal en modules indépendants (`db.js`, `Charts.jsx`, `AudioRecorder.jsx`, `DebugModal.jsx`, `SettingsModal.jsx`, `ExportTab.jsx`) — App.jsx allégé de 46 %
+- Couverture de tests unitaires : 45 tests sur les fonctions de calcul (`calculs.test.js`)
+
+### Fonctionnalités par devoir
+- Sélecteur de preset ♙ Simple / ♜ Standard / ♔ Complet / ♞ Personnalisé
+- Chaque devoir porte ses propres fonctionnalités : compétences A/N/R/V, coefficients, questions bonus 🎁, bonus exercice complet 🏆, malus automatique, questions pièges ⚠️
+- L'interface s'adapte dynamiquement aux fonctionnalités activées
+
+### Progression inter-DS
+- Sous-onglet **Progression** dans les Stats : courbe note élève + moyenne classe par DS
+- Radar multi-DS (basculement automatique vers courbe au-delà de 8 DS)
+- Toggle brut / normalisé
+
+### Bonus exercice complet 🏆
+- Déclenché si toutes les questions non-bonus sont traitées et le score dépasse le seuil
+- Configurable : mode fixe ou pourcentage, valeur du bonus, seuil de déclenchement
+
+### Questions pièges ⚠️
+- Détection automatique : taux de traitement ≥ 50 % mais taux de réussite sous le seuil
+- Marquage dans les stats, les exports HTML et LaTeX
+
+### Correctifs
+- Aperçu HTML dans l'onglet Résultats : stabilisation de l'iframe (ne se recharge plus à chaque navigation)
+- Nom des DS dans les bulles de navigation corrigé
+- Coloration des notes dans l'onglet Correction corrigée
+
+---
+
 ## v 0.91
 
 ### Correctifs
