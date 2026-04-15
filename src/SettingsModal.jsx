@@ -15,6 +15,8 @@ export default function SettingsModal({
   normParams, setNormParams,
   seuilDifficile, setSeuilDifficile,
   seuilReussite, setSeuilReussite,
+  seuilPiege, setSeuilPiege,
+  bonusCompletConfig, setBonusCompletConfig,
   malusPaliers, setMalusPaliers,
   malusMode, setMalusMode,
   remarquesCustom, setRemarquesCustom,
@@ -153,6 +155,44 @@ export default function SettingsModal({
                 <input type="number" min={0} max={100} value={seuilReussite} onChange={function(e) { setSeuilReussite(Number(e.target.value)); }}
                   style={{ width: 56, background: th.card, border: "1px solid " + th.border, color: th.text, borderRadius: 4, padding: "3px 6px", fontSize: 12, fontFamily: MONO, outline: "none" }} />
                 <span style={{ fontSize: 10, color: th.textDim }}>%</span>
+              </div>
+
+              {/* Question piège */}
+              <div style={{ fontSize: 11, fontWeight: 700, color: th.textMuted, fontFamily: FONT_B, marginBottom: 8, marginTop: 16, textTransform: "uppercase", letterSpacing: 1 }}>{"Question piège ⚠️"}</div>
+              <div style={{ fontSize: 10, color: th.textMuted, fontFamily: FONT_B, marginBottom: 8, lineHeight: 1.5 }}>
+                {"Une question traitée par ≥ 50% des élèves mais réussie par moins de X% des traitants."}
+              </div>
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <label style={{ flex: 1, fontSize: 11, fontFamily: FONT_B, color: th.text }}>{"Seuil piège"}</label>
+                <input type="number" min={0} max={100} value={seuilPiege} onChange={function(e) { setSeuilPiege(Number(e.target.value)); }}
+                  style={{ width: 56, background: th.card, border: "1px solid " + th.border, color: th.text, borderRadius: 4, padding: "3px 6px", fontSize: 12, fontFamily: MONO, outline: "none" }} />
+                <span style={{ fontSize: 10, color: th.textDim }}>%</span>
+              </div>
+
+              {/* Bonus exercice complet */}
+              <div style={{ fontSize: 11, fontWeight: 700, color: th.textMuted, fontFamily: FONT_B, marginBottom: 8, marginTop: 16, textTransform: "uppercase", letterSpacing: 1 }}>{"Bonus exercice complet 🏆"}</div>
+              <div style={{ fontSize: 10, color: th.textMuted, fontFamily: FONT_B, marginBottom: 10, lineHeight: 1.5 }}>
+                {"Récompense automatique quand un élève a traité toutes les questions d'un exercice (activé par 🏆 dans la Préparation) et atteint le seuil de réussite."}
+              </div>
+              <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
+                <label style={{ flex: 1, fontSize: 11, fontFamily: FONT_B, color: th.text }}>{"Seuil de réussite"}</label>
+                <input type="number" min={0} max={100} value={bonusCompletConfig.seuil} onChange={function(e) { setBonusCompletConfig(Object.assign({}, bonusCompletConfig, { seuil: Number(e.target.value) })); }}
+                  style={{ width: 56, background: th.card, border: "1px solid " + th.border, color: th.text, borderRadius: 4, padding: "3px 6px", fontSize: 12, fontFamily: MONO, outline: "none" }} />
+                <span style={{ fontSize: 10, color: th.textDim }}>%</span>
+              </div>
+              <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
+                <label style={{ flex: 1, fontSize: 11, fontFamily: FONT_B, color: th.text }}>{"Type de bonus"}</label>
+                {[{ id: "fixe", label: "Points fixes" }, { id: "pourcent", label: "% du barème" }].map(function(m) { return (
+                  <label key={m.id} style={{ display: "flex", alignItems: "center", gap: 4, cursor: "pointer", fontSize: 11, fontFamily: FONT_B, color: bonusCompletConfig.mode === m.id ? th.text : th.textMuted }}>
+                    <input type="radio" name="bonusMode" checked={bonusCompletConfig.mode === m.id} onChange={function() { setBonusCompletConfig(Object.assign({}, bonusCompletConfig, { mode: m.id })); }} />
+                    {m.label}
+                  </label>); })}
+              </div>
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <label style={{ flex: 1, fontSize: 11, fontFamily: FONT_B, color: th.text }}>{"Valeur du bonus"}</label>
+                <input type="number" min={0} step={0.5} value={bonusCompletConfig.valeur} onChange={function(e) { setBonusCompletConfig(Object.assign({}, bonusCompletConfig, { valeur: Number(e.target.value) })); }}
+                  style={{ width: 56, background: th.card, border: "1px solid " + th.border, color: th.text, borderRadius: 4, padding: "3px 6px", fontSize: 12, fontFamily: MONO, outline: "none" }} />
+                <span style={{ fontSize: 10, color: th.textDim }}>{bonusCompletConfig.mode === "pourcent" ? "%" : "pts"}</span>
               </div>
             </div>
           );

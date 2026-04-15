@@ -50,17 +50,58 @@ export function questionScore(grades, studentId, question) {
 }
 
 
-/** Score d'un élève sur un exercice : { earned, total }
+/**
+ * Calcule le bonus "exercice complet" pour un élève sur un exercice.
+ * Retourne 0 si :
+ *   - exercise.bonusComplet n'est pas activé
+ *   - au moins une question non-bonus n'est pas traitée
+ *   - le taux de réussite (hors bonus) est inférieur au seuil
+ * Sinon retourne le bonus en points (fixe ou % du barème).
+ */
+export function bonusCompletPoints(grades, studentId, exercise, bonusConfig) {
+  if (!exercise.bonusComplet) return 0;
+  if (!bonusConfig) return 0;
+
+  // Calculer earned et total sur les questions non-bonus uniquement
+  let earned = 0, total = 0;
+  for (const q of exercise.questions) {
+    if (q.bonus) continue;
+    // Vérifier que la question est traitée : au moins un item coché OU case "traitée" cochée
+    const treated = grades[treatedKey(studentId, q.id)]
+      || (q.items || []).some(it => grades[gradeKey(studentId, it.id)]);
+    if (!treated) return 0; // question non traitée → pas de bonus
+    for (const it of (q.items || [])) {
+      const pts = parseFloat(it.points) || 0;
+      total += pts;
+      if (grades[gradeKey(studentId, it.id)]) earned += pts;
+    }
+  }
+
+  // Vérifier le seuil de réussite
+  if (total === 0) return 0;
+  const pctReussite = (earned / total) * 100;
+  if (pctReussite < (bonusConfig.seuil || 70)) return 0;
+
+  // Calculer la valeur du bonus
+  if (bonusConfig.mode === "pourcent") {
+    return total * (bonusConfig.valeur || 0) / 100;
+  }
+  return bonusConfig.valeur || 0;
+}
+
+/** Score d'un élève sur un exercice : { earned, total, bonus }
  *  total exclut les questions bonus (conformément au principe :
- *  les bonus s'ajoutent au score mais pas au maximum). */
-export function exerciseScore(grades, studentId, exercise) {
+ *  les bonus s'ajoutent au score mais pas au maximum).
+ *  Si bonusConfig est fourni, le bonus exercice complet est inclus dans earned. */
+export function exerciseScore(grades, studentId, exercise, bonusConfig) {
   let earned = 0, total = 0;
   for (const q of exercise.questions) {
     const s = questionScore(grades, studentId, q);
     earned += s.earned;
     if (!q.bonus) total += s.total;
   }
-  return { earned, total };
+  const bonus = bonusConfig ? bonusCompletPoints(grades, studentId, exercise, bonusConfig) : 0;
+  return { earned: earned + bonus, total, bonus };
 }
 
 /** Score total d'un élève sur l'examen (points bruts, sans coefficients) */

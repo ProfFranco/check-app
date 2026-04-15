@@ -11,6 +11,11 @@
 // Elles peuvent être surchargées dans l'interface (onglet Réglages).
 // ═══════════════════════════════════════════════════════════════════
 
+// ─── Version de l'application ────────────────────────────────────
+// Modifier uniquement ici — répercuté automatiquement dans l'écran
+// "À propos" et dans l'en-tête de la documentation (HelpTab).
+export const APP_VERSION = "1.00";
+
 // ─── Compétences évaluées ────────────────────────────────────────
 // id       : identifiant interne (une lettre, utilisée dans les exports)
 // label    : nom complet affiché dans les statistiques et rapports
@@ -64,6 +69,12 @@ export const DEFAULT_SEUILS = {
 // Modifiable dans Réglages.
 export const DEFAULT_SEUIL_DIFFICILE = 33; // %
 
+// ─── Seuil question-piège (valeur par défaut) ────────────────────
+// Une question traitée par ≥ 50% des élèves mais réussie par moins
+// de ce % des traitants est considérée comme un "piège pédagogique".
+// Modifiable dans Réglages.
+export const DEFAULT_SEUIL_PIEGE = 30; // %
+
 // ─── Malus de présentation (valeurs par défaut) ──────────────────
 // Paliers automatiques basés sur le nombre de remarques (malus: true).
 // Le malus est un % retranché à la note.
@@ -114,3 +125,24 @@ export const DEFAULT_NORM = {
   method: "none",
   params: { moyenneCible: 10, maxCible: 20, sigmaCible: 3.5 },
 };
+
+// ─── Bonus exercice complet (valeurs par défaut) ─────────────────
+// Un élève ayant traité TOUTES les questions non-bonus d'un exercice
+// (activé avec exercise.bonusComplet = true) et ayant atteint le seuil
+// de réussite reçoit un bonus automatique.
+// mode : "fixe"    → valeur en points absolus
+//        "pourcent" → % du barème de l'exercice (hors bonus)
+export const DEFAULT_BONUS_COMPLET = {
+  seuil: 70,          // % de réussite minimum sur l'exercice
+  mode: "fixe",       // "fixe" | "pourcent"
+  valeur: 1,          // pts absolus OU % du barème
+};
+
+// ─── Fonctionnalités configurables par DS ────────────────────────
+export var FEATURE_PRESETS = {
+  simple:   { competences: false, coefficients: false, questionBonus: false, bonusComplet: false, malusAuto: false,  questionPiege: false },
+  standard: { competences: true,  coefficients: false, questionBonus: true,  bonusComplet: false, malusAuto: true,   questionPiege: false },
+  complet:  { competences: true,  coefficients: true,  questionBonus: true,  bonusComplet: true,  malusAuto: true,   questionPiege: true  },
+};
+
+export var DEFAULT_FEATURES = { preset: "complet", competences: true, coefficients: true, questionBonus: true, bonusComplet: true, malusAuto: true, questionPiege: true };

@@ -141,3 +141,262 @@ export function Histo({ bins, colorFn, label, th, moyLine, medLine }) {
 export function PBar({ value, max, color, h = 6, th }) {
   return <div style={{ background: th.border, borderRadius: h / 2, height: h, overflow: "hidden", width: "100%" }}><div style={{ height: "100%", borderRadius: h / 2, width: `${max > 0 ? clamp((value / max) * 100, 0, 100) : 0}%`, background: color, transition: "width 0.3s" }} /></div>;
 }
+
+// ─── ProgressionChart — courbe élève + moyenne classe ─────────────
+//
+// Props :
+//   data    : [{ dsNom, noteEleve, moyClasse }]  — tableaux triés par date
+//   th      : thème
+//   FONT_B  : police corps
+//   MONO    : police mono
+
+export function ProgressionChart({ data, th, FONT_B, MONO }) {
+  var W = 560, H = 220;
+  var PAD = { top: 16, right: 20, bottom: 40, left: 36 };
+  var chartW = W - PAD.left - PAD.right;
+  var chartH = H - PAD.top - PAD.bottom;
+  var n = data.length;
+
+  if (n === 0) return (
+    <div style={{ textAlign: "center", padding: 24, color: th.textMuted, fontFamily: FONT_B, fontSize: 12 }}>
+      {"Aucune donnée."}
+    </div>
+  );
+
+  // Axes
+  var yMin = 0, yMax = 20;
+  var xOf = function(i) { return PAD.left + (n === 1 ? chartW / 2 : i * chartW / (n - 1)); };
+  var yOf = function(v) { return PAD.top + chartH - (v / yMax) * chartH; };
+
+  // Lignes de grille horizontales
+  var gridLines = [0, 5, 10, 15, 20];
+
+  // Polyline points
+  function pointsStr(arr) {
+    return arr
+      .map(function(d, i) { return d != null ? xOf(i) + "," + yOf(d) : null; })
+      .filter(Boolean)
+      .join(" ");
+  }
+
+  // Segments continus (gère les trous si noteEleve est null)
+  function buildSegments(arr) {
+    var segments = [], cur = [];
+    arr.forEach(function(d, i) {
+      if (d != null) {
+        cur.push({ x: xOf(i), y: yOf(d), v: d, i: i });
+      } else {
+        if (cur.length > 1) segments.push(cur);
+        cur = [];
+      }
+    });
+    if (cur.length > 1) segments.push(cur);
+    return segments;
+  }
+
+  var eleveVals = data.map(function(d) { return d.noteEleve; });
+  var moyVals   = data.map(function(d) { return d.moyClasse; });
+  var eleveSegs = buildSegments(eleveVals);
+  var moySegs   = buildSegments(moyVals);
+
+  return (
+    <svg viewBox={"0 0 " + W + " " + H} width="100%" style={{ display: "block", overflow: "visible" }}>
+
+      {/* Grille */}
+      {gridLines.map(function(v) { return (
+        <g key={v}>
+          <line x1={PAD.left} x2={PAD.left + chartW} y1={yOf(v)} y2={yOf(v)}
+            stroke={th.border} strokeWidth={v === 0 ? 1.5 : 0.75} strokeDasharray={v === 0 ? "none" : "3,3"} />
+          <text x={PAD.left - 5} y={yOf(v) + 4} textAnchor="end"
+            fontSize={9} fontFamily={MONO} fill={th.textDim}>{v}</text>
+        </g>
+      ); })}
+
+      {/* Courbe moyenne classe — pointillés */}
+      {moySegs.map(function(seg, si) { return (
+        <polyline key={"moy" + si}
+          points={seg.map(function(p) { return p.x + "," + p.y; }).join(" ")}
+          fill="none" stroke={th.textMuted} strokeWidth={1.5}
+          strokeDasharray="5,4" strokeLinecap="round" strokeLinejoin="round" />
+      ); })}
+
+      {/* Points moyenne */}
+      {data.map(function(d, i) {
+        if (d.moyClasse == null) return null;
+        return <circle key={"mc" + i} cx={xOf(i)} cy={yOf(d.moyClasse)} r={3}
+          fill={th.surface} stroke={th.textMuted} strokeWidth={1.5} />;
+      })}
+
+      {/* Courbe élève — trait plein */}
+      {eleveSegs.map(function(seg, si) { return (
+        <polyline key={"elv" + si}
+          points={seg.map(function(p) { return p.x + "," + p.y; }).join(" ")}
+          fill="none" stroke={th.accent} strokeWidth={2.5}
+          strokeLinecap="round" strokeLinejoin="round" />
+      ); })}
+
+      {/* Points élève avec tooltip title */}
+      {data.map(function(d, i) {
+        if (d.noteEleve == null) return null;
+        var above = d.noteEleve >= (d.moyClasse || 0);
+        return (
+          <g key={"ep" + i}>
+            <circle cx={xOf(i)} cy={yOf(d.noteEleve)} r={5}
+              fill={th.accent} stroke={th.card} strokeWidth={2} />
+            <text x={xOf(i)} y={yOf(d.noteEleve) + (above ? -10 : 14)}
+              textAnchor="middle" fontSize={9} fontFamily={MONO}
+              fontWeight={700} fill={th.accent}>
+              {d.noteEleve.toFixed(1)}
+            </text>
+            <title>{d.dsNom + " : " + (d.noteEleve != null ? d.noteEleve.toFixed(2) : "—") + "/20"}</title>
+          </g>
+        );
+      })}
+
+      {/* Labels X */}
+      {data.map(function(d, i) { return (
+        <text key={"xl" + i} x={xOf(i)} y={H - PAD.bottom + 14}
+          textAnchor="middle" fontSize={9} fontFamily={FONT_B} fill={th.textMuted}>
+          {d.dsNom.length > 10 ? d.dsNom.slice(0, 10) + "…" : d.dsNom}
+        </text>
+      ); })}
+
+      {/* Légende */}
+      <g transform={"translate(" + (PAD.left + chartW - 110) + "," + PAD.top + ")"}>
+        <line x1={0} x2={18} y1={6} y2={6} stroke={th.accent} strokeWidth={2.5} strokeLinecap="round" />
+        <circle cx={9} cy={6} r={4} fill={th.accent} stroke={th.card} strokeWidth={1.5} />
+        <text x={22} y={10} fontSize={9} fontFamily={FONT_B} fill={th.text}>{"Élève"}</text>
+        <line x1={0} x2={18} y1={22} y2={22} stroke={th.textMuted} strokeWidth={1.5} strokeDasharray="5,4" />
+        <circle cx={9} cy={22} r={3} fill={th.surface} stroke={th.textMuted} strokeWidth={1.5} />
+        <text x={22} y={26} fontSize={9} fontFamily={FONT_B} fill={th.textMuted}>{"Classe"}</text>
+      </g>
+
+    </svg>
+  );
+}
+
+// ─── ProgressionRadar — radar DS (élève vs classe) ────────────────
+//
+// Props :
+//   data    : [{ dsNom, noteEleve, moyClasse }]  — max 8 entrées
+//   th      : thème
+//   FONT_B  : police corps
+//   MONO    : police mono
+
+export function ProgressionRadar({ data, th, FONT_B, MONO }) {
+  var n = data.length;
+  if (n < 2) return (
+    <div style={{ textAlign: "center", padding: 24, color: th.textMuted, fontFamily: FONT_B, fontSize: 12 }}>
+      {"Au moins 2 DS nécessaires pour le radar."}
+    </div>
+  );
+
+  var CX = 200, CY = 190, R = 140;
+  var W = 400, H = 380;
+  var levels = [5, 10, 15, 20];
+
+  function angleOf(i) { return (Math.PI * 2 * i / n) - Math.PI / 2; }
+  function polarX(i, val) { return CX + (val / 20) * R * Math.cos(angleOf(i)); }
+  function polarY(i, val) { return CY + (val / 20) * R * Math.sin(angleOf(i)); }
+  function toPoints(vals) {
+    return vals.map(function(v, i) {
+      return polarX(i, v != null ? v : 0) + "," + polarY(i, v != null ? v : 0);
+    }).join(" ");
+  }
+
+  var eleveVals = data.map(function(d) { return d.noteEleve; });
+  var moyVals   = data.map(function(d) { return d.moyClasse != null ? d.moyClasse : 0; });
+
+  // Décalage label selon angle pour éviter les recouvrements
+  function labelAnchor(i) {
+    var a = angleOf(i);
+    var cos = Math.cos(a);
+    if (cos > 0.3) return "start";
+    if (cos < -0.3) return "end";
+    return "middle";
+  }
+  function labelDy(i) {
+    var a = angleOf(i);
+    var sin = Math.sin(a);
+    if (sin < -0.3) return -8;
+    if (sin > 0.3) return 14;
+    return 4;
+  }
+
+  return (
+    <svg viewBox={"0 0 " + W + " " + H} width="100%" style={{ display: "block", overflow: "visible" }}>
+
+      {/* Toiles de fond */}
+      {levels.map(function(lv) {
+        var pts = data.map(function(_, i) {
+          return polarX(i, lv) + "," + polarY(i, lv);
+        }).join(" ");
+        return (
+          <polygon key={lv} points={pts}
+            fill="none" stroke={th.border}
+            strokeWidth={lv === 20 ? 1.5 : 0.75}
+            strokeDasharray={lv === 20 ? "none" : "3,3"} />
+        );
+      })}
+
+      {/* Axes radiaux */}
+      {data.map(function(_, i) { return (
+        <line key={"ax" + i}
+          x1={CX} y1={CY}
+          x2={polarX(i, 20)} y2={polarY(i, 20)}
+          stroke={th.border} strokeWidth={0.75} />
+      ); })}
+
+      {/* Valeurs sur l'axe vertical (premier axe) */}
+      {levels.map(function(lv) { return (
+        <text key={"lv" + lv}
+          x={CX + 4} y={CY - (lv / 20) * R}
+          fontSize={8} fontFamily={MONO} fill={th.textDim}>{lv}</text>
+      ); })}
+
+      {/* Polygone moyenne classe */}
+      <polygon points={toPoints(moyVals)}
+        fill={th.textMuted + "18"} stroke={th.textMuted}
+        strokeWidth={1.5} strokeDasharray="5,4" />
+
+      {/* Polygone élève */}
+      <polygon points={toPoints(eleveVals.map(function(v) { return v != null ? v : 0; }))}
+        fill={th.accent + "22"} stroke={th.accent} strokeWidth={2} />
+
+      {/* Points élève */}
+      {data.map(function(d, i) {
+        if (d.noteEleve == null) return null;
+        return (
+          <g key={"ep" + i}>
+            <circle cx={polarX(i, d.noteEleve)} cy={polarY(i, d.noteEleve)}
+              r={4} fill={th.accent} stroke={th.card} strokeWidth={2} />
+            <title>{d.dsNom + " : " + d.noteEleve.toFixed(2) + "/20"}</title>
+          </g>
+        );
+      })}
+
+      {/* Labels DS */}
+      {data.map(function(d, i) {
+        var lx = CX + (R + 18) * Math.cos(angleOf(i));
+        var ly = CY + (R + 18) * Math.sin(angleOf(i));
+        return (
+          <text key={"lb" + i} x={lx} y={ly + labelDy(i)}
+            textAnchor={labelAnchor(i)}
+            fontSize={9} fontFamily={FONT_B} fill={th.textMuted}>
+            {d.dsNom.length > 10 ? d.dsNom.slice(0, 10) + "…" : d.dsNom}
+          </text>
+        );
+      })}
+
+      {/* Légende */}
+      <g transform={"translate(" + (W - 110) + ",16)"}>
+        <line x1={0} x2={18} y1={6} y2={6} stroke={th.accent} strokeWidth={2} />
+        <circle cx={9} cy={6} r={3} fill={th.accent} stroke={th.card} strokeWidth={1.5} />
+        <text x={22} y={10} fontSize={9} fontFamily={FONT_B} fill={th.text}>{"Élève"}</text>
+        <line x1={0} x2={18} y1={22} y2={22} stroke={th.textMuted} strokeWidth={1.5} strokeDasharray="5,4" />
+        <text x={22} y={26} fontSize={9} fontFamily={FONT_B} fill={th.textMuted}>{"Classe"}</text>
+      </g>
+
+    </svg>
+  );
+}

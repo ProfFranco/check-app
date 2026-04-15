@@ -18,7 +18,7 @@
 import { COMPETENCES, ETABLISSEMENT } from "../config/settings";
 import {
   gradeKey, treatedKey,
-  questionScore, exerciseScore,
+  questionScore, exerciseScore, bonusCompletPoints,
   notesParCompetence, malusTotal,
   ratioJustesse, ratioEfficacite,
 } from "./calculs";
@@ -279,6 +279,9 @@ function blocStats(student, presents, getNote20, ratioJ, ratioE, stuMalus, cfg, 
   var sorted = notes.slice().sort(function(a, b) { return a - b; });
   var sigma = Math.sqrt(notes.reduce(function(s, n) { return s + (n - moy) * (n - moy); }, 0) / (notes.length || 1));
 
+  var bothPresent = hasEleve && hasClasse;
+  var colAlign = bothPresent ? 'flex:1;align-items:center;text-align:center;' : 'align-items:flex-start;text-align:left;';
+
   function statLine(label, val, color) {
     return '<div style="font-size:11px;font-family:monospace;color:' + p.textMuted + ';">' +
       label + ' <strong style="color:' + (color || p.text) + ';">' + val + '</strong></div>';
@@ -286,7 +289,7 @@ function blocStats(student, presents, getNote20, ratioJ, ratioE, stuMalus, cfg, 
 
   var eleveCol = "";
   if (hasEleve) {
-    eleveCol = '<div style="display:flex;flex-direction:column;gap:2px;">' +
+    eleveCol = '<div style="display:flex;flex-direction:column;gap:2px;' + colAlign + '">' +
       '<div style="font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.6px;color:' + p.textDim + ';margin-bottom:3px;">Élève</div>' +
       (se.justesse ? statLine("Justesse", fmtPct(ratioJ)) : "") +
       (se.efficacite ? statLine("Efficacité", fmtPct(ratioE)) : "") +
@@ -295,23 +298,23 @@ function blocStats(student, presents, getNote20, ratioJ, ratioE, stuMalus, cfg, 
       '</div>';
   }
 
-  var sep = hasEleve && hasClasse
-    ? '<div style="width:1px;background:' + p.border + ';margin:0 12px;"></div>'
+  var sep = bothPresent
+    ? '<div style="width:1px;background:' + p.border + ';margin:0 16px;align-self:stretch;"></div>'
     : "";
 
   var classeCol = "";
   if (hasClasse) {
-    classeCol = '<div style="display:flex;flex-direction:column;gap:2px;">' +
+    classeCol = '<div style="display:flex;flex-direction:column;gap:2px;' + colAlign + '">' +
       '<div style="font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.6px;color:' + p.textDim + ';margin-bottom:3px;">Classe</div>' +
-      (sc.moy ? statLine("moy", fmt1(moy)) : "") +
-      (sc.moy ? statLine("méd", fmt1(sorted.length % 2 === 0 ? (sorted[sorted.length / 2 - 1] + sorted[sorted.length / 2]) / 2 : sorted[Math.floor(sorted.length / 2)])) : "") +
-      (sc.minMax ? statLine("min", fmt1(sorted[0] || 0)) : "") +
-      (sc.minMax ? statLine("max", fmt1(sorted[sorted.length - 1] || 0)) : "") +
-      (sc.sigma ? statLine("σ", fmt1(sigma)) : "") +
+      (sc.moy ? statLine("Moyenne", fmt1(moy)) : "") +
+      (sc.moy ? statLine("Médiane", fmt1(sorted.length % 2 === 0 ? (sorted[sorted.length / 2 - 1] + sorted[sorted.length / 2]) / 2 : sorted[Math.floor(sorted.length / 2)])) : "") +
+      (sc.minMax ? statLine("Minimum", fmt1(sorted[0] || 0)) : "") +
+      (sc.minMax ? statLine("Maximum", fmt1(sorted[sorted.length - 1] || 0)) : "") +
+      (sc.sigma ? statLine("Écart-type", fmt1(sigma)) : "") +
       '</div>';
   }
 
-  return '<div style="background:' + p.surface + ';border:1px solid ' + p.border + ';border-radius:' + br + ';padding:' + Math.round(hp * 0.65) + 'px ' + (hp + 4) + 'px;margin-bottom:10px;display:flex;gap:0;">' +
+  return '<div style="background:' + p.surface + ';border:1px solid ' + p.border + ';border-radius:' + br + ';padding:' + Math.round(hp * 0.65) + 'px ' + (hp + 4) + 'px;margin-bottom:10px;display:flex;justify-content:space-between;gap:0;">' +
     eleveCol + sep + classeCol + '</div>';
 }
 
@@ -376,7 +379,7 @@ function blocHistogramme(allNotes, studentNote, cfg, p) {
 }
 
 // Détail par exercice
-function blocDetailExercices(student, exam, grades, remarks, presents, allRemarques, cfg, p, seuilDifficile, seuilReussite) {
+function blocDetailExercices(student, exam, grades, remarks, presents, allRemarques, cfg, p, seuilDifficile, seuilReussite, seuilPiege, bonusCompletConfig, ft) {
   if (!cfg.detailExercices) return "";
   var br = p.radius + "px";
   var html = sectionTitle("Détail par exercice", p);
@@ -388,8 +391,8 @@ function blocDetailExercices(student, exam, grades, remarks, presents, allRemarq
     });
     if (!aTraiteEx) return;
 
-    var sc = exerciseScore(grades, student.id, ex);
-    var eNotes = presents.map(function(s) { return exerciseScore(grades, s.id, ex).earned; });
+    var sc = exerciseScore(grades, student.id, ex, bonusCompletConfig);
+    var eNotes = presents.map(function(s) { return exerciseScore(grades, s.id, ex, bonusCompletConfig).earned; });
     var eMoy = eNotes.reduce(function(a, b) { return a + b; }, 0) / eNotes.length;
     var eMin = Math.min.apply(null, eNotes);
     var eMax = Math.max.apply(null, eNotes);
@@ -418,9 +421,12 @@ function blocDetailExercices(student, exam, grades, remarks, presents, allRemarq
       var nbTraitants = presents.filter(function(s) {
         return q.items.some(function(it) { return grades[gradeKey(s.id, it.id)]; }) || grades[treatedKey(s.id, q.id)];
       }).length;
-      var estDifficile = nbTraitants < presents.length * seuilDifficile / 100;
+      var tauxTraitement = presents.length > 0 ? (nbTraitants / presents.length) * 100 : 0;
+      var estDifficile = tauxTraitement < seuilDifficile;
+      var estPiege = tauxTraitement >= 50 && qsc.total > 0 && (qsc.earned / qsc.total) * 100 < seuilPiege;
       var pctReussite = qsc.total > 0 ? (qsc.earned / qsc.total) * 100 : 0;
       var etoile = (estDifficile && pctReussite >= seuilReussite) ? " ✨" : "";
+      var piegeMark = (ft && ft.questionPiege && estPiege) ? " ⚠️" : "";
       var bonusMark = q.bonus ? " 🎁" : "";
 
       var remLabels = (remarks[student.id + "__" + q.id] || []).map(function(id) {
@@ -438,7 +444,8 @@ function blocDetailExercices(student, exam, grades, remarks, presents, allRemarq
         ? (qsc.earned / qsc.total >= 0.75 ? p.success : qsc.earned / qsc.total >= 0.5 ? p.warning : p.danger)
         : p.textDim;
 
-      var trStyle = estDifficile ? 'font-weight:700;' : '';
+      var trColor = estDifficile ? p.danger : estPiege ? p.warning : p.text;
+      var trStyle = (estDifficile || estPiege) ? 'font-weight:700;' : '';
       var qLabelHtml;
       if (cfg.soundLinksEnabled && cfg.soundBaseUrl) {
         var audioUrl = cfg.soundBaseUrl + buildAudioFilename(cfg.nomDS, cfg.studentNom, ex.title, q.label, cfg.soundAudioExt || "webm");
@@ -447,13 +454,23 @@ function blocDetailExercices(student, exam, grades, remarks, presents, allRemarq
         qLabelHtml = esc(q.label);
       }
       html += '<tr style="' + trStyle + '">' +
-        '<td style="padding:3px 6px;border-bottom:1px solid ' + p.border + '66;color:' + p.text + ';">' + qLabelHtml + bonusMark + etoile + '</td>' +
+        '<td style="padding:3px 6px;border-bottom:1px solid ' + p.border + '66;color:' + trColor + ';">' + qLabelHtml + bonusMark + etoile + piegeMark + '</td>' +
         '<td style="padding:3px 6px;border-bottom:1px solid ' + p.border + '66;">' + compSpans + '</td>' +
         '<td style="padding:3px 6px;border-bottom:1px solid ' + p.border + '66;color:' + noteColor + ';font-weight:700;font-family:monospace;white-space:nowrap;">' + fmt1(qsc.earned) + '/' + fmt1(qsc.total) + '</td>' +
         '<td style="padding:3px 6px;border-bottom:1px solid ' + p.border + '66;color:' + p.textMuted + ';font-size:10px;">' + esc(remLabels) + '</td>' +
         '</tr>';
     });
 
+    // Ligne bonus exercice complet si déclenché
+    if (ex.bonusComplet && bonusCompletConfig) {
+      var bonusPts = bonusCompletPoints(grades, student.id, ex, bonusCompletConfig);
+      if (bonusPts > 0) {
+        html += '<tr>' +
+          '<td colspan="3" style="padding:3px 6px;font-size:10px;font-weight:700;color:' + p.success + ';border-top:1px solid ' + p.border + '44;">🏆 Bonus exercice complet +' + fmt1(bonusPts) + ' pt' + (bonusPts > 1 ? 's' : '') + '</td>' +
+          '<td style="padding:3px 6px;border-top:1px solid ' + p.border + '44;"></td>' +
+          '</tr>';
+      }
+    }
     html += '</tbody></table></div>';
   });
   return html;
@@ -474,9 +491,20 @@ function blocBareme(student, exam, grades, cfg, p) {
           exTitle: ex.title, qLabel: q.label, bonus: q.bonus, label: it.label,
           earned: grades[gradeKey(student.id, it.id)] ? (parseFloat(it.points) || 0) : 0,
           total: parseFloat(it.points) || 0,
+          isBonusComplet: false,
         });
       });
     });
+    // Ligne bonus exercice complet si déclenché
+    if (ex.bonusComplet && cfg.bonusCompletConfig) {
+      var bonusPts = bonusCompletPoints(grades, student.id, ex, cfg.bonusCompletConfig);
+      if (bonusPts > 0) {
+        items.push({
+          exTitle: ex.title, qLabel: null, bonus: false, label: "🏆 Bonus exercice complet",
+          earned: bonusPts, total: bonusPts, isBonusComplet: true,
+        });
+      }
+    }
   });
   if (!items.length) return "";
 
@@ -495,10 +523,16 @@ function blocBareme(student, exam, grades, cfg, p) {
     }
     var check = it.earned > 0 ? "✓ " : "· ";
     var earnColor = it.earned > 0 ? p.success : p.textDim;
+    var itemLabel = it.isBonusComplet
+      ? esc(it.label)
+      : check + '[Q.' + esc(it.qLabel) + (it.bonus ? " 🎁" : "") + '] ' + esc(it.label);
+    var itemStyle = it.isBonusComplet
+      ? 'padding:2px 8px;border-bottom:1px solid ' + p.border + '44;font-size:10px;color:' + p.success + ';font-weight:700;'
+      : 'padding:2px 8px;border-bottom:1px solid ' + p.border + '44;font-size:10px;color:' + p.textMuted + ';';
     html += '<tr>' +
-      '<td style="padding:2px 8px;border-bottom:1px solid ' + p.border + '44;font-size:10px;color:' + p.textMuted + ';">' + check + '[Q.' + esc(it.qLabel) + (it.bonus ? " 🎁" : "") + '] ' + esc(it.label) + '</td>' +
-      '<td style="padding:2px 8px;border-bottom:1px solid ' + p.border + '44;text-align:center;font-family:monospace;">' + fmt1(it.total) + '</td>' +
-      '<td style="padding:2px 8px;border-bottom:1px solid ' + p.border + '44;text-align:center;font-family:monospace;color:' + earnColor + ';font-weight:700;">' + fmt1(it.earned) + '</td>' +
+      '<td style="' + itemStyle + '">' + itemLabel + '</td>' +
+      '<td style="padding:2px 8px;border-bottom:1px solid ' + p.border + '44;text-align:center;font-family:monospace;">' + (it.isBonusComplet ? '+' : '') + fmt1(it.total) + '</td>' +
+      '<td style="padding:2px 8px;border-bottom:1px solid ' + p.border + '44;text-align:center;font-family:monospace;color:' + earnColor + ';font-weight:700;">' + (it.isBonusComplet ? '+' : '') + fmt1(it.earned) + '</td>' +
       '</tr>';
   });
   return html + '</tbody></table>';
@@ -538,7 +572,9 @@ export function genererHtmlEleve(opts) {
     soundLinksEnabled: !!opts.soundLinksEnabled,
     soundBaseUrl: opts.soundBaseUrl || "",
     soundAudioExt: opts.soundAudioExt || "webm",
+    bonusCompletConfig: opts.bonusCompletConfig || null,
   });
+  var ft = opts.features || { competences: true, coefficients: true, questionBonus: true, bonusComplet: true, malusAuto: true, questionPiege: true };
 
   var p = paletteTheme(cfg.theme);
   // Compatibilité ascendante : l'ancien champ "light"/"dark" devient "light"/"dark"/"young"
@@ -584,10 +620,10 @@ export function genererHtmlEleve(opts) {
     blocTitreDS(nomDS, dateDS, p) +
     blocHeader(student, noteNorm, noteBrute, rang, effectif, cfg, p) +
     blocStats(student, presents, getNote20, ratioJ, ratioE, stuMalus, cfg, p) +
-    blocCompetences(comps, compPcts, cfg, p) +
+    (ft.competences ? blocCompetences(comps, compPcts, cfg, p) : "") +
     blocCommentaire(commentaire, cfg, p) +
     blocHistogramme(allNotes, noteNorm, cfg, p) +
-    blocDetailExercices(student, exam, grades, remarks, presents, allRemarques, cfg, p, seuilDifficile, seuilReussite) +
+    blocDetailExercices(student, exam, grades, remarks, presents, allRemarques, cfg, p, seuilDifficile, seuilReussite, opts.seuilPiege || 30, cfg.bonusCompletConfig, ft) +
     blocBareme(student, exam, grades, cfg, p) +
     '<div style="margin-top:32px;padding-top:10px;border-top:1px solid ' + p.border + ';font-size:10px;color:' + p.textDim + ';display:flex;justify-content:space-between;flex-wrap:wrap;gap:4px;">' +
       '<span>' + esc(ETABLISSEMENT.nom) + ' — ' + esc(nomDS || "") + (dateDS ? " · " + esc(dateDS) : "") + '</span>' +
