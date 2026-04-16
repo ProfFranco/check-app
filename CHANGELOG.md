@@ -1,3 +1,12 @@
+## v 1.1 — avril 2026
+
+### Guide d'utilisation
+- Tutoriel remanié : 8 étapes (ajout du choix de preset et de la structure enrichie avec bonus 🏆 / 🎁)
+- Référence complète mise à jour : fonctionnalités par DS (presets ♙♜♔♞), bonus exercice complet, questions pièges ⚠️, progression inter-DS, rapport de classe HTML
+- Simulations visuelles enrichies dans chaque section
+
+---
+
 ## v 1.0 — avril 2026
 
 ### Architecture
@@ -22,6 +31,12 @@
 - Détection automatique : taux de traitement ≥ 50 % mais taux de réussite sous le seuil
 - Marquage dans les stats, les exports HTML et LaTeX
 
+### Rapport de classe HTML
+- Nouveau rapport de classe en format paysage A4, conçu pour la projection
+- Blocs configurables : commentaire DS, statistiques globales, distribution des notes, compétences (barres horizontales), détail par exercice (histogrammes)
+- Aperçu live dans l'onglet Résultats via l'option « 📊 Toute la classe »
+- Aucun nom d'élève dans le rapport
+
 ### Correctifs
 - Aperçu HTML dans l'onglet Résultats : stabilisation de l'iframe (ne se recharge plus à chaque navigation)
 - Nom des DS dans les bulles de navigation corrigé
@@ -32,17 +47,17 @@
 ## v 0.91
 
 ### Correctifs
-- toilettage du code et découpage en plusieurs fichiers pour une meilleure lisibilité
-- variables mal nommées remplacées
+- Toilettage du code et découpage en plusieurs fichiers pour une meilleure lisibilité
+- Variables mal nommées remplacées
 - Dissociation GitHub possible
 
-## v 0.9 - 9 avril 2026
+## v 0.9 — 9 avril 2026
 
 ### Nouvelle section : vue d'ensemble
-- Ajout d'une section permettant de visualiser en un clin d'oeil les résultats des étudiants sous forme de tableau cliquable
+- Ajout d'une section permettant de visualiser en un clin d'œil les résultats des étudiants sous forme de tableau cliquable
 
 ### Enregistrements audio
-- Possibilité de générer des liens url vers les enregistrements générés, si l'utilisateur donne la racine des liens en question
+- Possibilité de générer des liens URL vers les enregistrements générés, si l'utilisateur donne la racine des liens en question
 
 ### Interface
 - Le DS actuel devient cliquable pour sélectionner à la volée le DS analysé
@@ -52,7 +67,7 @@
 - Nom des DS dans les bulles de navigation cohérent
 - Mise à jour du fichier d'aide
 
-## v 0.80 - avril 2026
+## v 0.80 — avril 2026
 
 ### Section d'aide
 - Section complètement remaniée, pour l'instant rédigée par IA
@@ -65,7 +80,7 @@
 - Corrections nombreuses dans le code après revue
 - Fichier de test des fonctions de calculs
 
-## v 0.72  - avril 2026
+## v 0.72 — avril 2026
 
 ### Distribution & infrastructure
 - Déploiement automatique sur GitHub Pages via GitHub Actions
@@ -82,14 +97,13 @@
 - Sélecteur de thème : 3 boutons icônes distincts (☀️ 🌙 🎨) avec indication de l'actif, dans le menu ⋯
 - Boutons 💾 / 📂 toujours visibles (y compris sur mobile)
 
-### Correctif
+### Correctifs
 - Onglet Résultats : l'aperçu HTML ne disparaît plus de façon intempestive
 - Onglet Réglages : erreurs corrigées dans le menu des normalisations
 
 ## v 0.7.1
 
 ### 🎙️ Commentaires audio par question
-
 - Nouveau bouton **🎙️** dans le bandeau de chaque question (onglet Correction)
 - Enregistrement via le microphone de l'appareil, directement dans l'interface
 - Widget inline : Enregistrer · Arrêter · Réécouter · Télécharger
@@ -100,26 +114,22 @@
 ## v 0.7 — avril 2026
 
 ### Multi-profils
-
 - Sélecteur de profil dans le header (👤)
 - Isolation totale par profil (bases IndexedDB séparées)
 - Créer, renommer, supprimer des profils
 - Migration automatique des données existantes vers "Profil 1"
 
 ### Nouveautés récentes dans le modal À propos
-
 - Ce journal des mises à jour 📋
 
 ## v 0.6 — avril 2026
 
 ### Interface
-
 - Thème "Jeune" (lavande, Nunito, couleurs vives)
 - Groupes pédagogiques éditables dans les Réglages
 - Onglet Aide avec guide complet
 - Modal "À propos" (ℹ️)
 
 ### Export
-
 - Refonte de l'onglet Export (3 sections déroulables)
 - Réordonnancement des exercices et questions (↑/↓)
