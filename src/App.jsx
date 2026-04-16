@@ -29,7 +29,7 @@ import {
   normaliser, importCSV, downloadFile, treatedKey, validateState
 } from "./utils/calculs";
 import { genererGabarit, genererDocumentComplet, genererDocumentsIndividuels, genererScriptCompilation } from "./utils/latex";
-import { genererHtmlEleve, genererHtmlTous, DEFAULT_HTML_CONFIG } from "./utils/html";
+import { genererHtmlEleve, genererHtmlTous, DEFAULT_HTML_CONFIG, DEFAULT_RAPPORT_CLASSE_CONFIG, genererRapportClasse } from "./utils/html";
 import { buildAudioFilename } from "./utils/helpers";
 import { loadDB, saveDB, loadMeta, saveMeta, initProfiles, profileDBName, openNamedDB } from "./utils/db";
 import { RadarChart, MiniRadar, MiniRadarEx, Histo, PBar, ProgressionChart, ProgressionRadar } from "./components/Charts";
@@ -105,6 +105,8 @@ export default function App() {
   var _csvConfig = useState({ sep: ";", dec: ",", cols: { rang: true, nom: true, prenom: true, absent: true, note: true, noteNorm: true, groupe: false, competences: false, malus: false } }); var setCsvConfig = _csvConfig[1]; var csvConfig = _csvConfig[0];
   var _htmlPresets = useState([]); var setHtmlPresets = _htmlPresets[1]; var htmlPresets = _htmlPresets[0];
   var _htmlConfig = useState({ theme: "light", noteNorm: true, noteBrute: false, rang: true, statsEleve: { justesse: true, efficacite: true, malus: true }, statsClasse: { moy: true, minMax: true, sigma: false }, competences: "grid", commentaire: true, detailExercices: true, bareme: false, histogramme: true }); var setHtmlConfig = _htmlConfig[1]; var htmlConfig = _htmlConfig[0];  var _htmlStudentId = useState(null); var setHtmlStudentId = _htmlStudentId[1]; var htmlStudentId = _htmlStudentId[0];
+  var _commentaireDS = useState({}); var setCommentaireDS = _commentaireDS[1]; var commentaireDS = _commentaireDS[0];
+  var _rapportClasseConfig = useState(DEFAULT_RAPPORT_CLASSE_CONFIG); var setRapportClasseConfig = _rapportClasseConfig[1]; var rapportClasseConfig = _rapportClasseConfig[0];
   var _soundLinksEnabled = useState(false); var setSoundLinksEnabled = _soundLinksEnabled[1]; var soundLinksEnabled = _soundLinksEnabled[0];
   var _soundBaseUrl = useState(""); var setSoundBaseUrl = _soundBaseUrl[1]; var soundBaseUrl = _soundBaseUrl[0];
   var _soundAudioExt = useState("webm"); var setSoundAudioExt = _soundAudioExt[1]; var soundAudioExt = _soundAudioExt[0];
@@ -129,7 +131,7 @@ export default function App() {
   var _progressionViewMode = useState("courbe"); var progressionViewMode = _progressionViewMode[0]; var setProgressionViewMode = _progressionViewMode[1];
   var _confirmDelete = useState(null); var setConfirmDelete = _confirmDelete[1]; var confirmDelete = _confirmDelete[0];
   var _featOpen = useState(true); var setFeatOpen = _featOpen[1]; var featOpen = _featOpen[0];
-  var _exportOpen = useState({ eleves: true, enseignant: true, gabarit: false, synthese: false, github: false, sync: true, sound: false }); var setExportOpen = _exportOpen[1]; var exportOpen = _exportOpen[0];
+  var _exportOpen = useState({ eleves: true, enseignant: true, gabarit: false, rapportClasse: false, synthese: false, github: false, sync: true, sound: false }); var setExportOpen = _exportOpen[1]; var exportOpen = _exportOpen[0];
   var _showApropos = useState(false); var setShowApropos = _showApropos[1]; var showApropos = _showApropos[0];
   var _showChangelog = useState(false); var setShowChangelog = _showChangelog[1]; var showChangelog = _showChangelog[0];
   var _changelogText = useState(""); var setChangelogText = _changelogText[1]; var changelogText = _changelogText[0];
@@ -192,6 +194,7 @@ export default function App() {
       remarquesCustom: remarquesCustom, remarquesOrdre: remarquesOrdre,
       settingsTab: settingsTab, csvConfig: csvConfig, htmlPresets: htmlPresets,
       htmlConfig: htmlConfig, htmlStudentId: htmlStudentId,
+      commentaireDS: commentaireDS, rapportClasseConfig: rapportClasseConfig,
       synthese: synthese, etablissement: etablissement,
       soundLinksEnabled: soundLinksEnabled, soundBaseUrl: soundBaseUrl, soundAudioExt: soundAudioExt,
     }, overrides || {});
@@ -240,6 +243,8 @@ export default function App() {
         statsClasse: Object.assign({}, DEFAULT_HTML_CONFIG.statsClasse, sc.statsClasse),
       }));
     }
+    if (d.commentaireDS) setCommentaireDS(d.commentaireDS);
+    if (d.rapportClasseConfig) setRapportClasseConfig(Object.assign({}, DEFAULT_RAPPORT_CLASSE_CONFIG, d.rapportClasseConfig));
     if (d.htmlStudentId !== undefined) setHtmlStudentId(d.htmlStudentId);
     if (d.synthese) setSynthese(d.synthese);
     if (d.soundLinksEnabled !== undefined) setSoundLinksEnabled(d.soundLinksEnabled);
@@ -259,12 +264,19 @@ export default function App() {
       saveDB(buildAppState(), activeProfileId);
     }, 500);
     return function() { clearTimeout(timer); };
-  }, [dbLoaded, exams, students, grades, remarks, absents, groupes, activeExamId, nomDS, dateDS, seuils, normMethod, normParams, seuilDifficile, seuilReussite, seuilPiege, bonusCompletConfig, gabaritTex, malusPaliers, malusMode, malusManuel, uiScale, appTheme, groupesDef, mode, commentaires, remarquesActives, remarquesCustom, remarquesOrdre, settingsTab, csvConfig, htmlPresets, htmlConfig, htmlStudentId, synthese, etablissement, soundLinksEnabled, soundBaseUrl, soundAudioExt]);
+  }, [dbLoaded, exams, students, grades, remarks, absents, groupes, activeExamId, nomDS, dateDS, seuils, normMethod, normParams, seuilDifficile, seuilReussite, seuilPiege, bonusCompletConfig, gabaritTex, malusPaliers, malusMode, malusManuel, uiScale, appTheme, groupesDef, mode, commentaires, remarquesActives, remarquesCustom, remarquesOrdre, settingsTab, csvConfig, htmlPresets, htmlConfig, htmlStudentId, synthese, etablissement, soundLinksEnabled, soundBaseUrl, soundAudioExt, commentaireDS, rapportClasseConfig]);
 
   useEffect(function() { if (showSearch && searchInputRef.current) searchInputRef.current.focus(); }, [showSearch]);
   useEffect(function() { var t = setTimeout(function() { setSplash(false); }, 2000); return function() { clearTimeout(t); }; }, []);
 
-
+  var _settingsSaveSignal = useState(0); var setSettingsSaveSignal = _settingsSaveSignal[1]; var settingsSaveSignal = _settingsSaveSignal[0];
+  useEffect(function() {
+    if (!dbLoaded) return;
+    setSettingsSaveSignal(function(n) { return n + 1; });
+  }, [seuils, normMethod, normParams, seuilDifficile, seuilReussite, seuilPiege,
+      bonusCompletConfig, malusPaliers, malusMode, remarquesActives, remarquesCustom,
+      remarquesOrdre, groupesDef, csvConfig, htmlConfig, soundLinksEnabled,
+      soundBaseUrl, soundAudioExt, etablissement]);
 
   // ─── Raccourcis clavier (desktop, onglet Correction uniquement) ───
   useEffect(function() {
@@ -792,6 +804,29 @@ function retirerDsSynthese(examId) {
     });
     return map;
   }, [corriges, grades, exam, normMethod, normParams, malusPaliers, malusManuel, groupes]);
+
+  var htmlClasseSrc = useMemo(function() {
+    if (!exam || !students.length) return "";
+    var presents = students.filter(function(s) { return !absents[s.id]; });
+    if (!presents.length) return "";
+    return genererRapportClasse({
+      exam: exam,
+      students: students,
+      grades: grades,
+      absents: absents,
+      seuils: seuils,
+      seuilDifficile: seuilDifficile,
+      seuilReussite: seuilReussite,
+      seuilPiege: seuilPiege,
+      getNote20: getNote20,
+      htmlConfig: htmlConfig,
+      rapportClasseConfig: rapportClasseConfig,
+      commentaire: (commentaireDS && commentaireDS[activeExamId]) || "",
+      bonusCompletConfig: bonusCompletConfig,
+      features: ft,
+    });
+  }, [exam, students, grades, absents, seuils, seuilDifficile, seuilReussite, seuilPiege,
+      getNote20, htmlConfig, rapportClasseConfig, commentaireDS, activeExamId, bonusCompletConfig, ft, corriges]);
 
   var htmlSrc = useMemo(function() {
     if (!exam || !htmlStudentForPreview) return "";
@@ -1379,31 +1414,61 @@ function retirerDsSynthese(examId) {
           if (!corriges.length) return <div style={{ textAlign: "center", padding: 40, color: th.textMuted }}>{"Aucune copie corrigée pour l'instant."}</div>;
 
           var htmlStudent = htmlStudentForPreview;
-          if (!htmlStudent) return null;
+          var modeClasse = htmlStudentId === "__classe__";
+          if (!htmlStudent && !modeClasse) return null;
 
           return (
             <div style={{ display: "flex", flexDirection: "column", height: "calc(100vh - 52px)", gap: 0 }}>
               {/* Barre de sélection */}
               <div style={{ background: th.card, borderBottom: "1px solid " + th.border, padding: "8px 14px", display: "flex", alignItems: "center", gap: 10, flexShrink: 0, flexWrap: "wrap" }}>
-                <span style={{ fontSize: 12, fontWeight: 700, color: th.textMuted, fontFamily: FONT_B }}>{"Élève"}</span>
+                <span style={{ fontSize: 12, fontWeight: 700, color: th.textMuted, fontFamily: FONT_B }}>{"Aperçu"}</span>
                 <select
-                  value={htmlStudent.id}
+                  value={modeClasse ? "__classe__" : (htmlStudent ? htmlStudent.id : "")}
                   onChange={function(e) { setHtmlStudentId(e.target.value); }}
                   style={{ ...inp, fontSize: 13, padding: "5px 10px", minWidth: 200 }}>
+                  <option value="__classe__">📊 Toute la classe</option>
+                  <option disabled>──────────────</option>
                   {corriges.slice().sort(function(a, b) { return a.nom.localeCompare(b.nom) || a.prenom.localeCompare(b.prenom); }).map(function(s) {
                     return <option key={s.id} value={s.id}>{s.nom + " " + s.prenom}</option>;
                   })}
                 </select>
-                <span style={{ fontSize: 11, color: th.textDim, fontFamily: MONO }}>
-                  {fmt1(getNote20(htmlStudent.id)) + "/20 · rang " + (htmlRankMapForPreview[htmlStudent.id] || "—") + "/" + corriges.length}
-                </span>
+                {!modeClasse && htmlStudent && (
+                  <span style={{ fontSize: 11, color: th.textDim, fontFamily: MONO }}>
+                    {fmt1(getNote20(htmlStudent.id)) + "/20 · rang " + (htmlRankMapForPreview[htmlStudent.id] || "—") + "/" + corriges.length}
+                  </span>
+                )}
                 <div style={{ flex: 1 }} />
               </div>
+              {/* Panel config rapport classe */}
+              {modeClasse && (
+                <div style={{ background: th.surface || th.card, borderBottom: "1px solid " + th.border, padding: "6px 14px", display: "flex", alignItems: "center", gap: 12, flexShrink: 0, flexWrap: "wrap" }}>
+                  {[
+                    { key: "commentaire",   label: "Commentaire" },
+                    { key: "statsGlobales", label: "Stats" },
+                    { key: "distribution",  label: "Distribution" },
+                    { key: "parCompetence", label: "Compétences" },
+                    { key: "parExercice",   label: "Exercices" },
+                  ].map(function(item) {
+                    return (
+                      <label key={item.key} style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 11, cursor: "pointer", color: th.textMuted, userSelect: "none" }}>
+                        <input type="checkbox"
+                          checked={!!(rapportClasseConfig && rapportClasseConfig[item.key])}
+                          onChange={function(e) {
+                            setRapportClasseConfig(Object.assign({}, rapportClasseConfig, { [item.key]: e.target.checked }));
+                          }}
+                        />
+                        {item.label}
+                      </label>
+                    );
+                  })}
+                </div>
+              )}
               {/* Iframe d'aperçu — htmlSrc est mémoïsé, pas de rechargement parasite */}
               <iframe
-                srcDoc={htmlSrc}
+                key="preview-iframe"
+                srcDoc={modeClasse ? htmlClasseSrc : htmlSrc}
                 style={{ flex: 1, border: "none", width: "100%", background: htmlConfig.theme === "dark" ? "#1a1814" : htmlConfig.theme === "young" ? "#f0f4ff" : "#faf7f2" }}
-                title={"Aperçu rapport " + htmlStudent.prenom + " " + htmlStudent.nom}
+                title={modeClasse ? "Aperçu rapport de classe" : "Aperçu rapport " + (htmlStudent ? htmlStudent.prenom + " " + htmlStudent.nom : "")}
               />
             </div>
           );
@@ -1690,6 +1755,9 @@ function retirerDsSynthese(examId) {
           etablissement={etablissement}
           synthese={synthese}
           exportOpen={exportOpen} setExportOpen={setExportOpen}
+          activeExamId={activeExamId}
+          commentaireDS={commentaireDS} setCommentaireDS={setCommentaireDS}
+          rapportClasseConfig={rapportClasseConfig} setRapportClasseConfig={setRapportClasseConfig}
           githubPat={githubPat} githubRepo={githubRepo}
           githubSave={githubSave} githubLoad={githubLoad}
           syncLoading={syncLoading} syncStatus={syncStatus} syncDate={syncDate}
@@ -1781,6 +1849,7 @@ function retirerDsSynthese(examId) {
         soundAudioExt={soundAudioExt} setSoundAudioExt={setSoundAudioExt}
         githubPat={githubPat} setGithubPat={setGithubPat}
         githubRepo={githubRepo} setGithubRepo={setGithubRepo}
+        onSave={settingsSaveSignal}
         onClose={function() { setShowSettings(false); }}
         onOpenDebug={function() { setShowDebug(true); }}
       />}

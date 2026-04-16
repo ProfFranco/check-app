@@ -3,7 +3,7 @@
 // ═══════════════════════════════════════════════════════════════════
 
 import { genererGabarit, genererDocumentComplet, genererDocumentsIndividuels, genererScriptCompilation } from "./utils/latex";
-import { genererHtmlEleve, genererHtmlTous } from "./utils/html";
+import { genererHtmlEleve, genererHtmlTous, DEFAULT_RAPPORT_CLASSE_CONFIG, genererRapportClasse } from "./utils/html";
 import { downloadFile } from "./utils/calculs";
 
 export default function ExportTab({
@@ -22,6 +22,9 @@ export default function ExportTab({
   etablissement,
   synthese,
   exportOpen, setExportOpen,
+  activeExamId,
+  commentaireDS, setCommentaireDS,
+  rapportClasseConfig, setRapportClasseConfig,
   githubPat, githubRepo,
   githubSave, githubLoad,
   syncLoading, syncStatus, syncDate,
@@ -325,6 +328,86 @@ export default function ExportTab({
             </div>
           );
         })()}
+
+        {/* ── Rapport de classe ── */}
+        <div style={{ marginTop: 10 }}>
+          <button onClick={function() { setExportOpen(Object.assign({}, exportOpen, { rapportClasse: !exportOpen.rapportClasse })); }}
+            style={{ background: "none", border: "none", cursor: "pointer", color: th.text, fontFamily: FONT_B, fontSize: 13, fontWeight: 700, padding: "4px 0", display: "flex", alignItems: "center", gap: 6 }}>
+            {exportOpen.rapportClasse ? "▾" : "▸"} 📊 Rapport de classe
+          </button>
+          {exportOpen.rapportClasse && (
+            <div style={{ paddingLeft: 16, paddingTop: 8, display: "flex", flexDirection: "column", gap: 10 }}>
+              {/* Commentaire DS */}
+              <div>
+                <div style={{ fontSize: 11, color: th.textMuted, marginBottom: 4 }}>Commentaire (affiché en tête de rapport)</div>
+                <textarea
+                  value={(commentaireDS && commentaireDS[activeExamId]) || ""}
+                  onChange={function(e) {
+                    var updated = Object.assign({}, commentaireDS, { [activeExamId]: e.target.value });
+                    setCommentaireDS(updated);
+                  }}
+                  rows={3}
+                  placeholder="Bilan général du devoir, points saillants…"
+                  style={{ width: "100%", fontFamily: FONT, fontSize: 12, background: th.card, border: "1px solid " + th.border, color: th.text, borderRadius: 6, padding: "6px 8px", resize: "vertical", outline: "none" }}
+                />
+              </div>
+              {/* Blocs */}
+              <div>
+                <div style={{ fontSize: 11, color: th.textMuted, marginBottom: 4 }}>Blocs à inclure</div>
+                {[
+                  { key: "commentaire",   label: "Commentaire" },
+                  { key: "statsGlobales", label: "Statistiques globales" },
+                  { key: "distribution",  label: "Distribution" },
+                  { key: "parCompetence", label: "Par compétence (radar)" },
+                  { key: "parExercice",   label: "Par exercice / question" },
+                ].map(function(item) {
+                  return (
+                    <label key={item.key} style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, marginBottom: 3, cursor: "pointer" }}>
+                      <input type="checkbox"
+                        checked={!!(rapportClasseConfig && rapportClasseConfig[item.key])}
+                        onChange={function(e) {
+                          setRapportClasseConfig(Object.assign({}, rapportClasseConfig, { [item.key]: e.target.checked }));
+                        }}
+                      />
+                      {item.label}
+                    </label>
+                  );
+                })}
+              </div>
+              {/* Bouton export */}
+              <button
+                disabled={!exam}
+                onClick={function() {
+                  var html = genererRapportClasse({
+                    exam: exam,
+                    students: students,
+                    grades: grades,
+                    absents: absents,
+                    seuils: seuils,
+                    seuilDifficile: seuilDifficile,
+                    seuilReussite: seuilReussite,
+                    seuilPiege: seuilPiege,
+                    getNote20: getNote20,
+                    htmlConfig: htmlConfig,
+                    rapportClasseConfig: rapportClasseConfig,
+                    commentaire: (commentaireDS && commentaireDS[activeExamId]) || "",
+                    bonusCompletConfig: bonusCompletConfig,
+                    features: ft,
+                  });
+                  var blob = new Blob([html], { type: "text/html" });
+                  var url = URL.createObjectURL(blob);
+                  var a = document.createElement("a");
+                  a.href = url;
+                  a.download = "rapport_classe_" + (exam.nomDS || "DS").replace(/\s+/g, "_") + ".html";
+                  a.click();
+                  URL.revokeObjectURL(url);
+                }}
+                style={{ alignSelf: "flex-start", padding: "7px 16px", borderRadius: 7, background: th.accent, color: "#fff", border: "none", cursor: "pointer", fontFamily: FONT_B, fontSize: 12, fontWeight: 700, opacity: exam ? 1 : 0.5 }}>
+                ⬇️ HTML rapport classe
+              </button>
+            </div>
+          )}
+        </div>
       </Section>
 
       {/* ── 📊 Synthèse multi-DS ── */}

@@ -40,6 +40,14 @@ export const DEFAULT_HTML_CONFIG = {
   histogramme: true,
 };
 
+export const DEFAULT_RAPPORT_CLASSE_CONFIG = {
+  commentaire:   true,
+  statsGlobales: true,
+  distribution:  true,
+  parCompetence: true,
+  parExercice:   true,
+};
+
 // ─── Palettes de thème ────────────────────────────────────────────
 //
 // Chaque palette expose :
@@ -164,6 +172,33 @@ function svgRadar(compPcts, p) {
     grids + surf + dotsAndLabels + '</svg>';
 }
 
+function svgRadarGrand(compPcts, p) {
+  var total = 220, r = 86, cx = total / 2, cy = total / 2;
+  var angles = COMPETENCES.map(function(_, i) {
+    return (Math.PI * 2 * i / COMPETENCES.length) - Math.PI / 2;
+  });
+  function pt(val, i, rr) {
+    return [(cx + rr * val * Math.cos(angles[i])).toFixed(1),
+            (cy + rr * val * Math.sin(angles[i])).toFixed(1)];
+  }
+  var grids = [0.5, 1].map(function(lv) {
+    var pts = COMPETENCES.map(function(_, i) { return pt(lv, i, r).join(","); }).join(" ");
+    return '<polygon points="' + pts + '" fill="none" stroke="' + p.border + '" stroke-width="' + (lv === 1 ? 1 : 0.5) + '"/>';
+  }).join("");
+  var surfPts = COMPETENCES.map(function(c, i) {
+    return pt(compPcts[c.id] || 0, i, r).join(",");
+  }).join(" ");
+  var surf = '<polygon points="' + surfPts + '" fill="' + p.accent + '33" stroke="' + p.accent + '" stroke-width="1.5"/>';
+  var dotsAndLabels = COMPETENCES.map(function(c, i) {
+    var pp = pt(compPcts[c.id] || 0, i, r);
+    var lp = pt(1.22, i, r);
+    return '<circle cx="' + pp[0] + '" cy="' + pp[1] + '" r="3" fill="' + p.accent + '"/>' +
+      '<text x="' + lp[0] + '" y="' + lp[1] + '" text-anchor="middle" dominant-baseline="middle" font-size="11" font-weight="700" fill="' + (p.compColors[c.id] || p.accent) + '">' + c.id + '</text>';
+  }).join("");
+  return '<svg width="' + total + '" height="' + total + '" viewBox="0 0 ' + total + ' ' + total + '" xmlns="http://www.w3.org/2000/svg" style="display:block;flex-shrink:0;">' +
+    grids + surf + dotsAndLabels + '</svg>';
+}
+
 // ─── SVG Histogramme ─────────────────────────────────────────────
 
 function svgHisto(allNotes, studentNote, p) {
@@ -201,6 +236,45 @@ function svgHisto(allNotes, studentNote, p) {
 
   return '<svg width="' + width + '" height="' + height + '" viewBox="0 0 ' + width + ' ' + height + '" xmlns="http://www.w3.org/2000/svg" style="display:block;max-width:100%;">' +
     axis + bars + trait + ticks + '</svg>';
+}
+
+// ─── SVG Histogramme classe (agrandi, trait moyenne) ─────────────
+
+function svgHistoClasse(allNotes, moyenneNote, p) {
+  var width = 900, height = 180;
+  var nbBins = 21;
+  var bins = [];
+  for (var i = 0; i < nbBins; i++) bins.push(0);
+  allNotes.forEach(function(n) { bins[Math.min(20, Math.max(0, Math.round(n)))]++; });
+  var maxCount = Math.max.apply(null, bins.concat([1]));
+
+  var padL = 28, padR = 10, padT = 12, padB = 24;
+  var innerW = width - padL - padR;
+  var innerH = height - padT - padB;
+  var barW = innerW / nbBins;
+
+  var bars = bins.map(function(count, i) {
+    if (count === 0) return "";
+    var bh = Math.max(3, (count / maxCount) * innerH);
+    var x = padL + i * barW;
+    var y = padT + innerH - bh;
+    return '<rect x="' + (x + 0.5).toFixed(1) + '" y="' + y.toFixed(1) + '" width="' + (barW - 1.5).toFixed(1) + '" height="' + bh.toFixed(1) + '" fill="' + p.accent + '99" rx="3"/>' +
+      '<text x="' + (x + barW / 2).toFixed(1) + '" y="' + (y - 3).toFixed(1) + '" text-anchor="middle" font-size="9" fill="' + p.textMuted + '" font-family="monospace">' + count + '</text>';
+  }).join("");
+
+  var xMoy = padL + moyenneNote * (innerW / 20);
+  var traitMoy = '<line x1="' + xMoy.toFixed(1) + '" y1="' + padT + '" x2="' + xMoy.toFixed(1) + '" y2="' + (padT + innerH).toFixed(1) + '" stroke="' + p.accent + '" stroke-width="2" stroke-dasharray="4,3"/>' +
+    '<text x="' + xMoy.toFixed(1) + '" y="' + (padT - 2) + '" text-anchor="middle" font-size="9" fill="' + p.accent + '" font-family="monospace">moy ' + fmt1(moyenneNote) + '</text>';
+
+  var ticks = [0, 5, 10, 15, 20].map(function(v) {
+    var x = padL + v * (innerW / 20);
+    return '<text x="' + x.toFixed(1) + '" y="' + (height - 5) + '" text-anchor="middle" font-size="10" fill="' + p.textMuted + '" font-family="monospace">' + v + '</text>';
+  }).join("");
+
+  var axis = '<line x1="' + padL + '" y1="' + (padT + innerH).toFixed(1) + '" x2="' + (width - padR) + '" y2="' + (padT + innerH).toFixed(1) + '" stroke="' + p.border + '" stroke-width="1"/>';
+
+  return '<svg width="100%" height="' + height + '" viewBox="0 0 ' + width + ' ' + height + '" xmlns="http://www.w3.org/2000/svg" style="display:block;max-width:100%;">' +
+    axis + bars + traitMoy + ticks + '</svg>';
 }
 
 // ─── Blocs HTML ───────────────────────────────────────────────────
@@ -663,4 +737,256 @@ export function genererHtmlTous(opts) {
     var content = genererHtmlEleve(Object.assign({}, opts, { student: student, allStudents: students, rankMap: rankMap }));
     return { filename: filename, content: content };
   });
+}
+
+// ─── Rapport de classe (projection) ──────────────────────────────
+
+export function genererRapportClasse(opts) {
+  var exam = opts.exam, students = opts.students, grades = opts.grades;
+  var absents = opts.absents, seuils = opts.seuils;
+  var seuilDifficile = opts.seuilDifficile, seuilReussite = opts.seuilReussite;
+  var seuilPiege = opts.seuilPiege || 30;
+  var getNote20 = opts.getNote20;
+  var commentaire = opts.commentaire || "";
+  var bonusCompletConfig = opts.bonusCompletConfig || null;
+  var ft = opts.features || {};
+
+  var cfg = Object.assign({}, DEFAULT_RAPPORT_CLASSE_CONFIG, opts.rapportClasseConfig);
+  var theme = (opts.htmlConfig && opts.htmlConfig.theme) || "light";
+  var p = paletteTheme(theme);
+
+  var presents = students.filter(function(s) { return !absents[s.id]; });
+  var effectif = presents.length;
+  var corriges = presents.filter(function(s) {
+    return exam.exercises.some(function(ex) {
+      return ex.questions.some(function(q) {
+        return grades[treatedKey(s.id, q.id)] || q.items.some(function(it) { return grades[gradeKey(s.id, it.id)]; });
+      });
+    });
+  });
+  var allNotes = corriges.map(function(s) { return getNote20(s.id); });
+  var sorted = allNotes.slice().sort(function(a, b) { return a - b; });
+  var moy = allNotes.length ? allNotes.reduce(function(a, b) { return a + b; }, 0) / allNotes.length : 0;
+  var med = sorted.length ? (sorted.length % 2 === 0 ? (sorted[sorted.length / 2 - 1] + sorted[sorted.length / 2]) / 2 : sorted[Math.floor(sorted.length / 2)]) : 0;
+  var minN = sorted.length ? sorted[0] : 0;
+  var maxN = sorted.length ? sorted[sorted.length - 1] : 0;
+
+  // Compétences moyennes classe
+  var compPcts = {};
+  COMPETENCES.forEach(function(c) {
+    var totalObt = 0, totalMax = 0;
+    presents.forEach(function(s) {
+      exam.exercises.forEach(function(ex) {
+        ex.questions.forEach(function(q) {
+          if (q.competences.indexOf(c.id) < 0) return;
+          var qTraitee = grades[treatedKey(s.id, q.id)] || q.items.some(function(it) { return grades[gradeKey(s.id, it.id)]; });
+          if (qTraitee) {
+            totalMax += q.items.reduce(function(acc, it) { return acc + (parseFloat(it.points) || 0); }, 0);
+            q.items.forEach(function(it) { if (grades[gradeKey(s.id, it.id)]) totalObt += parseFloat(it.points) || 0; });
+          }
+        });
+      });
+    });
+    compPcts[c.id] = totalMax > 0 ? totalObt / totalMax : 0;
+  });
+
+  // ── Bloc commentaire ──
+  function blocCommentaireDS() {
+    if (!cfg.commentaire || !commentaire.trim()) return "";
+    return '<div class="bento bento-full" style="background:' + p.accent + '18;border-left:4px solid ' + p.accent + ';">' +
+      '<div class="bento-title">Commentaire</div>' +
+      '<div style="font-size:1.05rem;line-height:1.7;color:' + p.text + ';white-space:pre-wrap;">' + esc(commentaire) + '</div>' +
+      '</div>';
+  }
+
+  // ── Bloc stats globales ──
+  function blocStatsGlobales() {
+    if (!cfg.statsGlobales) return "";
+    function kpiCard(label, val, color) {
+      return '<div style="background:' + p.card + ';border:1px solid ' + p.border + ';border-radius:' + p.radius + 'px;padding:1rem 1.2rem;text-align:center;min-width:110px;">' +
+        '<div style="font-size:2.4rem;font-weight:700;color:' + color + ';line-height:1;">' + fmt1(val) + '</div>' +
+        '<div style="font-size:0.68rem;text-transform:uppercase;letter-spacing:0.09em;color:' + p.textMuted + ';margin-top:6px;">' + label + '</div>' +
+        '</div>';
+    }
+    function kpiCardInt(label, val, color) {
+      return '<div style="background:' + p.card + ';border:1px solid ' + p.border + ';border-radius:' + p.radius + 'px;padding:1rem 1.2rem;text-align:center;min-width:110px;">' +
+        '<div style="font-size:2.4rem;font-weight:700;color:' + color + ';line-height:1;">' + fmt0(val) + '</div>' +
+        '<div style="font-size:0.68rem;text-transform:uppercase;letter-spacing:0.09em;color:' + p.textMuted + ';margin-top:6px;">' + label + '</div>' +
+        '</div>';
+    }
+    return '<div class="bento bento-full">' +
+      '<div class="bento-title">Statistiques</div>' +
+      '<div style="display:flex;flex-wrap:wrap;gap:0.8rem;margin-top:0.6rem;justify-content:flex-start;">' +
+      kpiCard("Moyenne", moy, p.accent) +
+      kpiCard("Médiane", med, p.success) +
+      kpiCard("Min", minN, p.danger) +
+      kpiCard("Max", maxN, p.success) +
+      kpiCardInt("Élèves", effectif, p.textMuted) +
+      '</div></div>';
+  }
+
+  // ── Bloc distribution ──
+  function blocDistribution() {
+    if (!cfg.distribution) return "";
+    return '<div class="bento bento-full">' +
+      '<div class="bento-title">Distribution</div>' +
+      '<div style="margin-top:0.6rem;width:100%;">' + svgHistoClasse(allNotes, moy, p) + '</div>' +
+      '</div>';
+  }
+
+  // ── Bloc compétences ──
+  function blocCompetencesClasse() {
+    if (!cfg.parCompetence || !ft.competences) return "";
+    var barres = COMPETENCES.map(function(c) {
+      var pct = compPcts[c.id] || 0;
+      var color = pct >= 0.75 ? p.success : pct >= 0.50 ? p.warning : p.danger;
+      var compColor = p.compColors[c.id] || p.accent;
+      return '<div style="display:flex;align-items:center;gap:0.8rem;margin-bottom:0.6rem;">' +
+        '<span style="font-weight:700;font-size:1rem;color:' + compColor + ';min-width:1.6rem;text-align:center;">' + c.id + '</span>' +
+        '<div style="flex:1;background:' + p.border + ';border-radius:6px;height:18px;overflow:hidden;">' +
+          '<div style="width:' + Math.round(pct * 100) + '%;background:' + color + ';height:100%;border-radius:6px;transition:width 0.3s;"></div>' +
+        '</div>' +
+        '<span style="font-size:0.9rem;font-weight:700;color:' + color + ';min-width:3rem;text-align:right;">' + Math.round(pct * 100) + ' %</span>' +
+        '</div>';
+    }).join("");
+    return '<div class="bento bento-full">' +
+      '<div class="bento-title">Compétences</div>' +
+      '<div style="margin-top:0.8rem;max-width:700px;">' + barres + '</div>' +
+      '</div>';
+  }
+
+  // ── Bloc par exercice ──
+  function svgHistoExercice(ex, p) {
+    var questions = ex.questions;
+    var n = questions.length;
+    if (n === 0) return "";
+
+    var width = Math.max(260, n * 60 + 40);
+    var height = 160;
+    var padL = 32, padR = 10, padT = 24, padB = 40;
+    var innerW = width - padL - padR;
+    var innerH = height - padT - padB;
+    var barW = Math.min(44, innerW / n - 6);
+
+    var taux = questions.map(function(q) {
+      var qMax = q.items.reduce(function(s, it) { return s + (parseFloat(it.points) || 0); }, 0);
+      if (qMax === 0) return 0;
+      var nbTraitants = presents.filter(function(s) {
+        return grades[treatedKey(s.id, q.id)] || q.items.some(function(it) { return grades[gradeKey(s.id, it.id)]; });
+      }).length;
+      if (nbTraitants === 0) return 0;
+      var obt = presents.reduce(function(s, st) {
+        return s + q.items.reduce(function(ss, it) {
+          return ss + (grades[gradeKey(st.id, it.id)] ? (parseFloat(it.points) || 0) : 0);
+        }, 0);
+      }, 0);
+      return obt / (nbTraitants * qMax);
+    });
+
+    var bars = questions.map(function(q, i) {
+      var t = taux[i];
+      var color = t >= 0.75 ? p.success : t >= 0.50 ? p.warning : p.danger;
+      var bh = Math.max(3, t * innerH);
+      var x = padL + i * (innerW / n) + (innerW / n - barW) / 2;
+      var y = padT + innerH - bh;
+      var pctLabel = Math.round(t * 100) + "%";
+
+      var isDiff = t < (seuilDifficile / 100);
+      var isPiege = ft.questionPiege && t > 0 && t < (seuilPiege / 100) && t >= 0.01;
+      var badge = isPiege ? "⚠" : isDiff ? "●" : "";
+      var badgeColor = isPiege ? p.warning : p.danger;
+
+      var label = q.label.length > 6 ? q.label.substring(0, 6) + "…" : q.label;
+
+      return '<rect x="' + x.toFixed(1) + '" y="' + y.toFixed(1) + '" width="' + barW + '" height="' + bh.toFixed(1) + '" fill="' + color + '" rx="3"/>' +
+        '<text x="' + (x + barW / 2).toFixed(1) + '" y="' + (y - 4).toFixed(1) + '" text-anchor="middle" font-size="9" fill="' + p.textMuted + '" font-family="monospace">' + pctLabel + '</text>' +
+        '<text x="' + (x + barW / 2).toFixed(1) + '" y="' + (padT + innerH + 14) + '" text-anchor="middle" font-size="9" fill="' + p.text + '" font-family="monospace">' + esc(label) + '</text>' +
+        (badge ? '<text x="' + (x + barW / 2).toFixed(1) + '" y="' + (padT + innerH + 26) + '" text-anchor="middle" font-size="10" fill="' + badgeColor + '">' + badge + '</text>' : '');
+    }).join("");
+
+    var axis = '<line x1="' + padL + '" y1="' + (padT + innerH).toFixed(1) + '" x2="' + (width - padR) + '" y2="' + (padT + innerH).toFixed(1) + '" stroke="' + p.border + '" stroke-width="1"/>';
+
+    var yTicks = [0, 0.5, 1].map(function(v) {
+      var y = padT + innerH - v * innerH;
+      return '<line x1="' + (padL - 4) + '" y1="' + y.toFixed(1) + '" x2="' + padL + '" y2="' + y.toFixed(1) + '" stroke="' + p.border + '" stroke-width="0.8"/>' +
+        '<text x="' + (padL - 6) + '" y="' + (y + 3).toFixed(1) + '" text-anchor="end" font-size="8" fill="' + p.textMuted + '" font-family="monospace">' + Math.round(v * 100) + '%</text>';
+    }).join("");
+
+    return '<svg width="100%" viewBox="0 0 ' + width + ' ' + height + '" xmlns="http://www.w3.org/2000/svg" style="display:block;max-width:100%;">' +
+      axis + yTicks + bars + '</svg>';
+  }
+
+  function blocParExercice() { return ""; } // remplacé par blocsParExercice
+
+  function blocsParExercice() {
+    if (!cfg.parExercice) return "";
+    return exam.exercises.map(function(ex) {
+      var exMax = ex.questions.reduce(function(s, q) {
+        return s + q.items.reduce(function(ss, it) { return ss + (parseFloat(it.points) || 0); }, 0);
+      }, 0);
+      var exMoy = presents.length ? presents.reduce(function(s, st) {
+        return s + exerciseScore(grades, st.id, ex, bonusCompletConfig).earned;
+      }, 0) / presents.length : 0;
+      var exTaux = exMax > 0 ? exMoy / exMax : 0;
+      var exColor = exTaux >= 0.75 ? p.success : exTaux >= 0.50 ? p.warning : p.danger;
+
+      return '<div class="bento bento-full">' +
+        '<div class="bento-title">' + esc(ex.title) +
+          '<span style="margin-left:0.6rem;font-size:0.8rem;font-weight:700;color:' + exColor + ';">' + Math.round(exTaux * 100) + '%</span>' +
+        '</div>' +
+        '<div style="margin-top:0.4rem;">' + svgHistoExercice(ex, p) + '</div>' +
+        '</div>';
+    }).join("");
+  }
+
+  var nomDS = exam.nomDS || "";
+  var dateDS = exam.dateDS || "";
+  var genDate = new Date().toLocaleDateString("fr-FR", { day: "2-digit", month: "long", year: "numeric" });
+
+  var css = [
+    "*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }",
+    "body { font-family: " + p.bodyFont + "; background: " + p.bg + "; color: " + p.text + "; font-size: 15px; line-height: 1.5; }",
+    ".page { max-width: 1100px; margin: 0 auto; padding: 1.5rem 1.5rem 3rem; }",
+    "@page { size: A4 landscape; margin: 1.5cm; }",
+    "@media print { .no-print { display: none !important; } body { background: #fff; } .page { padding: 0; } }",
+    ".bento { background: " + p.card + "; border: 1px solid " + p.border + "; border-radius: " + p.radius + "px; padding: 1.2rem 1.4rem; }",
+    ".bento-full { grid-column: 1 / -1; }",
+    ".bento-wide { grid-column: span 2; }",
+    ".bento-title { font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.1em; color: " + p.textMuted + "; font-weight: 700; margin-bottom: 0.3rem; }",
+    ".grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 1.2rem; margin-top: 1.2rem; }",
+    "@media (max-width: 700px) { .bento-wide { grid-column: span 1; } }",
+  ].join("\n");
+
+  var header = '<div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:1.2rem;">' +
+    '<div style="font-family:' + p.headerFont + ';font-size:1.6rem;font-weight:700;color:' + p.text + ';">' + esc(nomDS) + (dateDS ? '<span style="font-size:1rem;font-weight:400;color:' + p.textMuted + ';margin-left:0.6rem;">· ' + esc(dateDS) + '</span>' : '') + '</div>' +
+    '<div style="font-size:0.8rem;color:' + p.textMuted + ';">Rapport de classe · Généré le ' + genDate + '</div>' +
+    '</div>';
+
+  var printBtn = '<script>if(window.self!==window.top){document.addEventListener("DOMContentLoaded",function(){var b=document.getElementById("print-btn");if(b)b.style.display="none";});}<\/script>' +
+    '<button id="print-btn" class="no-print" onclick="window.print()" style="position:fixed;top:1rem;right:1rem;padding:8px 16px;background:' + p.accent + ';color:#fff;border:none;border-radius:8px;cursor:pointer;font-size:0.85rem;font-weight:600;box-shadow:0 2px 8px rgba(0,0,0,0.15);z-index:100;">🖨️ Imprimer / PDF</button>';
+
+  var grid = '<div class="grid">' +
+    blocCommentaireDS() +
+    blocStatsGlobales() +
+    blocDistribution() +
+    blocCompetencesClasse() +
+    blocsParExercice() +
+    '</div>';
+
+  var footer = '<div style="margin-top:2rem;padding-top:0.8rem;border-top:1px solid ' + p.border + ';font-size:0.75rem;color:' + p.textDim + ';display:flex;justify-content:space-between;">' +
+    '<span>' + esc(ETABLISSEMENT.nom || "") + '</span>' +
+    '<span>C.H.E.C.K. — Rapport de classe</span>' +
+    '</div>';
+
+  return '<!DOCTYPE html>\n<html lang="fr">\n<head>\n' +
+    '<meta charset="UTF-8">\n<meta name="viewport" content="width=device-width, initial-scale=1">\n' +
+    '<title>Rapport de classe — ' + esc(nomDS) + '</title>\n' +
+    '<link rel="preconnect" href="https://fonts.googleapis.com">\n' +
+    '<link href="' + googleFontsUrl(theme) + '" rel="stylesheet">\n' +
+    '<style>\n' + css + '\n</style>\n' +
+    '</head>\n<body>\n' +
+    printBtn +
+    '<div class="page">\n' +
+    header + grid + footer +
+    '\n</div>\n</body>\n</html>';
 }
