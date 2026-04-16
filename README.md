@@ -20,11 +20,12 @@ Application web progressive (PWA) pour corriger des copies, calculer les notes e
 
 ## Fonctionnalités principales
 
-- **Préparation** : créer des devoirs (exercices, questions, items, compétences A/N/R/V), importer une liste d'élèves en CSV, gérer les groupes (tiers-temps, groupes pédagogiques)
-- **Correction** : cocher les items question par question, ajouter des remarques de présentation, enregistrer un commentaire audio, gérer les absents
-- **Résultats** : aperçu live du rapport HTML de chaque élève, avec trois thèmes visuels (Cahier, Ardoise, Jeune)
-- **Stats** : distribution des notes, compétences, exercices, classement
-- **Export** : rapports HTML individuels (ZIP), sources LaTeX compilables avec XeLaTeX, CSV récapitulatif, synthèse multi-DS
+- **Préparation** : créer des devoirs (exercices, questions, items, compétences A/N/R/V), choisir un preset de fonctionnalités (♙ Simple / ♜ Standard / ♔ Complet / ♞ Personnalisé), importer une liste d'élèves en CSV, gérer les groupes (tiers-temps, groupes pédagogiques), définir coefficients et questions bonus 🎁
+- **Correction** : cocher les items question par question, ajouter des remarques de présentation avec malus automatique, enregistrer un commentaire audio 🎙️ par question, gérer les absents, bonus exercice complet 🏆
+- **Résultats** : aperçu live du rapport HTML de chaque élève ; option « 📊 Toute la classe » pour le rapport de classe en projection (paysage A4)
+- **Vue d'ensemble** : tableau croisé élèves × questions avec code couleur, tri par colonne, navigation directe vers la correction
+- **Stats** : distribution des notes, compétences, questions difficiles et pièges ⚠️, classement ; sous-onglet **Progression** inter-DS (courbe élève + moyenne classe, radar multi-DS)
+- **Export** : rapports HTML individuels (ZIP), sources LaTeX compilables avec XeLaTeX, rapport de classe HTML, CSV récapitulatif, synthèse multi-DS annuelle
 - **Multi-profils** : plusieurs enseignants peuvent utiliser l'app sur le même appareil avec des données séparées
 - **Synchronisation** : sauvegarde/restauration vers un dépôt GitHub privé (optionnel)
 
@@ -55,15 +56,27 @@ check-app/
 │   └── logos/
 │       ├── splash.png
 │       ├── logo-light.png
-│       └── logo-dark.png
+│       ├── logo-dark.png
+│       └── logo-young.png
 └── src/
     ├── index.js
-    ├── App.jsx                ← Application complète
+    ├── App.jsx                ← Composant principal
+    ├── SettingsModal.jsx      ← Modale Réglages (5 onglets)
+    ├── ExportTab.jsx          ← Onglet Export
+    ├── HelpTab.jsx            ← Onglet Aide
+    ├── OverviewTab.jsx        ← Onglet Vue d'ensemble
+    ├── components/
+    │   ├── Charts.jsx         ← Composants graphiques (radar, histogramme, progression)
+    │   ├── AudioRecorder.jsx  ← Enregistrement audio par question
+    │   └── DebugModal.jsx     ← Modal debug
     ├── config/
-    │   ├── settings.js        ← Compétences, remarques, seuils, groupes
+    │   ├── settings.js        ← Compétences, remarques, seuils, groupes, presets
     │   └── theme.js           ← Palettes clair / sombre / jeune
     └── utils/
         ├── calculs.js         ← Scores, normalisation, malus
+        ├── calculs.test.js    ← Tests unitaires (45 tests)
+        ├── db.js              ← Persistance IndexedDB multi-profils
+        ├── helpers.js         ← Utilitaires partagés
         ├── latex.js           ← Générateur LaTeX
         └── html.js            ← Générateur HTML autonome
 ```
@@ -72,8 +85,8 @@ check-app/
 
 ```bash
 # Cloner le dépôt
-git clone https://github.com/<votre-compte>/check.git
-cd check
+git clone https://github.com/<votre-compte>/check-app.git
+cd check-app
 
 # Installer les dépendances
 npm install
@@ -100,11 +113,11 @@ L'action construit l'application et met à jour la branche `gh-pages` automatiqu
 **Configuration requise :**
 
 1. Dans les paramètres du dépôt GitHub → Pages → Source : sélectionner la branche `gh-pages`.
-2. Dans `deploy.yml`, remplacer `/check` par le nom exact de votre dépôt dans la ligne `PUBLIC_URL`.
+2. Dans `deploy.yml`, remplacer `/check-app` par le nom exact de votre dépôt dans la ligne `PUBLIC_URL`.
 
 ### Personnalisation
 
-Tout ce qui concerne votre établissement et vos préférences pédagogiques est centralisé dans `src/config/settings.js` : nom de l'établissement, classe, compétences, remarques prédéfinies, seuils de notation, paliers de malus.
+Tout ce qui concerne votre établissement et vos préférences pédagogiques est centralisé dans `src/config/settings.js` : nom de l'établissement, classe, compétences, remarques prédéfinies, seuils de notation, paliers de malus, presets de fonctionnalités.
 
 ---
 

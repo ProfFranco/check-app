@@ -2,6 +2,7 @@
 // SettingsModal — modale Réglages (5 onglets)
 // ═══════════════════════════════════════════════════════════════════
 
+import { useState, useEffect } from "react";
 import { REMARQUES, TT_GROUPE } from "./config/settings";
 import { DEFAULT_HTML_CONFIG } from "./utils/html";
 import { saveDB } from "./utils/db";
@@ -38,8 +39,16 @@ export default function SettingsModal({
   githubPat, setGithubPat,
   githubRepo, setGithubRepo,
   onClose,
+  onSave,
   onOpenDebug,
 }) {
+  var _savedFlash = useState(false); var setSavedFlash = _savedFlash[1]; var savedFlash = _savedFlash[0];
+  useEffect(function() {
+    if (!onSave) return;
+    setSavedFlash(true);
+    var t = setTimeout(function() { setSavedFlash(false); }, 1500);
+    return function() { clearTimeout(t); };
+  }, [onSave]);
   return (
     <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.4)", zIndex: 200, display: "flex", alignItems: "center", justifyContent: "center" }} onClick={onClose}>
       <div style={{ background: th.card, borderRadius: 12, border: "1px solid " + th.border, padding: 20, width: 540, maxWidth: "96vw", maxHeight: "88vh", overflowY: "auto", boxShadow: "0 8px 32px rgba(0,0,0,0.2)" }} onClick={function(e) { e.stopPropagation(); }}>
@@ -50,7 +59,7 @@ export default function SettingsModal({
           var tabs = [
             { id: "etablissement", label: "\uD83C\uDFEB \u00C9tablissement" },
             { id: "evaluation",    label: "\uD83C\uDF93 \u00C9valuation" },
-            { id: "calcul",        label: "\uD83D\uDCCA Calcul" },
+            { id: "calcul",        label: "\uD83D\uDCCA Notes" },
             { id: "correction",    label: "\u270F\uFE0F Correction" },
             { id: "export",        label: "\uD83D\uDCE4 Export" },
           ];
@@ -115,6 +124,9 @@ export default function SettingsModal({
         {settingsTab === "evaluation" && (function() {
           return (
             <div>
+              <p style={{ fontSize: '0.78em', color: 'var(--text-muted, #888)', fontStyle: 'italic', marginBottom: '0.8em' }}>
+                ⓘ Ces réglages s'appliquent à tous les devoirs.
+              </p>
               {/* Seuils de compétence */}
               <div style={{ fontSize: 11, fontWeight: 700, color: th.textMuted, fontFamily: FONT_B, marginBottom: 8, textTransform: "uppercase", letterSpacing: 1 }}>Seuils de compétence</div>
               <div style={{ fontSize: 10, color: th.textMuted, fontFamily: FONT_B, marginBottom: 8, lineHeight: 1.5 }}>
@@ -202,6 +214,9 @@ export default function SettingsModal({
         {settingsTab === "calcul" && (function() {
           return (
             <div>
+              <p style={{ fontSize: '0.78em', color: 'var(--text-muted, #888)', fontStyle: 'italic', marginBottom: '0.8em' }}>
+                ⓘ Ces réglages s'appliquent à tous les devoirs.
+              </p>
               {/* Normalisation */}
               <div style={{ fontSize: 11, fontWeight: 700, color: th.textMuted, fontFamily: FONT_B, marginBottom: 8, textTransform: "uppercase", letterSpacing: 1 }}>Normalisation</div>
               {[
@@ -686,6 +701,11 @@ export default function SettingsModal({
           <button onClick={onOpenDebug} style={{ background: "none", border: "none", color: th.textDim, cursor: "pointer", fontSize: 10, fontFamily: FONT_B, padding: "2px 4px" }}>
             {"🔬 Debug"}
           </button>
+          {savedFlash && (
+            <span style={{ fontSize: 12, color: "var(--color-success, #4caf50)", fontStyle: "italic", opacity: 0.9, transition: "opacity 0.3s" }}>
+              ✓ Sauvegardé
+            </span>
+          )}
           <button onClick={onClose} style={{ padding: "8px 24px", borderRadius: th.radiusSm, cursor: "pointer", fontFamily: FONT_B, fontSize: 13, fontWeight: 700, background: th.accent, border: "none", color: "#fff" }}>
             {"Fermer"}
           </button>

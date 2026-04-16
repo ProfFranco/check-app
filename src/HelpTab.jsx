@@ -78,7 +78,6 @@ function HelpTab({ th, FONT, FONT_B, MONO }) {
 
   // ─── Captures simulées ─────────────────────────────────────────
 
-  // Fenêtre générique simulant l'app
   var SimWindow = function({ children, label }) {
     return (
       <div style={{
@@ -99,7 +98,6 @@ function HelpTab({ th, FONT, FONT_B, MONO }) {
     );
   };
 
-  // Bouton simulé
   var SimBtn = function({ label, color, small }) {
     var c = color || th.accent;
     return (
@@ -125,7 +123,6 @@ function HelpTab({ th, FONT, FONT_B, MONO }) {
     );
   };
 
-  // Item coché / décoché
   var SimCheck = function({ label, pts, checked }) {
     return (
       <div style={{
@@ -147,7 +144,6 @@ function HelpTab({ th, FONT, FONT_B, MONO }) {
     );
   };
 
-  // Barre de compétence lettre
   var SimComp = function({ id, lettre, color }) {
     return (
       <div style={{
@@ -161,7 +157,6 @@ function HelpTab({ th, FONT, FONT_B, MONO }) {
     );
   };
 
-  // Remarque simulée
   var SimRem = function({ label, active }) {
     return (
       <span style={{
@@ -197,7 +192,7 @@ function HelpTab({ th, FONT, FONT_B, MONO }) {
           }}>{"▼"}</span>
         </button>
         <div style={{
-          maxHeight: open ? "2400px" : "0px",
+          maxHeight: open ? "3600px" : "0px",
           overflow: "hidden", transition: "max-height 0.35s ease",
         }}>
           <div style={{ borderTop: "1px solid " + th.border, padding: "14px 16px" }}>
@@ -207,8 +202,6 @@ function HelpTab({ th, FONT, FONT_B, MONO }) {
       </div>
     );
   };
-
-  // ─── Ligne de texte avec puce ──────────────────────────────────
 
   var Li = function({ children }) {
     return (
@@ -229,10 +222,11 @@ function HelpTab({ th, FONT, FONT_B, MONO }) {
   };
 
   // ═══════════════════════════════════════════════════════════════
-  // DONNÉES DU TUTORIEL
+  // DONNÉES DU TUTORIEL (8 étapes)
   // ═══════════════════════════════════════════════════════════════
 
   var etapes = [
+    // ── Étape 1 : Profil ──────────────────────────────────────────
     {
       num: 1,
       titre: "Configurer votre profil",
@@ -263,11 +257,13 @@ function HelpTab({ th, FONT, FONT_B, MONO }) {
         </SimWindow>
       ),
     },
+
+    // ── Étape 2 : Créer un DS ─────────────────────────────────────
     {
       num: 2,
       titre: "Créer un devoir surveillé",
       desc: "Un « DS » est le conteneur principal. Il regroupe la structure du sujet, les élèves et toutes les notes.",
-      instruction: "Dans l'onglet ⚙️ Préparation, cliquez sur « + Nouveau devoir », puis saisissez le nom et la date.",
+      instruction: "Dans l'onglet ⚙️ Préparation, cliquez sur « + Nouveau devoir », puis saisissez le nom et la date directement dans le bandeau du DS.",
       sim: (
         <SimWindow label="⚙️ Préparation">
           <div style={{
@@ -287,57 +283,103 @@ function HelpTab({ th, FONT, FONT_B, MONO }) {
         </SimWindow>
       ),
     },
+
+    // ── Étape 3 : Choisir le preset ───────────────────────────────
     {
       num: 3,
+      titre: "Choisir les fonctionnalités du devoir",
+      desc: "Chaque DS peut utiliser un jeu de fonctionnalités différent. Choisissez un preset adapté à la complexité de votre sujet — vous pourrez toujours l'ajuster.",
+      instruction: "Dans le bloc « Fonctionnalités du devoir » (sous le nom du DS), sélectionnez un preset. Le preset conditionne tout l'affichage : correction, stats et exports.",
+      sim: (
+        <SimWindow label="Fonctionnalités du devoir">
+          <div style={{ display: "flex", gap: 4, marginBottom: 10, flexWrap: "wrap" }}>
+            {[
+              { icon: "♙", label: "Simple", desc: "Notes brutes uniquement", active: false, color: th.textMuted },
+              { icon: "♜", label: "Standard", desc: "Compétences + malus", active: false, color: th.accent },
+              { icon: "♔", label: "Complet", desc: "Tout activer", active: true, color: th.success },
+              { icon: "♞", label: "Personnalisé", desc: "Choix libre", active: false, color: th.warning },
+            ].map(function(p) {
+              return (
+                <div key={p.label} style={{
+                  flex: 1, minWidth: 60, padding: "7px 6px", textAlign: "center",
+                  borderRadius: th.radiusSm, cursor: "pointer",
+                  border: "2px solid " + (p.active ? p.color : th.border),
+                  background: p.active ? p.color + "12" : "transparent",
+                }}>
+                  <div style={{ fontSize: 18, marginBottom: 2 }}>{p.icon}</div>
+                  <div style={{ fontSize: 10, fontWeight: 700, fontFamily: FONT_B, color: p.active ? p.color : th.textMuted }}>{p.label}</div>
+                  <div style={{ fontSize: 8, color: th.textDim, fontFamily: FONT_B, marginTop: 2, lineHeight: 1.3 }}>{p.desc}</div>
+                </div>
+              );
+            })}
+          </div>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
+            {["✓ Compétences A/N/R/V", "✓ Coefficients ×", "✓ Questions bonus 🎁", "✓ Bonus complet 🏆", "✓ Malus auto", "✓ Questions pièges ⚠️"].map(function(chip) {
+              return (
+                <span key={chip} style={{ padding: "2px 8px", borderRadius: 10, fontSize: 9, fontWeight: 600, fontFamily: FONT_B, background: th.success + "15", border: "1px solid " + th.success + "40", color: th.success }}>{chip}</span>
+              );
+            })}
+          </div>
+        </SimWindow>
+      ),
+    },
+
+    // ── Étape 4 : Structure du sujet ──────────────────────────────
+    {
+      num: 4,
       titre: "Saisir la structure du sujet",
-      desc: "Ajoutez vos exercices, puis vos questions, puis vos items (chaque critère de notation est un item avec ses points).",
-      instruction: "Cliquez sur « + Exercice », puis « + Question », puis « + Item » pour chaque critère. Assignez les compétences A/N/R/V à chaque question.",
+      desc: "Ajoutez vos exercices, puis vos questions, puis vos items — chaque critère de notation est un item avec ses points. Assignez les compétences et les options spéciales.",
+      instruction: "Cliquez sur « + Exercice », puis « + Question », puis « + Item » pour chaque critère. Assignez les compétences A/N/R/V à chaque question. Réordonnez avec ▲/▼.",
       sim: (
         <SimWindow label="Structure du sujet">
           <div style={{ background: th.surface, borderRadius: th.radiusSm, border: "1px solid " + th.border, overflow: "hidden" }}>
             <div style={{ padding: "6px 10px", borderBottom: "1px solid " + th.border, display: "flex", alignItems: "center", gap: 8 }}>
               <span style={{ fontWeight: 700, color: th.text, fontSize: 12 }}>Exercice 1 — Cinématique</span>
+              <span style={{ fontSize: 9, color: th.textMuted, fontFamily: MONO, padding: "1px 5px", background: th.accentBg, borderRadius: 4 }}>× 1</span>
               <span style={{ fontFamily: MONO, fontSize: 10, color: th.textMuted, marginLeft: "auto" }}>8 pts</span>
             </div>
             <div style={{ padding: "8px 12px" }}>
               {[
-                { label: "Q.1", comp: ["Ap.", "R."], items: ["Calculer la vitesse  2 pt", "Justifier le résultat  1 pt"] },
-                { label: "Q.2", comp: ["N."], items: ["Analyser le graphe  3 pt", "Conclure  2 pt"] },
-              ].map(function(q) {
+                { label: "Q.1", comp: ["Ap.", "R."], items: ["Calculer la vitesse  2 pt", "Justifier le résultat  1 pt"], bonus: false, piege: false },
+                { label: "Q.2 🎁", comp: ["An."], items: ["Réponse bonus  1 pt"], bonus: true, piege: false },
+              ].map(function(q, qi) {
                 return (
-                  <div key={q.label} style={{ marginBottom: 8 }}>
+                  <div key={qi} style={{ marginBottom: 8, paddingLeft: 8, borderLeft: "2px solid " + (q.bonus ? th.success + "60" : th.accent + "40") }}>
                     <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4 }}>
-                      <span style={{ fontSize: 10, fontWeight: 700, color: th.textMuted, minWidth: 24 }}>{q.label}</span>
-                      {q.comp.map(function(c) {
-                        return <span key={c} style={{ fontSize: 9, fontWeight: 700, padding: "0 5px", borderRadius: 3, background: th.accentBg, color: th.accent, border: "1px solid " + th.accent + "40", fontFamily: MONO }}>{c}</span>;
-                      })}
+                      <span style={{ fontSize: 11, fontWeight: 700, color: q.bonus ? th.success : th.text, fontFamily: FONT_B }}>{q.label}</span>
+                      {q.comp.map(function(c) { return badge(c, "#2855a0"); })}
+                      {q.bonus && <span style={{ fontSize: 9, color: th.success, fontFamily: MONO, marginLeft: 2 }}>bonus</span>}
                     </div>
-                    {q.items.map(function(it, i) {
+                    {q.items.map(function(item, ii) {
                       return (
-                        <div key={i} style={{ display: "flex", alignItems: "center", gap: 6, marginLeft: 24, marginBottom: 2 }}>
-                          <span style={{ color: th.textDim, fontSize: 8 }}>•</span>
-                          <span style={{ flex: 1, fontSize: 11, color: th.textMuted }}>{it.split("  ")[0]}</span>
-                          <span style={{ fontFamily: MONO, fontSize: 10, color: th.accent, fontWeight: 700 }}>{it.split("  ")[1]}</span>
+                        <div key={ii} style={{ fontSize: 10, color: th.textMuted, fontFamily: MONO, paddingLeft: 8, marginBottom: 2 }}>
+                          {"└ " + item}
                         </div>
                       );
                     })}
                   </div>
                 );
               })}
-              <div style={{ color: th.accent, fontSize: 10, fontWeight: 700, fontFamily: FONT_B, marginTop: 4 }}>+ Question</div>
+              <div style={{ display: "flex", alignItems: "center", gap: 6, padding: "6px 8px", background: th.success + "08", borderRadius: th.radiusSm, border: "1px solid " + th.success + "30", marginTop: 4 }}>
+                <span style={{ fontSize: 11 }}>🏆</span>
+                <span style={{ fontSize: 10, color: th.success, fontFamily: FONT_B }}>Bonus exercice complet — +1 pt si score ≥ 70 %</span>
+              </div>
             </div>
           </div>
         </SimWindow>
       ),
     },
+
+    // ── Étape 5 : Importer les élèves ─────────────────────────────
     {
-      num: 4,
+      num: 5,
       titre: "Importer la liste des élèves",
-      desc: "Préparez un fichier texte simple : NOM;Prénom, un par ligne. L'import est instantané.",
-      instruction: "Dans la section « Élèves », cliquez sur 📂 CSV et sélectionnez votre fichier. Vous pouvez aussi ajouter les élèves manuellement un à un.",
+      desc: "Importez vos élèves depuis un fichier CSV, ou saisissez-les un par un. Assignez-les ensuite à des groupes si besoin.",
+      instruction: "Cliquez sur « 📂 CSV » et sélectionnez votre fichier (format : NOM;Prénom, un élève par ligne). Vous pouvez aussi ajouter des élèves manuellement avec « + Élève ».",
       sim: (
-        <SimWindow label="Section Élèves">
-          <div style={{ fontFamily: MONO, fontSize: 10, color: th.textDim, background: th.surface, padding: "6px 10px", borderRadius: th.radiusSm, marginBottom: 8 }}>
+        <SimWindow label="⚙️ Préparation › Élèves">
+          <div style={{ fontFamily: MONO, fontSize: 10, color: th.textDim, padding: "6px 8px", background: th.card, borderRadius: th.radiusSm, marginBottom: 8, border: "1px solid " + th.border }}>
+            <div style={{ fontSize: 8, color: th.accent, fontWeight: 700, marginBottom: 4 }}>EXEMPLE CSV</div>
             <div>DUPONT;Jean</div>
             <div>MARTIN;Claire</div>
             <div>LEROY;Thomas</div>
@@ -349,11 +391,17 @@ function HelpTab({ th, FONT, FONT_B, MONO }) {
             <SimBtnOutline label="Groupes" />
           </div>
           <div style={{ marginTop: 8 }}>
-            {["DUPONT Jean", "MARTIN Claire", "LEROY Thomas"].map(function(n, i) {
+            {[
+              { name: "DUPONT Jean", groupe: "tt" },
+              { name: "MARTIN Claire", groupe: "" },
+              { name: "LEROY Thomas", groupe: "nsi" },
+            ].map(function(n, i) {
               return (
                 <div key={i} style={{ display: "flex", alignItems: "center", gap: 6, padding: "4px 0", borderBottom: "1px solid " + th.border + "44" }}>
                   <span style={{ fontFamily: MONO, fontSize: 9, color: th.textDim, minWidth: 16 }}>{i + 1}</span>
-                  <span style={{ fontSize: 12, fontFamily: FONT_B, color: th.text, flex: 1 }}>{n}</span>
+                  <span style={{ fontSize: 12, fontFamily: FONT_B, color: th.text, flex: 1 }}>{n.name}</span>
+                  {n.groupe === "tt" && <span style={{ fontSize: 8, padding: "1px 5px", borderRadius: 6, background: th.warning + "20", color: th.warning, fontFamily: MONO }}>TT</span>}
+                  {n.groupe === "nsi" && <span style={{ fontSize: 8, padding: "1px 5px", borderRadius: 6, background: th.accent + "20", color: th.accent, fontFamily: MONO }}>NSI</span>}
                 </div>
               );
             })}
@@ -361,11 +409,13 @@ function HelpTab({ th, FONT, FONT_B, MONO }) {
         </SimWindow>
       ),
     },
+
+    // ── Étape 6 : Corriger les copies ─────────────────────────────
     {
-      num: 5,
+      num: 6,
       titre: "Corriger les copies",
-      desc: "Passez en onglet Correction. Naviguez d'élève en élève et cochez les items réussis. Le score se met à jour en temps réel.",
-      instruction: "Utilisez les flèches ◂/▸ pour changer d'élève, les onglets d'exercice pour naviguer dans le sujet. Les boutons ◄/► en bas permettent d'avancer exercice par exercice.",
+      desc: "Passez en onglet Correction. Naviguez d'élève en élève et cochez les items réussis. Le score se met à jour en temps réel. Ajoutez des remarques de présentation si nécessaire.",
+      instruction: "Utilisez les flèches ◂/▸ pour changer d'élève (ou swipez sur tablette). Les boutons ◄/► en bas avancent exercice par exercice. Raccourcis clavier : ← → pour les exercices, 1–9 pour sauter directement.",
       sim: (
         <SimWindow label="✏️ Correction — DUPONT Jean">
           <div style={{ display: "flex", gap: 5, marginBottom: 10 }}>
@@ -385,19 +435,25 @@ function HelpTab({ th, FONT, FONT_B, MONO }) {
           <SimCheck label="Justifier le résultat" pts="1" checked={true} />
           <SimCheck label="Analyser le graphe" pts="3" checked={false} />
           <SimCheck label="Conclure" pts="2" checked={true} />
-          <div style={{ display: "flex", gap: 4, marginTop: 8 }}>
+          <div style={{ display: "flex", gap: 4, marginTop: 8, flexWrap: "wrap" }}>
             <SimRem label="✏️ Rédaction" active={true} />
             <SimRem label="📐 Unités" active={false} />
             <SimRem label="🧹 Soin" active={false} />
           </div>
+          <div style={{ marginTop: 8, padding: "5px 8px", background: th.danger + "10", border: "1px solid " + th.danger + "30", borderRadius: th.radiusSm, display: "flex", alignItems: "center", gap: 6 }}>
+            <span style={{ fontSize: 10, color: th.danger, fontFamily: MONO, fontWeight: 700 }}>−3 %</span>
+            <span style={{ fontSize: 10, color: th.textMuted, fontFamily: FONT_B }}>malus présentation (1 remarque)</span>
+          </div>
         </SimWindow>
       ),
     },
+
+    // ── Étape 7 : Consulter les résultats ─────────────────────────
     {
-      num: 6,
+      num: 7,
       titre: "Consulter les résultats",
-      desc: "L'onglet Résultats individuels affiche un aperçu du rapport de l'élève sélectionné, en temps réel.",
-      instruction: "Allez dans l'onglet 🧑 Résultats, choisissez un élève dans le menu déroulant. Le rapport HTML s'affiche immédiatement. Configurez le thème dans Réglages → Export.",
+      desc: "L'onglet Résultats individuels affiche un aperçu du rapport d'un élève sélectionné — ou le rapport de classe complet avec stats agrégées.",
+      instruction: "Allez dans l'onglet 🧑 Résultats. Choisissez un élève dans le menu déroulant pour son rapport individuel, ou sélectionnez « 📊 Toute la classe » pour le rapport de classe en projection.",
       sim: (
         <SimWindow label="🧑 Résultats individuels">
           <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
@@ -406,6 +462,10 @@ function HelpTab({ th, FONT, FONT_B, MONO }) {
               DUPONT Jean ▾
             </div>
             <span style={{ fontSize: 11, color: th.textDim, fontFamily: MONO }}>13.5/20 · rang 3/24</span>
+          </div>
+          <div style={{ padding: "6px 10px", background: th.accentBg, borderRadius: th.radiusSm, border: "1px solid " + th.accent + "30", marginBottom: 8, fontSize: 11, color: th.accent, fontFamily: FONT_B, display: "flex", alignItems: "center", gap: 6 }}>
+            <span>📊</span>
+            <span><strong>Toute la classe</strong> — rapport de classe en format projection (paysage A4)</span>
           </div>
           <div style={{ border: "1px solid " + th.border, borderRadius: th.radiusSm, overflow: "hidden" }}>
             <div style={{ background: th.accent + "0c", padding: "10px 14px", borderBottom: "1px solid " + th.border }}>
@@ -422,8 +482,8 @@ function HelpTab({ th, FONT, FONT_B, MONO }) {
                 <div style={{ fontSize: 9, color: th.textDim }}>/ 24</div>
               </div>
               <div style={{ fontSize: 10, color: th.textMuted, fontFamily: FONT_B }}>
-                <div>Justesse : 72%</div>
-                <div>Efficacité : 85%</div>
+                <div>Justesse : 72 %</div>
+                <div>Efficacité : 85 %</div>
                 <div>Malus : aucun</div>
               </div>
             </div>
@@ -431,27 +491,39 @@ function HelpTab({ th, FONT, FONT_B, MONO }) {
         </SimWindow>
       ),
     },
+
+    // ── Étape 8 : Exporter ────────────────────────────────────────
     {
-      num: 7,
-      titre: "Exporter les rapports HTML",
-      desc: "Générez les rapports HTML autonomes — un fichier par élève, sans dépendance, prêt à envoyer par mail ou ENT.",
-      instruction: "Allez dans l'onglet 📄 Export → section « Pour les élèves ». Téléchargez le rapport de l'élève actif, ou le ZIP complet de la classe.",
+      num: 8,
+      titre: "Exporter les rapports",
+      desc: "Générez les rapports HTML autonomes pour vos élèves, les sources LaTeX, le CSV de classe et le rapport de classe — tout depuis l'onglet Export.",
+      instruction: "Allez dans l'onglet 📄 Export. La section « Pour les élèves » génère les rapports HTML individuels (ou le ZIP complet). La section « Pour l'enseignant » donne accès au LaTeX, CSV, et au rapport de classe HTML.",
       sim: (
-        <SimWindow label="📄 Export › Pour les élèves">
+        <SimWindow label="📄 Export">
           {[
-            { label: "Rapport HTML — DUPONT Jean", sub: "Élève affiché dans l'onglet Résultats", btn: "Télécharger .html", color: th.accent },
-            { label: "Tous les rapports HTML", sub: "24 fichiers compressés", btn: "Télécharger .zip", color: th.success },
-          ].map(function(row, i) {
+            { section: "📄 Pour les élèves", rows: [
+              { label: "Rapport HTML — DUPONT Jean", btn: "Télécharger .html", color: th.accent },
+              { label: "Tous les rapports HTML", btn: "Télécharger .zip", color: th.success },
+            ]},
+            { section: "🗂️ Pour l'enseignant", rows: [
+              { label: "Document LaTeX complet", btn: "Télécharger .tex", color: th.textMuted },
+              { label: "CSV récapitulatif", btn: "Télécharger .csv", color: th.textMuted },
+            ]},
+          ].map(function(sec, si) {
             return (
-              <div key={i} style={{
-                display: "flex", alignItems: "center", justifyContent: "space-between",
-                padding: "10px 0", borderBottom: i === 0 ? "1px solid " + th.border + "55" : "none", gap: 10,
-              }}>
-                <div>
-                  <div style={{ fontSize: 12, fontWeight: 600, fontFamily: FONT_B, color: th.text }}>{row.label}</div>
-                  <div style={{ fontSize: 10, color: th.textMuted, fontFamily: FONT_B, marginTop: 2 }}>{row.sub}</div>
-                </div>
-                <SimBtn label={row.btn} color={row.color} />
+              <div key={si} style={{ marginBottom: si === 0 ? 10 : 0 }}>
+                <div style={{ fontSize: 10, fontWeight: 700, color: th.textMuted, fontFamily: FONT_B, textTransform: "uppercase", letterSpacing: 0.8, marginBottom: 6 }}>{sec.section}</div>
+                {sec.rows.map(function(row, i) {
+                  return (
+                    <div key={i} style={{
+                      display: "flex", alignItems: "center", justifyContent: "space-between",
+                      padding: "8px 0", borderBottom: "1px solid " + th.border + "44", gap: 10,
+                    }}>
+                      <div style={{ fontSize: 12, fontWeight: 600, fontFamily: FONT_B, color: th.text }}>{row.label}</div>
+                      <SimBtn label={row.btn} color={row.color} small={true} />
+                    </div>
+                  );
+                })}
               </div>
             );
           })}
@@ -505,8 +577,8 @@ function HelpTab({ th, FONT, FONT_B, MONO }) {
             borderRadius: th.radius, border: "1px solid " + th.accent + "30",
             marginBottom: 16, fontSize: 12, fontFamily: FONT_B, color: th.textMuted, lineHeight: 1.7,
           }}>
-            Ce tutoriel vous guide pas à pas de la création d'un devoir jusqu'à l'export des rapports HTML pour vos élèves.
-            Comptez <strong style={{ color: th.text }}>10 à 15 minutes</strong> pour votre premier DS.
+            Ce tutoriel vous guide pas à pas de la création d'un devoir jusqu'à l'export des rapports pour vos élèves.
+            Comptez <strong style={{ color: th.text }}>15 à 20 minutes</strong> pour configurer votre premier DS.
           </div>
 
           {etapes.map(function(etape) {
@@ -563,7 +635,7 @@ function HelpTab({ th, FONT, FONT_B, MONO }) {
             <div style={{ fontFamily: FONT_B, fontSize: 12, color: th.textMuted, lineHeight: 1.7, maxWidth: 480, margin: "0 auto" }}>
               Les rapports HTML sont autonomes — aucune dépendance, aucun serveur.
               Vos élèves peuvent les ouvrir dans n'importe quel navigateur.
-              Pour aller plus loin, consultez la <strong style={{ color: th.accent }}>Référence complète</strong>.
+              Pour en savoir plus sur chaque fonctionnalité, consultez la <strong style={{ color: th.accent }}>Référence complète</strong>.
             </div>
           </div>
         </div>
@@ -579,30 +651,65 @@ function HelpTab({ th, FONT, FONT_B, MONO }) {
           <RefSection id="prep" icon="⚙️" titre="Préparation du sujet">
             <H>Structure d'un DS</H>
             <Li>Un DS contient un ou plusieurs <strong>exercices</strong>, chaque exercice contient des <strong>questions</strong>, chaque question contient des <strong>items</strong> (critères de notation individuels).</Li>
-            <Li>Chaque item reçoit un nombre de points. La somme des items d'un exercice est son total.</Li>
-            <SimWindow label="Hiérarchie">
+            <Li>Chaque item reçoit un nombre de points. La somme des items d'une question est son total, la somme des questions donne le total de l'exercice.</Li>
+            <SimWindow label="Hiérarchie DS → Exercice → Question → Item">
               <div style={{ fontFamily: MONO, fontSize: 11, color: th.textMuted, lineHeight: 2 }}>
                 <div>📋 <strong style={{ color: th.text }}>DS 01 — Mécanique</strong> <span style={{ color: th.accent }}>20 pts</span></div>
                 <div style={{ paddingLeft: 16 }}>└─ 📂 <strong>Exercice 1</strong> <span style={{ color: th.textDim }}>8 pts</span></div>
                 <div style={{ paddingLeft: 32 }}>├─ ❓ Q.1 <span style={{ color: th.textDim }}>[Ap. R.]  3 pts</span></div>
                 <div style={{ paddingLeft: 48 }}>├─ • Item a <span style={{ color: th.accent }}>2 pts</span></div>
                 <div style={{ paddingLeft: 48 }}>└─ • Item b <span style={{ color: th.accent }}>1 pt</span></div>
-                <div style={{ paddingLeft: 32 }}>└─ ❓ Q.2 <span style={{ color: th.textDim }}>[N.]  5 pts</span></div>
+                <div style={{ paddingLeft: 32 }}>└─ ❓ Q.2 🎁 <span style={{ color: th.textDim }}>[An.]  2 pts bonus</span></div>
               </div>
             </SimWindow>
 
-            <H>Compétences</H>
-            <Li>Chaque question est associée à une ou plusieurs compétences : {badge("Ap.", "#2855a0")} {badge("An.", "#6a3a9a")} {badge("R.", "#2a7a3a")} {badge("V.", "#c07a10")} — Apprendre, Analyser, Réaliser, Valider.</Li>
-            <Li>Les compétences déterminent la note lettre (A/B/C/D/NN) affichée dans les rapports et les statistiques.</Li>
+            <H>Fonctionnalités par DS — les presets</H>
+            <Li>Chaque DS dispose d'un <strong>bloc « Fonctionnalités du devoir »</strong> qui conditionne toute l'interface, les statistiques et les exports. Choisissez le preset adapté à votre sujet.</Li>
+            <SimWindow label="Les quatre presets">
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 6 }}>
+                {[
+                  { icon: "♙", label: "Simple", color: th.textMuted, desc: "Notes brutes uniquement. Idéal pour un contrôle rapide sans compétences." },
+                  { icon: "♜", label: "Standard", color: th.accent, desc: "Compétences A/N/R/V, questions bonus et malus automatique. Preset recommandé." },
+                  { icon: "♔", label: "Complet", color: th.success, desc: "Toutes les fonctionnalités : coefficients, bonus exercice complet, questions pièges." },
+                  { icon: "♞", label: "Personnalisé", color: th.warning, desc: "Activez ou désactivez chaque fonctionnalité individuellement avec des infobulles." },
+                ].map(function(p) {
+                  return (
+                    <div key={p.label} style={{ padding: "8px 10px", border: "1px solid " + p.color + "40", borderRadius: th.radiusSm, background: p.color + "08" }}>
+                      <div style={{ fontSize: 14, marginBottom: 3 }}>{p.icon} <strong style={{ color: p.color }}>{p.label}</strong></div>
+                      <div style={{ fontSize: 10, color: th.textMuted, fontFamily: FONT_B, lineHeight: 1.5 }}>{p.desc}</div>
+                    </div>
+                  );
+                })}
+              </div>
+            </SimWindow>
+            {tip("Le preset par défaut à la création est ♜ Standard. Les DS existants importés sans champ features utilisent automatiquement ♔ Complet pour ne rien perdre.", th.accent)}
 
-            <H>Options spéciales</H>
-            <Li><strong>Coefficient ×</strong> : multiplie les points de l'exercice dans le total pondéré. Utile pour équilibrer des exercices de longueurs différentes.</Li>
-            <Li><strong>Question bonus 🎁</strong> : les points s'ajoutent au score de l'élève sans augmenter le maximum de l'examen.</Li>
-            {tip("Vous pouvez réordonner les exercices et les questions avec les boutons ▲/▼ dans l'en-tête de chaque bloc.", th.accent)}
+            <H>Compétences A/N/R/V</H>
+            <Li>Chaque question est associée à une ou plusieurs compétences : {badge("Ap.", "#2855a0")} {badge("An.", "#6a3a9a")} {badge("R.", "#2a7a3a")} {badge("V.", "#c07a10")} — Apprendre, Analyser, Réaliser, Valider.</Li>
+            <Li>Les compétences déterminent la note lettre (A/B/C/D/NN) affichée dans les rapports et les statistiques. Les seuils sont configurables dans Réglages → 🎓 Évaluation.</Li>
+
+            <H>Options spéciales par exercice ou question</H>
+            <Li><strong>Coefficient ×</strong> : multiplie les points de l'exercice dans le total pondéré. Utile pour équilibrer des exercices de longueurs inégales. Actif avec preset ♔ Complet ou ♞ Personnalisé.</Li>
+            <Li><strong>Question bonus 🎁</strong> : les points s'ajoutent au score de l'élève <em>sans</em> augmenter le maximum de l'examen. Les élèves peuvent donc dépasser 20/20 si la normalisation le permet.</Li>
+            <Li><strong>Bonus exercice complet 🏆</strong> : déclenché automatiquement quand un élève traite toutes les questions non-bonus d'un exercice ET atteint le seuil de score configuré. Ajoute des points fixes ou un pourcentage. Actif avec preset ♔ Complet ou ♞ Personnalisé.</Li>
+            <SimWindow label="Bonus exercice complet — déclenchement">
+              <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                <div style={{ flex: 1, padding: "6px 10px", borderRadius: th.radiusSm, background: th.success + "10", border: "1px solid " + th.success + "40", fontSize: 11, color: th.success, fontFamily: FONT_B }}>
+                  <strong>🏆 Déclenché</strong> — toutes les questions traitées + score ≥ 70 %<br />
+                  <span style={{ fontSize: 10, color: th.textMuted }}>→ +1 pt ajouté au score</span>
+                </div>
+                <div style={{ flex: 1, padding: "6px 10px", borderRadius: th.radiusSm, background: th.border + "30", border: "1px solid " + th.border, fontSize: 11, color: th.textMuted, fontFamily: FONT_B }}>
+                  <strong>Non déclenché</strong> — une question non traitée<br />
+                  <span style={{ fontSize: 10 }}>→ pas de bonus</span>
+                </div>
+              </div>
+            </SimWindow>
+            {tip("Le seuil et la valeur du bonus exercice complet se configurent dans Réglages → 🎓 Évaluation.", th.accent)}
 
             <H>Gestion des élèves</H>
             <Li>Format CSV accepté : <span style={{ fontFamily: MONO, fontSize: 11, background: th.surface, padding: "1px 5px", borderRadius: 3 }}>NOM;Prénom</span> — un élève par ligne. Séparateurs acceptés : <kbd>;</kbd> , <kbd>,</kbd> ou tabulation.</Li>
-            <Li>Les groupes (tiers-temps, NSI…) se configurent dans Réglages → Correction et s'assignent dans la liste des élèves.</Li>
+            <Li>Les groupes (tiers-temps, NSI…) se configurent dans Réglages → ✏️ Correction et s'assignent dans la liste des élèves. Le groupe tiers-temps applique automatiquement un coefficient de temps supplémentaire.</Li>
+            {tip("Vous pouvez réordonner les exercices et les questions avec les boutons ▲/▼ dans l'en-tête de chaque bloc.", th.accent)}
           </RefSection>
 
           {/* ── Correction ── */}
@@ -611,6 +718,7 @@ function HelpTab({ th, FONT, FONT_B, MONO }) {
             <Li>Flèches <strong>◂/▸</strong> (ou swipe sur tablette) pour changer d'élève. Les onglets d'exercice permettent de sauter d'un exercice à l'autre.</Li>
             <Li>Les boutons <strong>◄ Ex. préc. / Ex. suiv. ►</strong> en bas avancent exercice par exercice et passent automatiquement à l'élève suivant en fin de sujet.</Li>
             <Li>Raccourcis clavier : {kbd("←")} {kbd("→")} pour les exercices, {kbd("1")}–{kbd("9")} pour sauter à l'exercice N.</Li>
+            <Li>La <strong>barre de progression</strong> sous le header indique le nombre de copies corrigées parmi les élèves présents.</Li>
 
             <H>Saisie des notes</H>
             <SimWindow label="Question Q.1 — items">
@@ -628,7 +736,7 @@ function HelpTab({ th, FONT, FONT_B, MONO }) {
             <Li>Si aucun item n'est coché mais que la question a été tentée, utilisez <strong>« marquer traitée »</strong> pour que l'élève ne soit pas pénalisé dans les ratios de justesse/efficacité.</Li>
 
             <H>Remarques de présentation</H>
-            <Li>Les remarques sont attribuées question par question. Celles marquées <strong>« malus »</strong> déclenchent automatiquement une pénalité sur la note selon les paliers de Réglages → Calcul.</Li>
+            <Li>Les remarques sont attribuées question par question. Celles marquées <strong>« malus »</strong> déclenchent automatiquement une pénalité sur la note selon les paliers de Réglages → 📊 Notes.</Li>
             <SimWindow label="Remarques disponibles">
               <div>
                 <SimRem label="✏️ Rédaction" active={true} />
@@ -638,21 +746,23 @@ function HelpTab({ th, FONT, FONT_B, MONO }) {
                 <SimRem label="⚠️ À reprendre" active={false} />
               </div>
             </SimWindow>
+            <Li>Les remarques disponibles, leur ordre et leur caractère « malus » se configurent dans Réglages → ✏️ Correction. Vous pouvez créer des remarques personnalisées persistantes pour tous vos DS.</Li>
 
             <H>Malus</H>
             <Li>Le malus automatique se déclenche selon le nombre de remarques « malus » accumulées. Un malus manuel (en %) peut être ajouté individuellement.</Li>
-            <Li>Le malus peut être appliqué <strong>avant</strong> ou <strong>après</strong> la normalisation (Réglages → Calcul).</Li>
+            <Li>Le malus peut être appliqué <strong>avant</strong> ou <strong>après</strong> la normalisation (Réglages → 📊 Notes).</Li>
 
             <H>Commentaire et audio</H>
             <Li>Un commentaire libre par élève peut être saisi dans le champ texte — il apparaît dans tous les rapports.</Li>
             <Li>Le bouton 🎙️ dans l'en-tête de chaque question permet d'enregistrer un commentaire audio téléchargeable. Le fichier est nommé automatiquement : <code style={{ fontFamily: MONO, fontSize: 10 }}>DS_ELEVE_Exercice_Question.ext</code>.</Li>
-            <Li>Pour que les élèves puissent écouter ces enregistrements depuis leur rapport, activez les <strong>Liens audio</strong> dans Réglages → Export → 🔊 Liens audio. Renseignez l'URL de base du dossier où vous hébergez les fichiers sons, et choisissez l'extension selon votre navigateur d'enregistrement (<code style={{ fontFamily: MONO, fontSize: 10 }}>webm</code> pour Chrome, <code style={{ fontFamily: MONO, fontSize: 10 }}>mp4</code> pour Safari).</Li>
+            <Li>Pour que les élèves puissent écouter ces enregistrements depuis leur rapport, activez les <strong>Liens audio</strong> dans Réglages → 📤 Export → 🔊. Renseignez l'URL de base du dossier où vous hébergez les fichiers, et choisissez l'extension selon votre navigateur (<code style={{ fontFamily: MONO, fontSize: 10 }}>webm</code> pour Chrome, <code style={{ fontFamily: MONO, fontSize: 10 }}>mp4</code> pour Safari).</Li>
           </RefSection>
 
           {/* ── Résultats ── */}
           <RefSection id="resultats" icon="🧑" titre="Résultats individuels">
-            <Li>Sélectionnez un élève dans le menu déroulant pour afficher son rapport HTML en aperçu temps réel.</Li>
-            <Li>L'aperçu utilise la configuration de Réglages → Export (thème, blocs affichés). Il peut légèrement différer du fichier exporté (polices Google Fonts non chargées dans l'aperçu).</Li>
+            <H>Aperçu élève</H>
+            <Li>Sélectionnez un élève dans le menu déroulant pour afficher son rapport HTML en aperçu temps réel — note, rang, compétences, histogramme, détail des exercices.</Li>
+            <Li>L'élève sélectionné ici est également celui utilisé pour les exports individuels dans l'onglet Export → Pour les élèves.</Li>
             <SimWindow label="Rapport — aperçu en-tête">
               <div style={{ background: th.accent + "0c", padding: "12px 14px", borderRadius: th.radiusSm }}>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
@@ -673,7 +783,12 @@ function HelpTab({ th, FONT, FONT_B, MONO }) {
                 </div>
               </div>
             </SimWindow>
-            {tip("L'élève affiché ici est le même que celui utilisé pour les exports individuels dans l'onglet Export.", th.accent)}
+
+            <H>Rapport de classe</H>
+            <Li>Sélectionnez <strong>« 📊 Toute la classe »</strong> en tête du menu pour afficher le rapport de classe — format paysage A4 adapté à la projection.</Li>
+            <Li>Le rapport de classe agrège : statistiques globales (moy/méd/min/max), distribution des notes, performance par compétence, et histogrammes par exercice. Aucun nom d'élève n'apparaît.</Li>
+            <Li>Les blocs affichés sont configurables via les checkboxes qui apparaissent sous le sélecteur en mode classe. Ajoutez un commentaire de DS dans le champ dédié.</Li>
+            {tip("L'aperçu utilise la configuration de Réglages → Export (thème). Les polices Google Fonts peuvent ne pas se charger dans l'aperçu — le fichier exporté les inclut correctement.", th.accent)}
           </RefSection>
 
           {/* ── Vue d'ensemble ── */}
@@ -745,33 +860,107 @@ function HelpTab({ th, FONT, FONT_B, MONO }) {
                 })}
               </div>
             </SimWindow>
+            {tip("Les stats sont calculées uniquement sur les copies corrigées (non vides). Les absents et les copies vierges sont exclus.", th.accent)}
 
-            <H>Onglet Exercices</H>
-            <Li>Taux de traitement et taux de réussite question par question. Les questions difficiles (traitées par moins de X % de la classe) apparaissent en rouge.</Li>
-            <Li>Le seuil de difficulté est configurable dans Réglages → 🎓 Évaluation. Le marqueur ✨ indique une question difficile réussie par l'élève.</Li>
+            <H>Onglet Exercices — questions difficiles et pièges</H>
+            <Li>Taux de traitement et taux de réussite question par question.</Li>
+            <Li><strong>Question difficile</strong> (rouge, gras) : traitée par moins de X % de la classe. Le seuil est configurable dans Réglages → 🎓 Évaluation. Le marqueur ✨ indique qu'un élève l'a réussie malgré tout.</Li>
+            <Li><strong>Question piège ⚠️</strong> : traitée par au moins 50 % de la classe, mais avec un faible taux de réussite. Révèle une erreur conceptuelle répandue. Le seuil est configurable dans Réglages → 🎓 Évaluation.</Li>
+            <SimWindow label="Légende questions">
+              <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <span style={{ fontSize: 10, fontWeight: 700, color: th.danger, fontFamily: FONT_B, minWidth: 80 }}>Q.3 (rouge)</span>
+                  <span style={{ fontSize: 10, color: th.textMuted, fontFamily: FONT_B }}>Question difficile — peu d'élèves l'ont tentée</span>
+                </div>
+                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <span style={{ fontSize: 10, fontWeight: 700, color: th.warning, fontFamily: FONT_B, minWidth: 80 }}>Q.5 ⚠️</span>
+                  <span style={{ fontSize: 10, color: th.textMuted, fontFamily: FONT_B }}>Question piège — tentée par beaucoup, mais mal réussie</span>
+                </div>
+                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <span style={{ fontSize: 10, fontWeight: 700, color: th.success, fontFamily: FONT_B, minWidth: 80 }}>Q.2 ✨</span>
+                  <span style={{ fontSize: 10, color: th.textMuted, fontFamily: FONT_B }}>Difficile, mais réussie par cet élève</span>
+                </div>
+              </div>
+            </SimWindow>
 
             <H>Onglet Classement</H>
-            <Li>Liste des élèves par rang ou ordre alphabétique, avec notes de compétences et radar par exercice. Filtrable par groupe.</Li>
-
-            <H>Filtres par groupe</H>
+            <Li>Liste des élèves par rang ou ordre alphabétique, avec notes de compétences et radar par exercice. Filtrable par groupe pédagogique.</Li>
             <Li>Si des groupes pédagogiques sont définis (NSI, option…), les stats peuvent être filtrées sur un sous-groupe. Le groupe Tiers-temps n'apparaît pas comme filtre (données personnelles).</Li>
+
+            <H>Sous-onglet Progression inter-DS</H>
+            <Li>Visualisez l'évolution de chaque élève sur <strong>plusieurs DS</strong> : courbe note élève (trait plein) + moyenne classe (pointillés).</Li>
+            <Li>Deux modes de visualisation : <strong>courbe</strong> (évolution temporelle) et <strong>radar</strong> (comparaison multi-DS simultanée, jusqu'à 8 DS). Le mode bascule automatiquement vers la courbe au-delà de 8 DS.</Li>
+            <Li>Toggle <strong>brut / normalisé</strong> pour comparer les notes selon la méthode de calcul active.</Li>
+            <SimWindow label="Progression — courbe élève">
+              <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+                <div style={{ fontSize: 9, color: th.textMuted, fontFamily: FONT_B, marginBottom: 4 }}>DUPONT Jean — notes sur 20</div>
+                <div style={{ position: "relative", height: 60, background: th.surface, borderRadius: th.radiusSm, border: "1px solid " + th.border, overflow: "hidden" }}>
+                  {/* Courbe SVG simplifiée */}
+                  <svg viewBox="0 0 200 60" style={{ width: "100%", height: "100%" }}>
+                    <polyline points="20,40 60,28 100,35 140,20 180,22" fill="none" stroke={th.success} strokeWidth="2" />
+                    <polyline points="20,38 60,36 100,34 140,33 180,32" fill="none" stroke={th.accent} strokeWidth="1.5" strokeDasharray="4,3" />
+                    {[20, 60, 100, 140, 180].map(function(x, i) {
+                      return <circle key={i} cx={x} cy={[40,28,35,20,22][i]} r="3" fill={th.success} />;
+                    })}
+                  </svg>
+                </div>
+                <div style={{ display: "flex", gap: 12, marginTop: 4 }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+                    <div style={{ width: 14, height: 2, background: th.success }} />
+                    <span style={{ fontSize: 9, color: th.textMuted, fontFamily: FONT_B }}>Élève</span>
+                  </div>
+                  <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+                    <div style={{ width: 14, height: 2, background: th.accent, borderTop: "2px dashed " + th.accent }} />
+                    <span style={{ fontSize: 9, color: th.textMuted, fontFamily: FONT_B }}>Moyenne classe</span>
+                  </div>
+                </div>
+              </div>
+            </SimWindow>
+            {tip("La progression est alimentée automatiquement à chaque fois que vous utilisez « Exporter vers la synthèse » dans l'onglet Export.", th.warning)}
           </RefSection>
 
           {/* ── Export ── */}
           <RefSection id="export" icon="📄" titre="Export des données">
             <H>Pour les élèves</H>
-            <Li><strong>Rapport HTML individuel</strong> : fichier autonome (.html), aucune dépendance, ouvrable dans tout navigateur. Thème et contenu configurables dans Réglages → Export.</Li>
+            <Li><strong>Rapport HTML individuel</strong> : fichier autonome (.html), aucune dépendance, ouvrable dans tout navigateur. Thème (Cahier clair / Ardoise sombre / Lavande jeune) et blocs configurables dans Réglages → 📤 Export.</Li>
             <Li><strong>ZIP HTML</strong> : tous les rapports de la classe en une seule archive.</Li>
-            <Li><strong>Rapport LaTeX</strong> : source .tex compilable avec XeLaTeX. Inclut histogrammes pgfplots par exercice et barème détaillé.</Li>
+            <Li><strong>Rapport LaTeX individuel</strong> : source .tex compilable avec XeLaTeX. Inclut histogrammes pgfplots par exercice et barème détaillé.</Li>
+            <Li><strong>ZIP LaTeX + script</strong> : tous les .tex individuels avec un script de compilation automatique.</Li>
 
             <H>Pour l'enseignant</H>
-            <Li><strong>Document LaTeX complet</strong> : tous les élèves en un seul .tex (pour impression recto-verso).</Li>
+            <Li><strong>Document LaTeX complet</strong> : tous les élèves en un seul .tex (idéal pour impression recto-verso).</Li>
             <Li><strong>CSV récapitulatif</strong> : colonnes configurables (rang, note brute, normalisée, compétences, malus…).</Li>
-            <Li><strong>Synthèse multi-DS</strong> : CSV cumulatif de l'année, à enrichir DS après DS.</Li>
+            <Li><strong>Gabarit LaTeX</strong> : préambule personnalisable pour les rapports individuels.</Li>
+
+            <H>Rapport de classe</H>
+            <Li>Dans l'accordéon <strong>📊 Rapport de classe</strong> (section « Pour l'enseignant »), saisissez un commentaire de DS et choisissez les blocs à afficher, puis téléchargez le rapport HTML.</Li>
+            <Li>Le rapport est conçu pour la <strong>projection en classe</strong> (format paysage A4) : stats globales, distribution, compétences en barres, histogrammes par exercice. Aucun nom d'élève.</Li>
+            <SimWindow label="Blocs configurables du rapport de classe">
+              <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
+                {[
+                  { label: "📝 Commentaire de DS", checked: true },
+                  { label: "📊 Statistiques globales (KPI)", checked: true },
+                  { label: "📈 Distribution des notes", checked: true },
+                  { label: "🎯 Performance par compétence", checked: true },
+                  { label: "📂 Détail par exercice", checked: true },
+                ].map(function(b) {
+                  return (
+                    <div key={b.label} style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                      <div style={{ width: 14, height: 14, borderRadius: 3, background: b.checked ? th.success : "transparent", border: "2px solid " + (b.checked ? th.success : th.border), display: "flex", alignItems: "center", justifyContent: "center", fontSize: 9, color: "#fff", fontWeight: 800, flexShrink: 0 }}>{b.checked ? "✓" : ""}</div>
+                      <span style={{ fontSize: 11, fontFamily: FONT_B, color: th.textMuted }}>{b.label}</span>
+                    </div>
+                  );
+                })}
+              </div>
+            </SimWindow>
+
+            <H>Synthèse multi-DS</H>
+            <Li><strong>Synthèse multi-DS</strong> : CSV cumulatif de l'année, enrichi DS après DS. Chaque ligne est un élève × DS avec note brute, normalisée, rang et notes de compétences.</Li>
+            {tip("Cliquez sur « Exporter vers la synthèse » après chaque DS pour alimenter le CSV annuel et la vue Progression.", th.warning)}
 
             <H>Sauvegarde et synchronisation</H>
             <Li>Les boutons 💾/📂 dans le header sauvegardent/chargent un fichier JSON complet (toutes les données du profil actif).</Li>
-            <Li>La synchronisation ☁️ via GitHub permet de retrouver ses données sur un autre appareil — configurez votre PAT et dépôt privé dans Réglages → Export → Synchronisation GitHub.</Li>
+            <Li>La synchronisation ☁️ via GitHub permet de retrouver ses données sur un autre appareil — configurez votre PAT et dépôt privé dans Réglages → 📤 Export → Synchronisation GitHub. Le bouton 🔓 Dissocier efface la configuration sans toucher aux données.</Li>
             {tip("Le fichier JSON est la source de vérité. Sauvegardez-le régulièrement en début ou fin de séance de correction.", th.warning)}
           </RefSection>
 
@@ -782,7 +971,9 @@ function HelpTab({ th, FONT, FONT_B, MONO }) {
 
             <H>🎓 Évaluation</H>
             <Li>Seuils de compétence (% de réussite pour A/B/C/D/NN). Seuil de question difficile (% de la classe l'ayant traitée). Seuil de réussite pour le marqueur ✨.</Li>
-            <SimWindow label="Seuils par défaut">
+            <Li>Seuil de <strong>question piège</strong> : taux de réussite en-dessous duquel une question très tentée est considérée comme un piège. Configurable indépendamment.</Li>
+            <Li>Configuration du <strong>bonus exercice complet 🏆</strong> : seuil de déclenchement (% du score de l'exercice), mode (points fixes ou pourcentage), valeur du bonus.</Li>
+            <SimWindow label="Seuils compétences par défaut">
               <div style={{ fontFamily: MONO, fontSize: 11, color: th.textMuted }}>
                 <div>Non noté si traité {"<"} <strong style={{ color: th.text }}>20 %</strong></div>
                 <div>D si réussite {"<"} <strong style={{ color: th.text }}>25 %</strong></div>
@@ -792,17 +983,18 @@ function HelpTab({ th, FONT, FONT_B, MONO }) {
               </div>
             </SimWindow>
 
-            <H>📊 Calcul</H>
-            <Li>Six méthodes de normalisation : aucune, proportionnelle (moy ou max), affine (moy+σ ou max+σ), gaussienne par quantiles.</Li>
-            <Li>Paliers de malus automatique : au-delà de N remarques « malus », un % est retranché à la note.</Li>
+            <H>📊 Notes</H>
+            <Li>Six méthodes de normalisation : aucune, proportionnelle (moy ou max), affine (moy+σ ou max+σ), gaussienne par quantiles. Des infobulles contextuelles expliquent chaque méthode.</Li>
+            <Li>Paliers de malus automatique : au-delà de N remarques « malus », un % est retranché à la note. Le malus s'applique avant ou après la normalisation.</Li>
 
             <H>✏️ Correction</H>
             <Li>Activez/désactivez les remarques disponibles en correction. Créez des remarques personnalisées (persistantes pour tous les DS). Réordonnez-les avec ▲/▼.</Li>
             <Li>Créez et personnalisez les groupes pédagogiques (couleur, label, participation aux stats).</Li>
 
             <H>📤 Export</H>
-            <Li>Configurez les colonnes du CSV, le thème et les blocs des rapports HTML (note brute, compétences, histogramme, barème…). Enregistrez un preset.</Li>
-            <Li><strong>🔊 Liens audio</strong> : activez pour rendre les labels de questions cliquables dans les exports HTML et LaTeX, pointant vers les fichiers audio hébergés. Renseignez l'URL de base (ex. <code style={{ fontFamily: MONO, fontSize: 10 }}>https://monserveur.fr/sons/</code>) et l'extension (<code style={{ fontFamily: MONO, fontSize: 10 }}>webm</code> ou <code style={{ fontFamily: MONO, fontSize: 10 }}>mp4</code>). En LaTeX, les liens apparaissent en bleu discret sans encadré. Si vous utilisez un gabarit personnalisé, ajoutez <code style={{ fontFamily: MONO, fontSize: 10 }}>\usepackage[colorlinks=true,urlcolor=blue!60!black]&#123;hyperref&#125;</code> dans le préambule.</Li>
+            <Li>Configurez les colonnes du CSV, le thème et les blocs des rapports HTML (note brute, compétences, histogramme, barème…). Enregistrez un preset de configuration.</Li>
+            <Li><strong>🔊 Liens audio</strong> : activez pour rendre les labels de questions cliquables dans les exports HTML et LaTeX. Renseignez l'URL de base (ex. <code style={{ fontFamily: MONO, fontSize: 10 }}>https://monserveur.fr/sons/</code>) et l'extension (<code style={{ fontFamily: MONO, fontSize: 10 }}>webm</code> ou <code style={{ fontFamily: MONO, fontSize: 10 }}>mp4</code>). En LaTeX, les liens apparaissent en bleu discret.</Li>
+            {tip("Si vous utilisez un gabarit LaTeX personnalisé avec des liens audio, ajoutez \\usepackage[colorlinks=true,urlcolor=blue!60!black]{hyperref} dans votre préambule.", th.accent)}
           </RefSection>
 
           {/* ── Raccourcis ── */}
