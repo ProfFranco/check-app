@@ -172,33 +172,6 @@ function svgRadar(compPcts, p) {
     grids + surf + dotsAndLabels + '</svg>';
 }
 
-function svgRadarGrand(compPcts, p) {
-  var total = 220, r = 86, cx = total / 2, cy = total / 2;
-  var angles = COMPETENCES.map(function(_, i) {
-    return (Math.PI * 2 * i / COMPETENCES.length) - Math.PI / 2;
-  });
-  function pt(val, i, rr) {
-    return [(cx + rr * val * Math.cos(angles[i])).toFixed(1),
-            (cy + rr * val * Math.sin(angles[i])).toFixed(1)];
-  }
-  var grids = [0.5, 1].map(function(lv) {
-    var pts = COMPETENCES.map(function(_, i) { return pt(lv, i, r).join(","); }).join(" ");
-    return '<polygon points="' + pts + '" fill="none" stroke="' + p.border + '" stroke-width="' + (lv === 1 ? 1 : 0.5) + '"/>';
-  }).join("");
-  var surfPts = COMPETENCES.map(function(c, i) {
-    return pt(compPcts[c.id] || 0, i, r).join(",");
-  }).join(" ");
-  var surf = '<polygon points="' + surfPts + '" fill="' + p.accent + '33" stroke="' + p.accent + '" stroke-width="1.5"/>';
-  var dotsAndLabels = COMPETENCES.map(function(c, i) {
-    var pp = pt(compPcts[c.id] || 0, i, r);
-    var lp = pt(1.22, i, r);
-    return '<circle cx="' + pp[0] + '" cy="' + pp[1] + '" r="3" fill="' + p.accent + '"/>' +
-      '<text x="' + lp[0] + '" y="' + lp[1] + '" text-anchor="middle" dominant-baseline="middle" font-size="11" font-weight="700" fill="' + (p.compColors[c.id] || p.accent) + '">' + c.id + '</text>';
-  }).join("");
-  return '<svg width="' + total + '" height="' + total + '" viewBox="0 0 ' + total + ' ' + total + '" xmlns="http://www.w3.org/2000/svg" style="display:block;flex-shrink:0;">' +
-    grids + surf + dotsAndLabels + '</svg>';
-}
-
 // ─── SVG Histogramme ─────────────────────────────────────────────
 
 function svgHisto(allNotes, studentNote, p) {
@@ -492,12 +465,19 @@ function blocDetailExercices(student, exam, grades, remarks, presents, allRemarq
       if (!aTraite) return;
 
       var qsc = questionScore(grades, student.id, q);
+      var qMax = q.items.reduce(function(s, it) { return s + (parseFloat(it.points) || 0); }, 0);
       var nbTraitants = presents.filter(function(s) {
         return q.items.some(function(it) { return grades[gradeKey(s.id, it.id)]; }) || grades[treatedKey(s.id, q.id)];
       }).length;
+      var obtTotal = presents.reduce(function(s, st) {
+        return s + q.items.reduce(function(ss, it) {
+          return ss + (grades[gradeKey(st.id, it.id)] ? (parseFloat(it.points) || 0) : 0);
+        }, 0);
+      }, 0);
       var tauxTraitement = presents.length > 0 ? (nbTraitants / presents.length) * 100 : 0;
+      var tauxReussite = nbTraitants > 0 && qMax > 0 ? (obtTotal / (nbTraitants * qMax)) * 100 : 0;
       var estDifficile = tauxTraitement < seuilDifficile;
-      var estPiege = tauxTraitement >= 50 && qsc.total > 0 && (qsc.earned / qsc.total) * 100 < seuilPiege;
+      var estPiege = tauxTraitement >= 50 && tauxReussite < seuilPiege;
       var pctReussite = qsc.total > 0 ? (qsc.earned / qsc.total) * 100 : 0;
       var etoile = (estDifficile && pctReussite >= seuilReussite) ? " ✨" : "";
       var piegeMark = (ft && ft.questionPiege && estPiege) ? " ⚠️" : "";
@@ -868,23 +848,25 @@ export function genererRapportClasse(opts) {
     var innerH = height - padT - padB;
     var barW = Math.min(44, innerW / n - 6);
 
-    var taux = questions.map(function(q) {
+    var qStats = questions.map(function(q) {
       var qMax = q.items.reduce(function(s, it) { return s + (parseFloat(it.points) || 0); }, 0);
-      if (qMax === 0) return 0;
+      if (qMax === 0) return { tauxReussite: 0, tauxTraitement: 0 };
       var nbTraitants = presents.filter(function(s) {
         return grades[treatedKey(s.id, q.id)] || q.items.some(function(it) { return grades[gradeKey(s.id, it.id)]; });
       }).length;
-      if (nbTraitants === 0) return 0;
+      var tauxTraitement = presents.length > 0 ? (nbTraitants / presents.length) * 100 : 0;
+      if (nbTraitants === 0) return { tauxReussite: 0, tauxTraitement: tauxTraitement };
       var obt = presents.reduce(function(s, st) {
         return s + q.items.reduce(function(ss, it) {
           return ss + (grades[gradeKey(st.id, it.id)] ? (parseFloat(it.points) || 0) : 0);
         }, 0);
       }, 0);
-      return obt / (nbTraitants * qMax);
+      return { tauxReussite: obt / (nbTraitants * qMax), tauxTraitement: tauxTraitement };
     });
 
     var bars = questions.map(function(q, i) {
-      var t = taux[i];
+      var t = qStats[i].tauxReussite;
+      var tauxTr = qStats[i].tauxTraitement;
       var color = t >= 0.75 ? p.success : t >= 0.50 ? p.warning : p.danger;
       var bh = Math.max(3, t * innerH);
       var x = padL + i * (innerW / n) + (innerW / n - barW) / 2;
@@ -892,7 +874,7 @@ export function genererRapportClasse(opts) {
       var pctLabel = Math.round(t * 100) + "%";
 
       var isDiff = t < (seuilDifficile / 100);
-      var isPiege = ft.questionPiege && t > 0 && t < (seuilPiege / 100) && t >= 0.01;
+      var isPiege = ft.questionPiege && tauxTr >= 50 && t > 0 && t < (seuilPiege / 100);
       var badge = isPiege ? "⚠" : isDiff ? "●" : "";
       var badgeColor = isPiege ? p.warning : p.danger;
 
@@ -916,7 +898,6 @@ export function genererRapportClasse(opts) {
       axis + yTicks + bars + '</svg>';
   }
 
-  function blocParExercice() { return ""; } // remplacé par blocsParExercice
 
   function blocsParExercice() {
     if (!cfg.parExercice) return "";

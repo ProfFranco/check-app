@@ -5,7 +5,6 @@
 import { useState, useEffect } from "react";
 import { REMARQUES, TT_GROUPE } from "./config/settings";
 import { DEFAULT_HTML_CONFIG } from "./utils/html";
-import { saveDB } from "./utils/db";
 
 export default function SettingsModal({
   th, FONT, FONT_B, MONO,
@@ -429,7 +428,6 @@ export default function SettingsModal({
                       setRemarquesCustom(newCustom);
                       setRemarquesActives(newActives);
                       setNewRemLabel(""); setNewRemIcon("\uD83D\uDCCC"); setNewRemMalus(true);
-                      saveDB({ remarquesActives: newActives, remarquesCustom: newCustom });
                     }} style={{ width: "100%", padding: "5px", borderRadius: th.radiusSm, cursor: "pointer", fontFamily: FONT_B, fontSize: 11, fontWeight: 700, background: th.accent, border: "none", color: "#fff" }}>
                       {"Ajouter"}
                     </button>

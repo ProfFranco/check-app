@@ -4,7 +4,7 @@
 // Aucune persistance : le fichier vit en mémoire jusqu'au téléchargement.
 // Nommage : {nomDS}_{NOM}_{ExTitle}_{QLabel}.{ext}
 
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
 import { buildAudioFilename } from "../utils/helpers";
 
 export default function AudioRecorder({ nomDS, studentNom, exTitle, qLabel, th, FONT_B, MONO }) {
@@ -16,16 +16,25 @@ export default function AudioRecorder({ nomDS, studentNom, exTitle, qLabel, th, 
   var chunksRef = useRef([]);
   var streamRef = useRef(null);
 
+  useEffect(function() {
+    return function() {
+      if (audioUrl) URL.revokeObjectURL(audioUrl);
+    };
+  }, []);
+
   function startRec() {
+    if (recording) return;
     chunksRef.current = [];
     if (audioUrl) { URL.revokeObjectURL(audioUrl); setAudioUrl(null); }
     navigator.mediaDevices.getUserMedia({ audio: true }).then(function(stream) {
       streamRef.current = stream;
-      var mimeType = "audio/webm";
-      var ext = "webm";
-      if (typeof MediaRecorder !== "undefined" && !MediaRecorder.isTypeSupported("audio/webm")) {
-        mimeType = MediaRecorder.isTypeSupported("audio/mp4") ? "audio/mp4" : "";
-        ext = "mp4";
+      var mimeType, ext;
+      if (typeof MediaRecorder !== "undefined" && MediaRecorder.isTypeSupported("audio/webm")) {
+        mimeType = "audio/webm"; ext = "webm";
+      } else if (typeof MediaRecorder !== "undefined" && MediaRecorder.isTypeSupported("audio/mp4")) {
+        mimeType = "audio/mp4"; ext = "mp4";
+      } else {
+        mimeType = ""; ext = "bin";
       }
       setAudioExt(ext);
       var opts = mimeType ? { mimeType: mimeType } : {};
@@ -74,6 +83,7 @@ export default function AudioRecorder({ nomDS, studentNom, exTitle, qLabel, th, 
 
   return (
     <span style={{ display: "inline" }}>
+      <style>{`@keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.25; } }`}</style>
       <button
         style={{ background: open ? th.accentBg : "none", border: "1px solid " + (open ? th.accent + "55" : th.border), borderRadius: 4, padding: "1px 5px", cursor: "pointer", fontSize: 12, color: open ? th.accent : th.textDim, fontFamily: FONT_B, lineHeight: 1, marginLeft: 4 }}
         title="Commentaire audio"

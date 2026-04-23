@@ -10,7 +10,7 @@ import { lightTheme, darkTheme, FONT_BODY, FONT_MONO } from "../config/theme";
 const FONT_B = FONT_BODY;
 const MONO = FONT_MONO;
 
-export const RADAR_MODES = [
+const RADAR_MODES = [
   { id: "comp", label: "Comp\u00E9tences" },
   { id: "exAbs", label: "Exercices" },
   { id: "exRel", label: "vs. Classe" },
@@ -150,7 +150,7 @@ export function PBar({ value, max, color, h = 6, th }) {
 //   FONT_B  : police corps
 //   MONO    : police mono
 
-export function ProgressionChart({ data, th, FONT_B, MONO }) {
+export function ProgressionChart({ data, th }) {
   var W = 560, H = 220;
   var PAD = { top: 16, right: 20, bottom: 40, left: 36 };
   var chartW = W - PAD.left - PAD.right;
@@ -283,7 +283,7 @@ export function ProgressionChart({ data, th, FONT_B, MONO }) {
 //   FONT_B  : police corps
 //   MONO    : police mono
 
-export function ProgressionRadar({ data, th, FONT_B, MONO }) {
+export function ProgressionRadar({ data, th }) {
   var n = data.length;
   if (n < 2) return (
     <div style={{ textAlign: "center", padding: 24, color: th.textMuted, fontFamily: FONT_B, fontSize: 12 }}>
