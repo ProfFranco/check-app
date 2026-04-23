@@ -1,3 +1,19 @@
+## v 1.2 — avril 2026
+
+### Correctifs
+
+- **Questions pièges ⚠️ — calcul corrigé dans les rapports HTML** : le rapport individuel comparait le score de l'élève au seuil piège (au lieu du taux de réussite de la classe) → fausse alerte ⚠️ pour les élèves ayant raté une question traitée par la classe. L'histogramme par exercice manquait aussi la condition tauxTraitement ≥ 50%.
+- **Onglet Résultats — iframe stabilisée** : l'aperçu HTML disparaissait à chaque changement d'onglet (iframe détruite par le mécanisme `key` sur `<main>`). Le panneau Résultats est maintenant monté en permanence et masqué/affiché par CSS (`display: none/flex`).
+- **Score avec bonus exercice complet 🏆** : `studentTotalWeighted` n'acceptait pas `bonusConfig` → score incorrect dans l'onglet Résultats si le bonus était activé.
+- **Dépendances `useMemo` incomplètes** : `htmlSrc` n'incluait pas `seuilPiege` ni `ft` → le rapport HTML ne se régénérait pas lors d'un changement de seuil piège ou de preset.
+- **Progression inter-DS** : `progressionStudentId` n'était pas réinitialisé au changement de profil → crash si l'élève n'existait pas dans le nouveau profil.
+- **AudioRecorder** : détection MIME inversée (Safari utilisait webm au lieu de mp4), fuite mémoire (URL Blob non révoquée au démontage), double-enregistrement possible, badge REC statique (keyframe `pulse` non définie).
+- **Entête CSV compétences** : les colonnes utilisaient l'`id` de compétence au lieu du `label`.
+- **Stats — % questions difficiles** : toujours noir (typo `qs.diff` au lieu de `qs.difficile`).
+- **SettingsModal** : appel `saveDB` parasite sans profileId (écriture silencieuse dans la mauvaise base).
+
+---
+
 ## v 1.1 — avril 2026
 
 ### Guide d'utilisation

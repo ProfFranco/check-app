@@ -1,0 +1,794 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>CHECK → Tracker DS · Mise à jour</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@700&family=Roboto:wght@400;700&display=swap" rel="stylesheet">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg:        #1e2328;
+      --card:      #2d3436;
+      --surface:   #3b4347;
+      --main:      #00cec9;
+      --main-dim:  rgba(0,206,201,0.12);
+      --main-glow: 0 0 10px rgba(0,206,201,0.55);
+      --text:      #dfe6e9;
+      --muted:     #95a5a6;
+      --disabled:  #636e72;
+      --danger:    #ff4757;
+      --success:   #00b894;
+      --radius:    12px;
+      --radius-sm: 7px;
+    }
+
+    body {
+      font-family: 'Roboto', sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      padding: 24px 16px 48px;
+    }
+
+    .page { max-width: 760px; margin: 0 auto; display: flex; flex-direction: column; gap: 18px; }
+
+    h1 {
+      font-family: 'Orbitron', sans-serif;
+      font-size: 1.5em;
+      letter-spacing: 2px;
+      text-align: center;
+      color: #fff;
+      text-shadow: 0 0 6px var(--main), 0 0 18px rgba(0,206,201,0.55);
+      margin-bottom: 4px;
+    }
+    .subtitle { text-align: center; color: var(--muted); font-size: 0.85em; margin-bottom: 8px; }
+
+    .card {
+      background: var(--card);
+      border-radius: var(--radius);
+      padding: 20px 22px;
+      box-shadow: 0 6px 24px rgba(0,0,0,0.4);
+    }
+    .card-title {
+      font-size: 0.72em;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 1.2px;
+      color: var(--main);
+      margin-bottom: 14px;
+      display: flex;
+      align-items: center;
+      gap: 7px;
+    }
+    .card-title::before {
+      content: '';
+      display: block;
+      width: 3px; height: 14px;
+      background: var(--main);
+      border-radius: 2px;
+      box-shadow: var(--main-glow);
+    }
+
+    .field { margin-bottom: 13px; }
+    .field:last-child { margin-bottom: 0; }
+    label {
+      display: block;
+      font-size: 0.78em;
+      font-weight: 700;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: .7px;
+      margin-bottom: 5px;
+    }
+    input[type="text"], input[type="date"], input[type="password"], select, textarea {
+      width: 100%;
+      background: var(--surface);
+      border: 1.5px solid var(--disabled);
+      border-radius: var(--radius-sm);
+      color: var(--text);
+      font-family: 'Roboto', sans-serif;
+      font-size: 0.92em;
+      padding: 8px 11px;
+      outline: none;
+      transition: border-color 0.2s;
+    }
+    input:focus, select:focus, textarea:focus {
+      border-color: var(--main);
+      box-shadow: 0 0 0 2px rgba(0,206,201,0.18);
+    }
+    textarea { resize: vertical; min-height: 60px; }
+    select option { background: var(--card); }
+    .field-row { display: flex; gap: 12px; }
+    .field-row .field { flex: 1; }
+
+    .info-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+      gap: 10px;
+      margin-bottom: 14px;
+    }
+    .info-cell { background: var(--surface); border-radius: var(--radius-sm); padding: 10px 13px; text-align: center; }
+    .info-cell .val {
+      font-size: 1.6em; font-weight: 700; color: var(--main);
+      font-family: monospace; display: block;
+      text-shadow: 0 0 6px rgba(0,206,201,0.4);
+    }
+    .info-cell .lbl { font-size: 0.72em; color: var(--muted); text-transform: uppercase; letter-spacing: .6px; }
+
+    .drop-zone {
+      border: 2px dashed var(--disabled);
+      border-radius: var(--radius);
+      padding: 28px;
+      text-align: center;
+      cursor: pointer;
+      transition: border-color 0.2s, background 0.2s;
+      color: var(--muted);
+      font-size: 0.9em;
+    }
+    .drop-zone.drag-over, .drop-zone:hover { border-color: var(--main); background: var(--main-dim); color: var(--text); }
+    .drop-zone.loaded { border-color: var(--success); background: rgba(0,184,148,0.08); color: var(--success); }
+    .drop-zone .icon { font-size: 2em; display: block; margin-bottom: 6px; }
+
+    .btn {
+      display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+      padding: 9px 18px; border: none; border-radius: 25px;
+      font-family: 'Roboto', sans-serif; font-weight: 700; font-size: 0.9em;
+      cursor: pointer; transition: all 0.2s;
+    }
+    .btn-primary { background: var(--main); color: #1a2020; box-shadow: var(--main-glow); }
+    .btn-primary:hover { background: #00b5b0; transform: translateY(-1px); }
+    .btn-primary:disabled { background: var(--disabled); box-shadow: none; cursor: not-allowed; transform: none; }
+    .btn-ghost { background: transparent; border: 1.5px solid var(--main); color: var(--main); }
+    .btn-ghost:hover { background: var(--main-dim); }
+    .btn-danger { background: transparent; border: 1.5px solid var(--danger); color: var(--danger); padding: 5px 10px; font-size: 0.8em; border-radius: 6px; }
+    .btn-danger:hover { background: rgba(255,71,87,0.12); }
+    .btn-add { background: transparent; border: 1.5px dashed var(--main); color: var(--main); width: 100%; padding: 7px; border-radius: var(--radius-sm); margin-top: 8px; font-size: 0.85em; }
+    .btn-add:hover { background: var(--main-dim); }
+    .btn-sm { padding: 5px 12px; font-size: 0.8em; border-radius: 6px; }
+
+    .remark-row { display: flex; gap: 8px; align-items: flex-start; margin-bottom: 8px; background: var(--surface); border-radius: var(--radius-sm); padding: 8px 10px; }
+    .remark-row .inputs { flex: 1; display: flex; flex-direction: column; gap: 6px; }
+    .remark-row input { margin: 0; }
+    .remark-row select { margin: 0; width: auto; font-size: 0.8em; }
+    .remark-row-top { display: flex; gap: 8px; align-items: center; }
+
+    .status-bar { padding: 10px 14px; border-radius: var(--radius-sm); font-size: 0.88em; font-weight: 700; display: none; }
+    .status-bar.show { display: block; }
+    .status-bar.ok   { background: rgba(0,184,148,0.15); border: 1px solid var(--success); color: var(--success); }
+    .status-bar.err  { background: rgba(255,71,87,0.13); border: 1px solid var(--danger); color: var(--danger); }
+    .status-bar.info { background: var(--main-dim); border: 1px solid var(--main); color: var(--main); }
+
+    .token-row { display: flex; gap: 8px; align-items: flex-end; }
+    .token-row .field { flex: 1; margin: 0; }
+    .token-dot { width: 10px; height: 10px; border-radius: 50%; background: var(--disabled); flex-shrink: 0; margin-bottom: 11px; transition: background 0.3s; }
+    .token-dot.ok  { background: var(--success); box-shadow: 0 0 6px var(--success); }
+    .token-dot.err { background: var(--danger);  box-shadow: 0 0 6px var(--danger); }
+
+    .step-select-wrap { display: flex; gap: 6px; flex-wrap: wrap; }
+    .step-btn {
+      flex: 1; min-width: 80px; padding: 8px 6px;
+      background: var(--surface); border: 1.5px solid var(--disabled);
+      border-radius: var(--radius-sm); color: var(--muted);
+      font-family: 'Roboto', sans-serif; font-size: 0.72em;
+      text-align: center; cursor: pointer; transition: all 0.15s;
+    }
+    .step-btn:hover { border-color: var(--main); color: var(--text); }
+    .step-btn.active { border-color: var(--main); background: var(--main-dim); color: #fff; box-shadow: var(--main-glow); }
+    .step-btn .step-icon { font-size: 1.3em; display: block; margin-bottom: 3px; }
+
+    .pub-bar { display: flex; gap: 12px; align-items: center; justify-content: flex-end; flex-wrap: wrap; }
+    hr { border: none; border-top: 1px solid rgba(255,255,255,0.06); }
+
+    @media (max-width: 500px) {
+      .field-row { flex-direction: column; gap: 0; }
+      .step-btn { min-width: 60px; }
+    }
+  </style>
+</head>
+<body>
+<div class="page">
+
+  <div>
+    <h1>CHECK → TRACKER DS</h1>
+    <p class="subtitle">Mise à jour de l'avancement de correction · Publication vers GitHub Gist</p>
+  </div>
+
+  <!-- 1 — CONNEXION -->
+  <div class="card">
+    <div class="card-title">🔑 Connexion GitHub</div>
+    <div class="token-row">
+      <div class="field">
+        <label>Personal Access Token (PAT)</label>
+        <input type="password" id="gh-token" placeholder="ghp_xxxxxxxxxxxxxxxxxxxx" autocomplete="off">
+      </div>
+      <div class="token-dot" id="token-dot"></div>
+      <button class="btn btn-ghost btn-sm" onclick="testToken()">Tester</button>
+    </div>
+    <div class="field" style="margin-top:12px;">
+      <label>Gist ID</label>
+      <input type="text" id="gist-id" placeholder="092f02b8ae7c0edeffe8e68f9a5cb0c3">
+    </div>
+    <p style="font-size:0.75em;color:var(--muted);margin-top:8px;line-height:1.5;">
+      💡 <strong style="color:var(--text);">Première utilisation ?</strong>
+      Créez un Gist public sur <a href="https://gist.github.com" target="_blank" style="color:var(--main);">gist.github.com</a>
+      avec deux fichiers nommés exactement <code>statut.csv</code> et <code>remarques.csv</code>.
+      Générez un PAT depuis <a href="https://github.com/settings/tokens" target="_blank" style="color:var(--main);">Settings → Developer settings → Tokens → Fine-grained</a>
+      avec la permission <strong>Gists → Read and write</strong>.
+    </p>
+    <div id="status-connect" class="status-bar"></div>
+  </div>
+
+  <!-- 2 — IMPORT CHECK -->
+  <div class="card">
+    <div class="card-title">📂 Import depuis CHECK</div>
+    <div class="drop-zone" id="drop-zone" onclick="document.getElementById('file-input').click()">
+      <span class="icon">📄</span>
+      <span id="drop-label">Glissez un export JSON de CHECK ici<br>ou cliquez pour choisir un fichier</span>
+    </div>
+    <input type="file" id="file-input" accept=".json" style="display:none">
+
+    <div id="exam-selector" style="display:none;margin-top:14px;">
+      <div class="field" style="margin:0;">
+        <label>DS à utiliser (plusieurs DS détectés dans ce profil)</label>
+        <select id="exam-select"></select>
+      </div>
+    </div>
+
+    <div id="check-info" style="display:none;margin-top:14px;">
+      <div class="info-grid" id="info-grid"></div>
+      <p style="font-size:0.78em;color:var(--muted);text-align:right;" id="check-meta"></p>
+    </div>
+  </div>
+
+  <!-- 3 — CHAMPS MANUELS -->
+  <div class="card">
+    <div class="card-title">✏️ Informations manuelles</div>
+    <div class="field">
+      <label>Étape de correction</label>
+      <div class="step-select-wrap" id="step-wrap"></div>
+    </div>
+    <div class="field-row">
+      <div class="field">
+        <label>Humeur du correcteur</label>
+        <select id="mood">
+          <option value="Motivé">😀 Motivé</option>
+          <option value="Concentré" selected>🧠 Concentré</option>
+          <option value="Perplexe">🤔 Perplexe</option>
+          <option value="Enthousiaste">🥳 Enthousiaste</option>
+          <option value="Épuisé">😴 Épuisé</option>
+          <option value="Énervé">😡 Énervé</option>
+          <option value="Désespéré">😩 Désespéré</option>
+        </select>
+      </div>
+      <div class="field">
+        <label>Date estimée de retour</label>
+        <input type="date" id="return-date">
+      </div>
+    </div>
+    <div class="field">
+      <label>Citation / Proverbe Shadok</label>
+      <textarea id="quote" rows="2" placeholder="Proverbe Shadok : quand on ne sait pas où l'on va…"></textarea>
+    </div>
+    <div class="field">
+      <label>URL du rapport (optionnel)</label>
+      <input type="text" id="report-url" placeholder="https://…">
+    </div>
+  </div>
+
+  <!-- 4 — REMARQUES -->
+  <div class="card">
+    <div class="card-title">📢 Remarques sur le DS</div>
+    <div id="remarks-list"></div>
+    <button class="btn btn-add" onclick="addRemark()">＋ Ajouter une remarque</button>
+  </div>
+
+  <!-- 5 — PUBLICATION -->
+  <div class="card">
+    <div class="card-title">🚀 Publication</div>
+    <div id="preview-statut" style="font-family:monospace;font-size:0.78em;background:var(--surface);
+         border-radius:var(--radius-sm);padding:12px;color:var(--muted);margin-bottom:14px;
+         white-space:pre;overflow-x:auto;line-height:1.7;"></div>
+    <hr style="margin-bottom:14px;">
+    <div class="pub-bar">
+      <button class="btn btn-ghost" onclick="refreshPreview()">🔄 Rafraîchir l'aperçu</button>
+      <button class="btn btn-primary" id="btn-publish" onclick="publish()" disabled>⬆️ Publier vers le Gist</button>
+    </div>
+    <div id="status-pub" class="status-bar" style="margin-top:12px;"></div>
+  </div>
+
+  <p style="text-align:center;color:var(--disabled);font-size:0.72em;margin-top:8px;">
+    tracker-updater · C.H.E.C.K. · Données stockées uniquement dans ce navigateur
+  </p>
+</div>
+
+<script>
+// ═══════════════════════════════════════════════════════════════════
+// CONSTANTES
+// ═══════════════════════════════════════════════════════════════════
+
+var STEPS = [
+  { title: "Rédaction du corrigé",    icon: "📝" },
+  { title: "Élaboration du barème",   icon: "⚖️" },
+  { title: "Correction copies test",  icon: "🔍" },
+  { title: "Correction des copies",   icon: "🖍️" },
+  { title: "Normalisation des notes", icon: "📊" },
+  { title: "Terminé ✅",             icon: "✅" },
+];
+
+var SHADOK_QUOTES = [
+  "Proverbe Shadok : quand on ne sait pas où l'on va, il faut y aller, et le plus vite possible !",
+  "Proverbe Shadok : en essayant continuellement, on finit par réussir. Donc plus ça rate, plus on a de chances que ça marche.",
+  "Proverbe Shadok : il vaut mieux pomper même s'il ne se passe rien, que de risquer qu'il se passe quelque chose de pire.",
+  "Proverbe Shadok : s'il n'y a pas de solution, c'est qu'il n'y a pas de problème.",
+];
+
+// ═══════════════════════════════════════════════════════════════════
+// ÉTAT
+// ═══════════════════════════════════════════════════════════════════
+
+var state = {
+  dsNumber:         "",
+  totalCopies:      0,
+  copiesCorrigees:  0,
+  currentAverage:   0,
+  hasData:          false,
+  currentStepIndex: 0,
+  selectedExamIdx:  -1,   // -1 = dernier du tableau (le plus récent)
+  _lastData:        null,
+  _lastFilename:    "",
+};
+
+var remarks = [];
+
+// ═══════════════════════════════════════════════════════════════════
+// INIT
+// ═══════════════════════════════════════════════════════════════════
+
+document.addEventListener("DOMContentLoaded", function() {
+  var tok = localStorage.getItem("tracker_gh_token");
+  var gid = localStorage.getItem("tracker_gist_id");
+  if (tok) document.getElementById("gh-token").value = tok;
+  if (gid) document.getElementById("gist-id").value = gid;
+
+  var saved = localStorage.getItem("tracker_manual_state");
+  if (saved) {
+    try {
+      var m = JSON.parse(saved);
+      if (m.step !== undefined) state.currentStepIndex = m.step;
+      if (m.mood)       document.getElementById("mood").value = m.mood;
+      if (m.returnDate) document.getElementById("return-date").value = m.returnDate;
+      if (m.quote)      document.getElementById("quote").value = m.quote;
+      if (m.reportUrl)  document.getElementById("report-url").value = m.reportUrl;
+      renderRemarks(m.remarks || []);
+    } catch(e) { renderRemarks([]); }
+  } else {
+    document.getElementById("quote").value = SHADOK_QUOTES[Math.floor(Math.random() * SHADOK_QUOTES.length)];
+    renderRemarks([]);
+  }
+
+  buildStepButtons();
+  updatePublishButton();
+  refreshPreview();
+
+  ["mood", "return-date", "quote", "report-url"].forEach(function(id) {
+    document.getElementById(id).addEventListener("input", function() {
+      saveManualState();
+      refreshPreview();
+    });
+  });
+
+  var dz = document.getElementById("drop-zone");
+  dz.addEventListener("dragover",  function(e) { e.preventDefault(); dz.classList.add("drag-over"); });
+  dz.addEventListener("dragleave", function()  { dz.classList.remove("drag-over"); });
+  dz.addEventListener("drop", function(e) {
+    e.preventDefault();
+    dz.classList.remove("drag-over");
+    var f = e.dataTransfer.files[0];
+    if (f) loadCheckFile(f);
+  });
+  document.getElementById("file-input").addEventListener("change", function(e) {
+    if (e.target.files[0]) loadCheckFile(e.target.files[0]);
+  });
+
+  document.getElementById("gh-token").addEventListener("blur", saveConnection);
+  document.getElementById("gist-id").addEventListener("blur",  saveConnection);
+});
+
+// ═══════════════════════════════════════════════════════════════════
+// ÉTAPES
+// ═══════════════════════════════════════════════════════════════════
+
+function buildStepButtons() {
+  var wrap = document.getElementById("step-wrap");
+  wrap.innerHTML = "";
+  STEPS.forEach(function(s, i) {
+    var btn = document.createElement("button");
+    btn.className = "step-btn" + (i === state.currentStepIndex ? " active" : "");
+    btn.innerHTML = '<span class="step-icon">' + s.icon + '</span>' + s.title;
+    btn.onclick = (function(idx) { return function() { selectStep(idx); }; })(i);
+    wrap.appendChild(btn);
+  });
+}
+
+function selectStep(idx) {
+  state.currentStepIndex = idx;
+  buildStepButtons();
+  saveManualState();
+  refreshPreview();
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// REMARQUES
+// ═══════════════════════════════════════════════════════════════════
+
+function renderRemarks(data) {
+  if (data) remarks = data;
+  var list = document.getElementById("remarks-list");
+  list.innerHTML = "";
+  remarks.forEach(function(r, i) {
+    var row = document.createElement("div");
+    row.className = "remark-row";
+    row.innerHTML =
+      '<div class="inputs">' +
+        '<div class="remark-row-top">' +
+          '<input type="text" placeholder="Titre (ex : Rédaction)" value="' + esc(r.title) + '" ' +
+            'oninput="updateRemark(' + i + ',\'title\',this.value)">' +
+          '<select oninput="updateRemark(' + i + ',\'priority\',this.value)">' +
+            '<option value="NORMAL"'    + (r.priority !== "IMPORTANT" ? " selected" : "") + '>Normal</option>' +
+            '<option value="IMPORTANT"' + (r.priority === "IMPORTANT" ? " selected" : "") + '>⚠ Important</option>' +
+          '</select>' +
+        '</div>' +
+        '<input type="text" placeholder="Contenu de la remarque…" value="' + esc(r.content) + '" ' +
+          'oninput="updateRemark(' + i + ',\'content\',this.value)">' +
+      '</div>' +
+      '<button class="btn btn-danger" onclick="removeRemark(' + i + ')">✕</button>';
+    list.appendChild(row);
+  });
+}
+
+function addRemark() {
+  remarks.push({ title: "", content: "", priority: "NORMAL" });
+  renderRemarks();
+  saveManualState();
+}
+
+function removeRemark(i) {
+  remarks.splice(i, 1);
+  renderRemarks();
+  saveManualState();
+  refreshPreview();
+}
+
+function updateRemark(i, key, val) {
+  remarks[i][key] = val;
+  saveManualState();
+  refreshPreview();
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// IMPORT JSON CHECK
+// ═══════════════════════════════════════════════════════════════════
+
+function loadCheckFile(file) {
+  state._lastFilename = file.name;
+  var reader = new FileReader();
+  reader.onload = function(e) {
+    try {
+      var data = JSON.parse(e.target.result);
+      state._lastData = data;
+      state.selectedExamIdx = -1;
+      parseCheckData();
+    } catch(err) {
+      showDropError("Fichier JSON invalide : " + err.message);
+    }
+  };
+  reader.readAsText(file);
+}
+
+function parseCheckData() {
+  var data     = state._lastData;
+  var filename = state._lastFilename;
+  if (!data) return;
+
+  // Structure CHECK : { exams:[...], students:[...], grades:{}, absents:{}, ... }
+  var exams    = data.exams    || [];
+  var students = data.students || [];
+  var grades   = data.grades   || {};
+  var absents  = data.absents  || {};
+
+  if (!exams.length) {
+    showDropError("Structure CHECK non reconnue (clé 'exams' absente ou vide).");
+    return;
+  }
+
+  // Sélection du DS : -1 = dernier (le plus récent dans le tableau)
+  var idx = state.selectedExamIdx < 0 ? exams.length - 1 : state.selectedExamIdx;
+  idx = Math.max(0, Math.min(idx, exams.length - 1));
+  var exam = exams[idx];
+
+  // Sélecteur multi-DS
+  var selDiv = document.getElementById("exam-selector");
+  var selEl  = document.getElementById("exam-select");
+  if (exams.length > 1) {
+    selDiv.style.display = "block";
+    selEl.innerHTML = exams.map(function(e, i) {
+      var label = e.nomDS || e.name || ("DS " + (i + 1));
+      return '<option value="' + i + '"' + (i === idx ? " selected" : "") + '>' + esc(label) + '</option>';
+    }).join("");
+    selEl.onchange = function() {
+      state.selectedExamIdx = parseInt(this.value);
+      parseCheckData();
+    };
+  } else {
+    selDiv.style.display = "none";
+  }
+
+  // Nom du DS
+  state.dsNumber = exam.nomDS || exam.name || "?";
+
+  // Index des items de cet examen (pour filtrer les grades)
+  var examItemIds = {};
+  exam.exercises.forEach(function(ex) {
+    ex.questions.forEach(function(q) {
+      q.items.forEach(function(it) { examItemIds[it.id] = true; });
+    });
+  });
+
+  // Présents
+  var presents = students.filter(function(s) { return !absents[s.id]; });
+  state.totalCopies = students.length;
+
+  // Copies corrigées = au moins un item de CET examen coché
+  state.copiesCorrigees = presents.filter(function(s) {
+    return Object.keys(grades).some(function(k) {
+      var parts = k.split("__");
+      return parts[0] === s.id && examItemIds[parts[1]];
+    });
+  }).length;
+
+  // Total de points de l'examen (hors bonus)
+  var total = 0;
+  exam.exercises.forEach(function(ex) {
+    ex.questions.forEach(function(q) {
+      if (q.bonus) return;
+      q.items.forEach(function(it) { total += parseFloat(it.points) || 0; });
+    });
+  });
+
+  // Copies corrigées (liste) pour la moyenne
+  var corriges = presents.filter(function(s) {
+    return Object.keys(grades).some(function(k) {
+      var parts = k.split("__");
+      return parts[0] === s.id && examItemIds[parts[1]];
+    });
+  });
+
+  // Moyenne brute /20
+  var avg = 0;
+  if (corriges.length > 0 && total > 0) {
+    var sum = corriges.reduce(function(acc, s) {
+      var earned = 0;
+      exam.exercises.forEach(function(ex) {
+        ex.questions.forEach(function(q) {
+          q.items.forEach(function(it) {
+            if (grades[s.id + "__" + it.id]) earned += parseFloat(it.points) || 0;
+          });
+        });
+      });
+      return acc + (earned / total) * 20;
+    }, 0);
+    avg = sum / corriges.length;
+  }
+  state.currentAverage = avg;
+  state.hasData = true;
+
+  // UI
+  var dz = document.getElementById("drop-zone");
+  dz.classList.add("loaded");
+  document.getElementById("drop-label").innerHTML =
+    "✅ <strong>" + esc(filename) + "</strong> · DS : <strong>" + esc(state.dsNumber) + "</strong>";
+
+  document.getElementById("check-info").style.display = "block";
+  document.getElementById("info-grid").innerHTML =
+    cell(esc(state.dsNumber),                                "DS") +
+    cell(state.copiesCorrigees + " / " + students.length,   "Copies corrigées") +
+    cell(corriges.length > 0 ? avg.toFixed(1) : "—",        "Moy. brute /20") +
+    cell(presents.length,                                    "Élèves présents");
+
+  document.getElementById("check-meta").textContent =
+    filename + " · " + exams.length + " DS dans ce profil · Chargé le " + new Date().toLocaleString("fr-FR");
+
+  updatePublishButton();
+  refreshPreview();
+}
+
+function cell(val, lbl) {
+  return '<div class="info-cell"><span class="val">' + val + '</span><span class="lbl">' + lbl + '</span></div>';
+}
+
+function showDropError(msg) {
+  var dz = document.getElementById("drop-zone");
+  dz.classList.remove("loaded");
+  document.getElementById("drop-label").innerHTML = "❌ " + msg;
+  document.getElementById("check-info").style.display = "none";
+  document.getElementById("exam-selector").style.display = "none";
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// GÉNÉRATION CSV
+// ═══════════════════════════════════════════════════════════════════
+
+function buildStatutCsv() {
+  var returnDate = document.getElementById("return-date").value;
+  var dateStr = returnDate
+    ? new Date(returnDate + "T12:00:00").toLocaleDateString("fr-FR", { day: "2-digit", month: "2-digit", year: "numeric" })
+    : "--/--/--";
+
+  return [
+    "dsNumber,"            + csvVal(state.dsNumber),
+    "currentStepIndex,"    + state.currentStepIndex,
+    "copiesCorrigées,"     + state.copiesCorrigees,
+    "totalCopies,"         + state.totalCopies,
+    "currentAverage,"      + (state.currentAverage > 0 ? state.currentAverage.toFixed(1) : "0"),
+    "currentMood,"         + csvVal(document.getElementById("mood").value),
+    "estimatedReturnDate," + csvVal(dateStr),
+    "hasRemarks,"          + (remarks.filter(function(r) { return r.title || r.content; }).length > 0 ? "true" : "false"),
+    "quoteText,"           + csvVal(document.getElementById("quote").value),
+    "reportUrl,"           + csvVal(document.getElementById("report-url").value),
+  ].join("\n");
+}
+
+function buildRemarquesCsv() {
+  var active = remarks.filter(function(r) { return r.title || r.content; });
+  if (!active.length) return "Titre,Contenu,Priorité\n";
+  return "Titre,Contenu,Priorité\n" + active.map(function(r) {
+    return csvVal(r.title) + "," + csvVal(r.content) + "," + csvVal(r.priority || "NORMAL");
+  }).join("\n");
+}
+
+function csvVal(v) {
+  var s = String(v || "");
+  if (s.indexOf(",") >= 0 || s.indexOf('"') >= 0 || s.indexOf("\n") >= 0) {
+    return '"' + s.replace(/"/g, '""') + '"';
+  }
+  return s;
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// APERÇU
+// ═══════════════════════════════════════════════════════════════════
+
+function refreshPreview() {
+  document.getElementById("preview-statut").textContent =
+    "── statut.csv ──\n" + buildStatutCsv() +
+    "\n\n── remarques.csv ──\n" + buildRemarquesCsv();
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// CONNEXION GITHUB
+// ═══════════════════════════════════════════════════════════════════
+
+function saveConnection() {
+  localStorage.setItem("tracker_gh_token", document.getElementById("gh-token").value.trim());
+  localStorage.setItem("tracker_gist_id",  document.getElementById("gist-id").value.trim());
+  updatePublishButton();
+}
+
+async function testToken() {
+  var tok = document.getElementById("gh-token").value.trim();
+  var dot = document.getElementById("token-dot");
+  var st  = document.getElementById("status-connect");
+  if (!tok) { showStatus(st, "err", "Entrez un token."); return; }
+  showStatus(st, "info", "Test en cours…");
+  try {
+    var r = await fetch("https://api.github.com/user", {
+      headers: { "Authorization": "Bearer " + tok, "Accept": "application/vnd.github+json" }
+    });
+    if (r.ok) {
+      var u = await r.json();
+      dot.className = "token-dot ok";
+      showStatus(st, "ok", "✅ Connecté en tant que " + u.login);
+      saveConnection();
+    } else {
+      dot.className = "token-dot err";
+      showStatus(st, "err", "❌ Token invalide ou expiré (HTTP " + r.status + ")");
+    }
+  } catch(e) {
+    dot.className = "token-dot err";
+    showStatus(st, "err", "❌ Erreur réseau : " + e.message);
+  }
+}
+
+function updatePublishButton() {
+  var tok = document.getElementById("gh-token").value.trim();
+  var gid = document.getElementById("gist-id").value.trim();
+  document.getElementById("btn-publish").disabled = !(tok && gid && state.hasData);
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// PUBLICATION
+// ═══════════════════════════════════════════════════════════════════
+
+async function publish() {
+  var tok = document.getElementById("gh-token").value.trim();
+  var gid = document.getElementById("gist-id").value.trim();
+  var st  = document.getElementById("status-pub");
+  if (!tok || !gid)    { showStatus(st, "err", "Token ou Gist ID manquant."); return; }
+  if (!state.hasData)  { showStatus(st, "err", "Importez d'abord un fichier CHECK."); return; }
+
+  showStatus(st, "info", "Publication en cours…");
+  document.getElementById("btn-publish").disabled = true;
+
+  try {
+    var r = await fetch("https://api.github.com/gists/" + gid, {
+      method: "PATCH",
+      headers: {
+        "Authorization": "Bearer " + tok,
+        "Accept": "application/vnd.github+json",
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        files: {
+          "statut.csv":    { content: buildStatutCsv() },
+          "remarques.csv": { content: buildRemarquesCsv() },
+        }
+      }),
+    });
+
+    if (r.ok) {
+      var data = await r.json();
+      var owner   = data.owner ? data.owner.login : "ProfFranco";
+      var rawBase = "https://gist.githubusercontent.com/" + owner + "/" + gid + "/raw/";
+      showStatus(st, "ok",
+        "✅ Publié le " + new Date().toLocaleString("fr-FR") + "\n\n" +
+        "statut.csv    → " + rawBase + "statut.csv\n" +
+        "remarques.csv → " + rawBase + "remarques.csv"
+      );
+    } else {
+      var err = await r.json();
+      showStatus(st, "err", "❌ Erreur GitHub " + r.status + " : " + (err.message || "inconnue"));
+    }
+  } catch(e) {
+    showStatus(st, "err", "❌ Erreur réseau : " + e.message);
+  }
+
+  document.getElementById("btn-publish").disabled = false;
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// PERSISTANCE
+// ═══════════════════════════════════════════════════════════════════
+
+function saveManualState() {
+  localStorage.setItem("tracker_manual_state", JSON.stringify({
+    step:       state.currentStepIndex,
+    mood:       document.getElementById("mood").value,
+    returnDate: document.getElementById("return-date").value,
+    quote:      document.getElementById("quote").value,
+    reportUrl:  document.getElementById("report-url").value,
+    remarks:    remarks,
+  }));
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// UTILITAIRES
+// ═══════════════════════════════════════════════════════════════════
+
+function showStatus(el, type, msg) {
+  el.textContent = msg;
+  el.className = "status-bar show " + type;
+  el.style.whiteSpace = "pre-wrap";
+}
+
+function esc(str) {
+  if (!str) return "";
+  return String(str)
+    .replace(/&/g, "&amp;").replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+}
+</script>
+</body>
+</html>
