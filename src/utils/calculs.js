@@ -116,15 +116,15 @@ export function examTotal(exam) {
       q.bonus ? sq : sq + q.items.reduce((si, it) => si + (parseFloat(it.points) || 0), 0), 0), 0);
 }
 
-/** Score pondéré d'un élève (coefficients appliqués, bonus inclus dans earned) */
-export function studentTotalWeighted(grades, studentId, exam) {
+/** Score pondéré d'un élève (coefficients appliqués, bonus exercice complet inclus si bonusConfig fourni) */
+export function studentTotalWeighted(grades, studentId, exam, bonusConfig) {
   return exam.exercises.reduce((sum, ex) => {
     const coeff = ex.coeff !== undefined ? ex.coeff : 1;
-    return sum + exerciseScore(grades, studentId, ex).earned * coeff;
+    return sum + exerciseScore(grades, studentId, ex, bonusConfig).earned * coeff;
   }, 0);
 }
 
-/** Maximum pondéré de l'examen (hors bonus) */
+/** Maximum pondéré de l'examen (hors bonus — les points bonus s'ajoutent à earned mais pas au maximum) */
 export function examTotalWeighted(exam) {
   return exam.exercises.reduce((s, ex) => {
     const coeff = ex.coeff !== undefined ? ex.coeff : 1;

@@ -32,7 +32,7 @@ import { genererGabarit, genererDocumentComplet, genererDocumentsIndividuels, ge
 import { genererHtmlEleve, genererHtmlTous, DEFAULT_HTML_CONFIG, DEFAULT_RAPPORT_CLASSE_CONFIG, genererRapportClasse } from "./utils/html";
 import { buildAudioFilename } from "./utils/helpers";
 import { loadDB, saveDB, loadMeta, saveMeta, initProfiles, profileDBName, openNamedDB } from "./utils/db";
-import { RadarChart, MiniRadar, MiniRadarEx, Histo, PBar, ProgressionChart, ProgressionRadar } from "./components/Charts";
+import { RadarChart, MiniRadarEx, Histo, PBar, ProgressionChart, ProgressionRadar } from "./components/Charts";
 import AudioRecorder from "./components/AudioRecorder";
 import DebugModal from "./components/DebugModal";
 import SettingsModal from "./SettingsModal";
@@ -385,10 +385,7 @@ export default function App() {
     var etW = examTotalWeighted(exam);
     var raw20 = corriges.map(function(s) {
       // Score pondéré incluant le bonus exercice complet
-      var totalPondere = exam.exercises.reduce(function(sum, ex) {
-        var coeff = ex.coeff !== undefined ? ex.coeff : 1;
-        return sum + exerciseScore(grades, s.id, ex, bonusCompletConfig).earned * coeff;
-      }, 0);
+      var totalPondere = studentTotalWeighted(grades, s.id, exam, bonusCompletConfig);
       var note = etW > 0 ? noteSur20(totalPondere, etW) : 0;
       if ((groupes.tt || []).indexOf(s.id) >= 0) note = clamp(note * TT_COEFF, 0, 20);
       return note;
@@ -413,6 +410,7 @@ export default function App() {
   var _winW = useState(typeof window !== "undefined" ? window.innerWidth : 1024);
   var setWinW = _winW[1]; var winW = _winW[0];
   useEffect(function() { var h = function() { setWinW(window.innerWidth); }; window.addEventListener("resize", h); return function() { window.removeEventListener("resize", h); }; }, []);
+  
   var isMobile = winW < 700;
   var sc = isMobile ? Math.min(uiScale, 1.1) : uiScale;
 
@@ -446,7 +444,7 @@ export default function App() {
     if (cols.note)        header.push("Note /20");
     if (cols.noteNorm)    header.push("Note normalisée");
     if (cols.groupe)      header.push("Groupe");
-    if (cols.competences) COMPETENCES.forEach(function(c) { header.push("Comp. " + c.id); });
+    if (cols.competences) COMPETENCES.forEach(function(c) { header.push("Comp. " + c.label); });
     if (cols.malus)       header.push("Malus %");
 
     function fmt(n) { return n.toFixed(2).replace(".", dec); }
@@ -737,6 +735,11 @@ function retirerDsSynthese(examId) {
   var s = students[safeIdx] || { id: "none", nom: "", prenom: "" };
   // Réinitialiser si si dépasse le tableau (ajout/suppression d'élèves)
   useEffect(function() { if (students.length > 0 && si >= students.length) setSi(0); }, [students.length, si]);
+  useEffect(function() {
+    if (progressionStudentId && !students.find(function(s) { return s.id === progressionStudentId; })) {
+      setProgressionStudentId(null);
+    }
+  }, [students, progressionStudentId]);
   var exCur = exam && exam.exercises[ei] ? exam.exercises[ei] : null;
   var stuTot = exam ? studentTotal(grades, s.id, exam) : 0;
   var cpVals = exam ? competencePct(grades, s.id, exam) : {};
@@ -807,7 +810,6 @@ function retirerDsSynthese(examId) {
 
   var htmlClasseSrc = useMemo(function() {
     if (!exam || !students.length) return "";
-    var presents = students.filter(function(s) { return !absents[s.id]; });
     if (!presents.length) return "";
     return genererRapportClasse({
       exam: exam,
@@ -844,9 +846,9 @@ function retirerDsSynthese(examId) {
       features: ft,
     });
   }, [htmlStudentForPreview, htmlRankMapForPreview, exam, grades, remarks, absents, students,
-      examNomDS, examDateDS, seuils, seuilDifficile, seuilReussite, malusPaliers, malusManuel,
+      examNomDS, examDateDS, seuils, seuilDifficile, seuilReussite, seuilPiege, malusPaliers, malusManuel,
       commentaires, allRemarques, htmlConfig, soundLinksEnabled, soundBaseUrl, soundAudioExt,
-      bonusCompletConfig]);
+      bonusCompletConfig, ft]);
 
   var navItems = [{ id: "prep", l: "Préparation", ic: "\u2699\uFE0F" }, { id: "correct", l: "Correction", ic: "\u270F\uFE0F" }, { id: "resultats", l: "Résultats", ic: "\uD83D\uDC64" }, { id: "overview", l: "Vue d\u2019ensemble", ic: "\uD83D\uDCCB" }, { id: "stats", l: "Stats", ic: "\uD83D\uDCCA" }, { id: "export", l: "Export", ic: "\uD83D\uDCC4" }, { id: "aide", l: "Aide", ic: "\u2139\uFE0F" }];  // ═══════════════════════════════════════════════════════════════
   // RENDER
@@ -985,6 +987,7 @@ function retirerDsSynthese(examId) {
             style={{ ...inp, cursor: "pointer", fontSize: 16, padding: "5px 9px", background: showMore ? th.accentBg : "transparent", border: "1px solid " + (showMore ? th.accent + "40" : th.border), color: showMore ? th.accent : th.textMuted }}
             title="Plus d'options">{"⋯"}</button>
           {showMore && <div style={{ position: "absolute", right: 0, top: "100%", marginTop: 4, background: th.card, border: "1px solid " + th.border, borderRadius: th.radiusSm, boxShadow: "0 4px 16px rgba(0,0,0,0.18)", zIndex: 120, minWidth: 190, overflow: "hidden", padding: "6px 0" }} onClick={function(e) { e.stopPropagation(); }}>
+            
             {/* Zoom */}
             <div style={{ display: "flex", alignItems: "center", padding: "6px 12px", borderBottom: "1px solid " + th.border }}>
               <span style={{ fontSize: 11, color: th.textMuted, fontFamily: FONT_B, flex: 1 }}>{"Zoom"}</span>
@@ -992,6 +995,7 @@ function retirerDsSynthese(examId) {
               <span style={{ fontFamily: MONO, fontSize: 11, color: th.textDim, minWidth: 36, textAlign: "center", userSelect: "none" }}>{Math.round(uiScale * 100) + "%"}</span>
               <button onClick={function() { setUiScale(function(v) { return Math.min(1.5, +(v + 0.05).toFixed(2)); }); }} style={{ background: "transparent", border: "none", cursor: "pointer", fontSize: 15, color: th.textMuted, padding: "2px 7px", lineHeight: 1 }} title="Agrandir">{"+"}</button>
             </div>
+            
             {/* Thème */}
             <div style={{ display: "flex", alignItems: "center", padding: "8px 12px", borderBottom: "1px solid " + th.border, gap: 8 }}>
               <span style={{ fontSize: 11, color: th.textMuted, fontFamily: FONT_B, flex: 1 }}>{"Thème"}</span>
@@ -1006,6 +1010,7 @@ function retirerDsSynthese(examId) {
               style={{ width: "100%", display: "flex", alignItems: "center", gap: 8, padding: "9px 14px", background: "transparent", border: "none", cursor: "pointer", fontFamily: FONT_B, fontSize: 12, color: th.textMuted, textAlign: "left" }}>
               {"❓"} <span>{"À propos"}</span>
             </button>
+
           </div>}
         </div>
         {isMobile && <div style={{ position: "relative" }}>
@@ -1028,9 +1033,78 @@ function retirerDsSynthese(examId) {
       )}
 
       {/* MAIN — zoomé via la propriété CSS zoom (scroll natif, pas de compensation) */}
-      <div style={{ flex: 1, overflowY: "auto", position: "relative" }}>
+      <div style={{ flex: 1, overflowY: mode === "resultats" ? "hidden" : "auto", position: "relative" }}>
         <div style={{ zoom: isMobile ? 1 : sc }}>
-        <main key={mode === "resultats" ? "resultats-stable" : mode} className="tab-enter" style={{ padding: isMobile ? 6 : 10, maxWidth: isMobile ? "100%" : "840px", margin: "0 auto", width: "100%", boxSizing: "border-box", position: "relative", zIndex: 1, paddingBottom: isMobile ? 70 : 10 }}>
+        {/* ═══ RESULTATS — panneau persistant, jamais démonté au changement d'onglet ═══ */}
+        <div style={{ display: mode === "resultats" ? "flex" : "none", flexDirection: "column", height: "calc(100vh - 52px)" }}>
+          {!exam ? (
+            <div style={{ textAlign: "center", padding: 40, color: th.textMuted }}>{"Créez d'abord un devoir dans l'onglet Préparation."}</div>
+          ) : !corriges.length ? (
+            <div style={{ textAlign: "center", padding: 40, color: th.textMuted }}>{"Aucune copie corrigée pour l'instant."}</div>
+          ) : (function() {
+            var htmlStudent = htmlStudentForPreview;
+            var modeClasse = htmlStudentId === "__classe__";
+            if (!htmlStudent && !modeClasse) return null;
+            return (
+              <div style={{ display: "flex", flexDirection: "column", height: "100%", gap: 0 }}>
+                {/* Barre de sélection */}
+                <div style={{ background: th.card, borderBottom: "1px solid " + th.border, padding: "8px 14px", display: "flex", alignItems: "center", gap: 10, flexShrink: 0, flexWrap: "wrap" }}>
+                  <span style={{ fontSize: 12, fontWeight: 700, color: th.textMuted, fontFamily: FONT_B }}>{"Aperçu"}</span>
+                  <select
+                    value={modeClasse ? "__classe__" : (htmlStudent ? htmlStudent.id : "")}
+                    onChange={function(e) { setHtmlStudentId(e.target.value); }}
+                    style={{ ...inp, fontSize: 13, padding: "5px 10px", minWidth: 200 }}>
+                    <option value="__classe__">📊 Toute la classe</option>
+                    <option disabled>──────────────</option>
+                    {corriges.slice().sort(function(a, b) { return a.nom.localeCompare(b.nom) || a.prenom.localeCompare(b.prenom); }).map(function(s) {
+                      return <option key={s.id} value={s.id}>{s.nom + " " + s.prenom}</option>;
+                    })}
+                  </select>
+                  {!modeClasse && htmlStudent && (
+                    <span style={{ fontSize: 11, color: th.textDim, fontFamily: MONO }}>
+                      {fmt1(getNote20(htmlStudent.id)) + "/20 · rang " + (htmlRankMapForPreview[htmlStudent.id] || "—") + "/" + corriges.length}
+                    </span>
+                  )}
+                  <div style={{ flex: 1 }} />
+                </div>
+                {/* Panel config rapport classe */}
+                {modeClasse && (
+                  <div style={{ background: th.surface || th.card, borderBottom: "1px solid " + th.border, padding: "6px 14px", display: "flex", alignItems: "center", gap: 12, flexShrink: 0, flexWrap: "wrap" }}>
+                    {[
+                      { key: "commentaire",   label: "Commentaire" },
+                      { key: "statsGlobales", label: "Stats" },
+                      { key: "distribution",  label: "Distribution" },
+                      { key: "parCompetence", label: "Compétences" },
+                      { key: "parExercice",   label: "Exercices" },
+                    ].map(function(item) {
+                      return (
+                        <label key={item.key} style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 11, cursor: "pointer", color: th.textMuted, userSelect: "none" }}>
+                          <input type="checkbox"
+                            checked={!!(rapportClasseConfig && rapportClasseConfig[item.key])}
+                            onChange={function(e) {
+                              setRapportClasseConfig(Object.assign({}, rapportClasseConfig, { [item.key]: e.target.checked }));
+                            }}
+                          />
+                          {item.label}
+                        </label>
+                      );
+                    })}
+                  </div>
+                )}
+                {/* Iframe d'aperçu — jamais démontée au changement d'onglet */}
+                <iframe
+                  key="preview-iframe"
+                  srcDoc={modeClasse ? htmlClasseSrc : htmlSrc}
+                  title={modeClasse ? "Aperçu rapport de classe" : "Aperçu rapport " + (htmlStudent ? htmlStudent.prenom + " " + htmlStudent.nom : "")}
+                  style={{ flex: 1, border: "none", width: "100%", background: htmlConfig.theme === "dark" ? "#1a1814" : htmlConfig.theme === "young" ? "#f0f4ff" : "#faf7f2" }}
+                />
+              </div>
+            );
+          })()}
+        </div>
+        {/* ═══ AUTRES ONGLETS ═══ */}
+        {mode !== "resultats" && (
+        <main key={mode} className="tab-enter" style={{ padding: isMobile ? 6 : 10, maxWidth: isMobile ? "100%" : "840px", margin: "0 auto", width: "100%", boxSizing: "border-box", position: "relative", zIndex: 1, paddingBottom: isMobile ? 70 : 10 }}>
 
 
         {/* ═══ PREPARATION ═══ */}
@@ -1408,71 +1482,6 @@ function retirerDsSynthese(examId) {
 
 
 
-        {/* ═══ RÉSULTATS INDIVIDUELS ═══ */}
-        {mode === "resultats" && (function() {
-          if (!exam) return <div style={{ textAlign: "center", padding: 40, color: th.textMuted }}>{"Créez d'abord un devoir dans l'onglet Préparation."}</div>;
-          if (!corriges.length) return <div style={{ textAlign: "center", padding: 40, color: th.textMuted }}>{"Aucune copie corrigée pour l'instant."}</div>;
-
-          var htmlStudent = htmlStudentForPreview;
-          var modeClasse = htmlStudentId === "__classe__";
-          if (!htmlStudent && !modeClasse) return null;
-
-          return (
-            <div style={{ display: "flex", flexDirection: "column", height: "calc(100vh - 52px)", gap: 0 }}>
-              {/* Barre de sélection */}
-              <div style={{ background: th.card, borderBottom: "1px solid " + th.border, padding: "8px 14px", display: "flex", alignItems: "center", gap: 10, flexShrink: 0, flexWrap: "wrap" }}>
-                <span style={{ fontSize: 12, fontWeight: 700, color: th.textMuted, fontFamily: FONT_B }}>{"Aperçu"}</span>
-                <select
-                  value={modeClasse ? "__classe__" : (htmlStudent ? htmlStudent.id : "")}
-                  onChange={function(e) { setHtmlStudentId(e.target.value); }}
-                  style={{ ...inp, fontSize: 13, padding: "5px 10px", minWidth: 200 }}>
-                  <option value="__classe__">📊 Toute la classe</option>
-                  <option disabled>──────────────</option>
-                  {corriges.slice().sort(function(a, b) { return a.nom.localeCompare(b.nom) || a.prenom.localeCompare(b.prenom); }).map(function(s) {
-                    return <option key={s.id} value={s.id}>{s.nom + " " + s.prenom}</option>;
-                  })}
-                </select>
-                {!modeClasse && htmlStudent && (
-                  <span style={{ fontSize: 11, color: th.textDim, fontFamily: MONO }}>
-                    {fmt1(getNote20(htmlStudent.id)) + "/20 · rang " + (htmlRankMapForPreview[htmlStudent.id] || "—") + "/" + corriges.length}
-                  </span>
-                )}
-                <div style={{ flex: 1 }} />
-              </div>
-              {/* Panel config rapport classe */}
-              {modeClasse && (
-                <div style={{ background: th.surface || th.card, borderBottom: "1px solid " + th.border, padding: "6px 14px", display: "flex", alignItems: "center", gap: 12, flexShrink: 0, flexWrap: "wrap" }}>
-                  {[
-                    { key: "commentaire",   label: "Commentaire" },
-                    { key: "statsGlobales", label: "Stats" },
-                    { key: "distribution",  label: "Distribution" },
-                    { key: "parCompetence", label: "Compétences" },
-                    { key: "parExercice",   label: "Exercices" },
-                  ].map(function(item) {
-                    return (
-                      <label key={item.key} style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 11, cursor: "pointer", color: th.textMuted, userSelect: "none" }}>
-                        <input type="checkbox"
-                          checked={!!(rapportClasseConfig && rapportClasseConfig[item.key])}
-                          onChange={function(e) {
-                            setRapportClasseConfig(Object.assign({}, rapportClasseConfig, { [item.key]: e.target.checked }));
-                          }}
-                        />
-                        {item.label}
-                      </label>
-                    );
-                  })}
-                </div>
-              )}
-              {/* Iframe d'aperçu — htmlSrc est mémoïsé, pas de rechargement parasite */}
-              <iframe
-                key="preview-iframe"
-                srcDoc={modeClasse ? htmlClasseSrc : htmlSrc}
-                style={{ flex: 1, border: "none", width: "100%", background: htmlConfig.theme === "dark" ? "#1a1814" : htmlConfig.theme === "young" ? "#f0f4ff" : "#faf7f2" }}
-                title={modeClasse ? "Aperçu rapport de classe" : "Aperçu rapport " + (htmlStudent ? htmlStudent.prenom + " " + htmlStudent.nom : "")}
-              />
-            </div>
-          );
-        })()}
 
         {/* ═══ STATS ═══ */}
         {mode === "stats" && exam && <div style={{ maxWidth: 760, margin: "0 auto" }}>
@@ -1590,7 +1599,7 @@ function retirerDsSynthese(examId) {
                         <PBar value={qs.tauxTraitement} max={100}
                           color={qs.difficile ? th.danger : qs.piege ? th.warning : th.textMuted} h={5} th={th} />
                         <span style={{ fontFamily: MONO, fontSize: 9,
-                            color: qs.diff ? th.danger : th.textMuted, minWidth: 26, textAlign: "right" }}>
+                            color: qs.difficile ? th.danger : th.textMuted, minWidth: 26, textAlign: "right" }}>
                           {qs.tauxTraitement.toFixed(0) + "%"}
                         </span>
                       </div>
@@ -1705,10 +1714,10 @@ function retirerDsSynthese(examId) {
               {/* Graphe */}
               <div style={{ background: th.card, borderRadius: th.radius, border: "1px solid " + th.border, padding: 12, boxShadow: th.shadow }}>
                 {progressionViewMode === "radar" && progData.length <= 8
-                  ? <ProgressionRadar data={progData} th={th} FONT_B={FONT_B} MONO={MONO} />
+                  ? <ProgressionRadar data={progData} th={th} />
                   : progressionViewMode === "radar"
-                    ? <div style={{ textAlign: "center", padding: 16, color: th.textMuted, fontFamily: FONT_B, fontSize: 11 }}>{"Trop de DS pour un radar (> 8) — affichage en courbe."}<br /><ProgressionChart data={progData} th={th} FONT_B={FONT_B} MONO={MONO} /></div>
-                    : <ProgressionChart data={progData} th={th} FONT_B={FONT_B} MONO={MONO} />
+                    ? <div style={{ textAlign: "center", padding: 16, color: th.textMuted, fontFamily: FONT_B, fontSize: 11 }}>{"Trop de DS pour un radar (> 8) — affichage en courbe."}<br /><ProgressionChart data={progData} th={th} /></div>
+                    : <ProgressionChart data={progData} th={th} />
                 }
               </div>
             </div>
@@ -1771,6 +1780,7 @@ function retirerDsSynthese(examId) {
         {mode === "export" && !exam && <div style={{ textAlign: "center", padding: 40, color: th.textMuted }}>{"Créez d'abord un devoir dans l'onglet Préparation."}</div>}
 
         </main>
+        )}{/* fin {mode !== "resultats"} */}
         </div>{/* fin div scale */}
       </div>{/* fin div overflow wrapper */}
 
@@ -1868,8 +1878,6 @@ function retirerDsSynthese(examId) {
           { key: "malusManuel",  label: "malusManuel" },
         ];
         var fullState = { exams: exams, students: students, grades: grades, remarks: remarks, commentaires: commentaires, absents: absents, groupes: groupes, malusManuel: malusManuel };
-        var _debugOpen = {};
-        sections.forEach(function(s) { _debugOpen[s.key] = false; });
         return (
           <DebugModal
             sections={sections} fullState={fullState}
