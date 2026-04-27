@@ -5,6 +5,7 @@
 import { useState, useEffect } from "react";
 import { REMARQUES, TT_GROUPE } from "./config/settings";
 import { DEFAULT_HTML_CONFIG } from "./utils/html";
+import { setDeviceName } from "./utils/sync";
 
 export default function SettingsModal({
   th, FONT, FONT_B, MONO,
@@ -37,6 +38,7 @@ export default function SettingsModal({
   soundAudioExt, setSoundAudioExt,
   githubPat, setGithubPat,
   githubRepo, setGithubRepo,
+  deviceName, setDeviceNameLocal, activeProfileId,
   onClose,
   onSave,
   onOpenDebug,
@@ -681,6 +683,13 @@ export default function SettingsModal({
                     <input type="text" value={githubRepo} onChange={function(e) { setGithubRepo(e.target.value); localStorage.setItem("check_github_repo", e.target.value); }}
                       placeholder="moncompte/check-sauvegarde"
                       style={{ width: "100%", background: th.card, border: "1px solid " + th.border, color: th.text, borderRadius: 4, padding: "5px 8px", fontSize: 12, fontFamily: MONO, outline: "none" }} />
+                  </div>
+                  <div>
+                    <div style={{ fontSize: 10, fontWeight: 700, color: th.textMuted, fontFamily: FONT_B, marginBottom: 3 }}>{"Nom de cet appareil"}</div>
+                    <input type="text" value={deviceName || ""} onChange={function(e) { setDeviceName(activeProfileId, e.target.value); setDeviceNameLocal(e.target.value); }}
+                      placeholder="MacBook Bureau"
+                      style={{ width: "100%", background: th.card, border: "1px solid " + th.border, color: th.text, borderRadius: 4, padding: "5px 8px", fontSize: 12, fontFamily: FONT_B, outline: "none" }} />
+                    <div style={{ fontSize: 9, color: th.textDim, fontFamily: FONT_B, marginTop: 3 }}>{"Affiché sur les autres appareils lors d'une synchronisation."}</div>
                   </div>
                   <div style={{ fontSize: 9, color: th.textDim, fontFamily: FONT_B, lineHeight: 1.5 }}>
                     {"Le PAT et le dépôt sont stockés dans le localStorage de votre navigateur (séparé des données métier). Ils ne sont jamais envoyés à d'autres serveurs qu'api.github.com."}

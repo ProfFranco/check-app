@@ -39,6 +39,8 @@ import SettingsModal from "./SettingsModal";
 import ExportTab from "./ExportTab";
 import HelpTab from "./HelpTab";
 import OverviewTab from "./OverviewTab";
+import { createSyncAdapter, syncCheck, syncPush, syncPull, getLocalSyncState, maintainSnapshots, listAvailableSnapshots, readSnapshot, contentHash } from "./utils/sync";
+import SyncIndicator from "./components/SyncIndicator";
 // ─── Logos (dans public/logos/) ──────────────────────────────────
 const LOGO_LIGHT  = process.env.PUBLIC_URL + "/logos/logo-light.png";
 const LOGO_DARK   = process.env.PUBLIC_URL + "/logos/logo-dark.png";
@@ -56,6 +58,139 @@ const MONO = FONT_MONO;
 // ─── IndexedDB : voir src/utils/db.js ────────────────────────────
 
 // ─── AudioRecorder, DebugModal : voir src/components/ ────────────
+
+// ═══════════════════════════════════════════════════════════════════
+// HOOK — Synchronisation inter-appareils
+// ═══════════════════════════════════════════════════════════════════
+function useSyncStatus({ buildAppState, activeProfileId, githubConfig, restoreState, dbLoaded, dailySnapshot }) {
+  var _status = useState("checking"); var setStatus = _status[1]; var status = _status[0];
+  var _remoteMeta = useState(null); var setRemoteMeta = _remoteMeta[1]; var remoteMeta = _remoteMeta[0];
+  var _lastSyncAt = useState(null); var setLastSyncAt = _lastSyncAt[1]; var lastSyncAt = _lastSyncAt[0];
+  var _error = useState(null); var setError = _error[1]; var error = _error[0];
+  var _toast = useState(null); var setToast = _toast[1]; var toast = _toast[0];
+
+  var inFlightRef = useRef(false);
+  var mountedAtRef = useRef(Date.now());
+  var autoPullDoneRef = useRef(false);
+
+  var adapter = useMemo(function() {
+    if (!githubConfig.pat || !githubConfig.repo) return null;
+    try { return createSyncAdapter({ backend: "github", pat: githubConfig.pat, repo: githubConfig.repo }); }
+    catch(_e) { return null; }
+  }, [githubConfig.pat, githubConfig.repo]);
+
+  function doPull(options) {
+    options = options || {};
+    if (inFlightRef.current || !adapter) return Promise.resolve();
+    inFlightRef.current = true;
+    setStatus("pulling");
+    return syncPull(adapter, activeProfileId).then(function(result) {
+      if (result.ok) {
+        restoreState(result.snapshot);
+        setStatus("synced");
+        setLastSyncAt(new Date());
+        setError(null);
+        if (options.showToast && result.remoteMeta) {
+          setToast({
+            message: "✓ Mise à jour depuis " + (result.remoteMeta.pushedByName || "un autre appareil"),
+            detail: result.remoteMeta.pushedAt ? new Date(result.remoteMeta.pushedAt).toLocaleString("fr-FR") : "",
+          });
+          setTimeout(function() { setToast(null); }, 3000);
+        }
+      } else {
+        setStatus("error");
+        setError(result.error || "Erreur pull");
+      }
+    }).catch(function(e) {
+      setStatus("error");
+      setError(e.message || String(e));
+    }).finally(function() {
+      inFlightRef.current = false;
+    });
+  }
+
+  function doPush(options) {
+    options = options || {};
+    if (inFlightRef.current || !adapter) return Promise.resolve();
+    inFlightRef.current = true;
+    setStatus("pushing");
+    var state = buildAppState();
+    return syncPush(adapter, state, activeProfileId, options).then(function(result) {
+      if (result.conflict) {
+        setStatus("conflict");
+      } else {
+        setStatus("synced");
+        setLastSyncAt(new Date());
+        setError(null);
+        if (dailySnapshot) maintainSnapshots(adapter, activeProfileId, state).catch(function() {});
+      }
+    }).catch(function(e) {
+      setStatus("error");
+      setError(e.message || String(e));
+    }).finally(function() {
+      inFlightRef.current = false;
+    });
+  }
+
+  function doCheck() {
+    if (inFlightRef.current || !adapter || !dbLoaded || !activeProfileId) return Promise.resolve();
+    inFlightRef.current = true;
+    var state = buildAppState();
+    return syncCheck(adapter, state, activeProfileId).then(function(result) {
+      setStatus(result.status);
+      setRemoteMeta(result.remoteMeta);
+      setError(null);
+      // Auto-pull initial : une seule fois si remote-ahead et aucune modif locale
+      if (!autoPullDoneRef.current && result.status === "remote-ahead") {
+        autoPullDoneRef.current = true;
+        inFlightRef.current = false;
+        return doPull({ showToast: true });
+      }
+      autoPullDoneRef.current = true;
+    }).catch(function(e) {
+      setStatus("error");
+      setError(e.message || String(e));
+    }).finally(function() {
+      inFlightRef.current = false;
+    });
+  }
+
+  // Heartbeat 30s + init au montage
+  useEffect(function() {
+    if (!adapter) { setStatus("unconfigured"); return; }
+    doCheck();
+    var timer = setInterval(function() {
+      if (document.hidden) return;
+      doCheck();
+    }, 30000);
+    return function() { clearInterval(timer); };
+  }, [adapter, activeProfileId, dbLoaded]); // eslint-disable-line
+
+  // Auto-save avec délai de grâce de 2 min
+  useEffect(function() {
+    if (!adapter || status !== "local-ahead") return;
+    var elapsed = Date.now() - mountedAtRef.current;
+    var delay = elapsed < 120000 ? (120000 - elapsed + 30000) : 30000;
+    var timer = setTimeout(function() { doPush(); }, delay);
+    return function() { clearTimeout(timer); };
+  }, [adapter, status]); // eslint-disable-line
+
+  // Retour de focus → heartbeat immédiat
+  useEffect(function() {
+    function onFocus() { doCheck(); }
+    window.addEventListener("focus", onFocus);
+    return function() { window.removeEventListener("focus", onFocus); };
+  }, [adapter, activeProfileId, dbLoaded]); // eslint-disable-line
+
+  return {
+    status: status, remoteMeta: remoteMeta, lastSyncAt: lastSyncAt,
+    error: error, toast: toast,
+    push: doPush, pull: doPull,
+    forceLocal: function() { return doPush({ force: true }); },
+    forceRemote: function() { return doPull(); },
+    checkNow: doCheck,
+  };
+}
 
 // ═══════════════════════════════════════════════════════════════════
 // MAIN APP
@@ -130,6 +265,13 @@ export default function App() {
   var _progressionShowNorm = useState(false); var progressionShowNorm = _progressionShowNorm[0]; var setProgressionShowNorm = _progressionShowNorm[1];
   var _progressionViewMode = useState("courbe"); var progressionViewMode = _progressionViewMode[0]; var setProgressionViewMode = _progressionViewMode[1];
   var _confirmDelete = useState(null); var setConfirmDelete = _confirmDelete[1]; var confirmDelete = _confirmDelete[0];
+  var _confirmImportVide = useState(null); var setConfirmImportVide = _confirmImportVide[1]; var confirmImportVide = _confirmImportVide[0];
+  var _showConflictModal = useState(false); var setShowConflictModal = _showConflictModal[1]; var showConflictModal = _showConflictModal[0];
+  var _syncDailySnapshot = useState(false); var setSyncDailySnapshot = _syncDailySnapshot[1]; var syncDailySnapshot = _syncDailySnapshot[0];
+  var _snapshotList = useState([]); var setSnapshotList = _snapshotList[1]; var snapshotList = _snapshotList[0];
+  var _snapshotLoading = useState(false); var setSnapshotLoading = _snapshotLoading[1]; var snapshotLoading = _snapshotLoading[0];
+  var _showRestoreModal = useState(false); var setShowRestoreModal = _showRestoreModal[1]; var showRestoreModal = _showRestoreModal[0];
+  var _restoreConfirm = useState(null); var setRestoreConfirm = _restoreConfirm[1]; var restoreConfirm = _restoreConfirm[0];
   var _featOpen = useState(true); var setFeatOpen = _featOpen[1]; var featOpen = _featOpen[0];
   var _exportOpen = useState({ eleves: true, enseignant: true, gabarit: false, rapportClasse: false, synthese: false, github: false, sync: true, sound: false }); var setExportOpen = _exportOpen[1]; var exportOpen = _exportOpen[0];
   var _showApropos = useState(false); var setShowApropos = _showApropos[1]; var showApropos = _showApropos[0];
@@ -137,9 +279,7 @@ export default function App() {
   var _changelogText = useState(""); var setChangelogText = _changelogText[1]; var changelogText = _changelogText[0];
   var _githubPat = useState(""); var setGithubPat = _githubPat[1]; var githubPat = _githubPat[0];
   var _githubRepo = useState(""); var setGithubRepo = _githubRepo[1]; var githubRepo = _githubRepo[0];
-  var _syncStatus = useState(""); var setSyncStatus = _syncStatus[1]; var syncStatus = _syncStatus[0];
-  var _syncDate = useState(""); var setSyncDate = _syncDate[1]; var syncDate = _syncDate[0];
-  var _syncLoading = useState(false); var setSyncLoading = _syncLoading[1]; var syncLoading = _syncLoading[0];
+  var _deviceName = useState("Cet appareil"); var setDeviceName = _deviceName[1]; var deviceName = _deviceName[0];
   var _profiles = useState([]); var setProfiles = _profiles[1]; var profiles = _profiles[0];
   var _activeProfileId = useState(null); var setActiveProfileId = _activeProfileId[1]; var activeProfileId = _activeProfileId[0];
   var _showProfileMenu = useState(false); var setShowProfileMenu = _showProfileMenu[1]; var showProfileMenu = _showProfileMenu[0];
@@ -162,11 +302,13 @@ export default function App() {
 
   // ─── Persistence: load from IndexedDB on mount ───
   useEffect(function() {
+    var resolvedActiveId = null;
     loadMeta().then(function(meta) {
       // Premier lancement : migration depuis l'ancienne base
       if (!meta) return initProfiles();
       return meta;
     }).then(function(meta) {
+      resolvedActiveId = meta.activeId;
       setProfiles(meta.profiles);
       setActiveProfileId(meta.activeId);
       return loadDB(meta.activeId);
@@ -178,6 +320,7 @@ export default function App() {
       var savedRepo = localStorage.getItem("check_github_repo") || "";
       if (savedPat) setGithubPat(savedPat);
       if (savedRepo) setGithubRepo(savedRepo);
+      if (resolvedActiveId) setDeviceName(getLocalSyncState(resolvedActiveId).deviceName);
     });
   }, []);
 
@@ -197,6 +340,7 @@ export default function App() {
       commentaireDS: commentaireDS, rapportClasseConfig: rapportClasseConfig,
       synthese: synthese, etablissement: etablissement,
       soundLinksEnabled: soundLinksEnabled, soundBaseUrl: soundBaseUrl, soundAudioExt: soundAudioExt,
+      syncDailySnapshot: syncDailySnapshot,
     }, overrides || {});
   }
 
@@ -250,6 +394,7 @@ export default function App() {
     if (d.soundLinksEnabled !== undefined) setSoundLinksEnabled(d.soundLinksEnabled);
     if (d.soundBaseUrl !== undefined) setSoundBaseUrl(d.soundBaseUrl);
     if (d.soundAudioExt !== undefined) setSoundAudioExt(d.soundAudioExt);
+    if (d.syncDailySnapshot !== undefined) setSyncDailySnapshot(d.syncDailySnapshot);
     if (d.etablissement) setEtablissement(Object.assign({}, {
       nom: ETABLISSEMENT.nom, classe: ETABLISSEMENT.classe,
       matricule: ETABLISSEMENT.matricule, promotion: ETABLISSEMENT.promotion,
@@ -264,7 +409,7 @@ export default function App() {
       saveDB(buildAppState(), activeProfileId);
     }, 500);
     return function() { clearTimeout(timer); };
-  }, [dbLoaded, exams, students, grades, remarks, absents, groupes, activeExamId, nomDS, dateDS, seuils, normMethod, normParams, seuilDifficile, seuilReussite, seuilPiege, bonusCompletConfig, gabaritTex, malusPaliers, malusMode, malusManuel, uiScale, appTheme, groupesDef, mode, commentaires, remarquesActives, remarquesCustom, remarquesOrdre, settingsTab, csvConfig, htmlPresets, htmlConfig, htmlStudentId, synthese, etablissement, soundLinksEnabled, soundBaseUrl, soundAudioExt, commentaireDS, rapportClasseConfig]);
+  }, [dbLoaded, exams, students, grades, remarks, absents, groupes, activeExamId, nomDS, dateDS, seuils, normMethod, normParams, seuilDifficile, seuilReussite, seuilPiege, bonusCompletConfig, gabaritTex, malusPaliers, malusMode, malusManuel, uiScale, appTheme, groupesDef, mode, commentaires, remarquesActives, remarquesCustom, remarquesOrdre, settingsTab, csvConfig, htmlPresets, htmlConfig, htmlStudentId, synthese, etablissement, soundLinksEnabled, soundBaseUrl, soundAudioExt, commentaireDS, rapportClasseConfig, syncDailySnapshot]);
 
   useEffect(function() { if (showSearch && searchInputRef.current) searchInputRef.current.focus(); }, [showSearch]);
   useEffect(function() { var t = setTimeout(function() { setSplash(false); }, 2000); return function() { clearTimeout(t); }; }, []);
@@ -277,6 +422,61 @@ export default function App() {
       bonusCompletConfig, malusPaliers, malusMode, remarquesActives, remarquesCustom,
       remarquesOrdre, groupesDef, csvConfig, htmlConfig, soundLinksEnabled,
       soundBaseUrl, soundAudioExt, etablissement]);
+
+  // ─── Hook de synchronisation cloud ──────────────────────────────
+  var syncHook = useSyncStatus({
+    buildAppState: buildAppState,
+    activeProfileId: activeProfileId,
+    githubConfig: { pat: githubPat, repo: githubRepo },
+    restoreState: restoreState,
+    dbLoaded: dbLoaded,
+    dailySnapshot: syncDailySnapshot,
+  });
+
+  useEffect(function() {
+    if (syncHook.status === "conflict") setShowConflictModal(true);
+  }, [syncHook.status]); // eslint-disable-line
+
+  function downloadRemoteSnapshot() {
+    if (!githubPat || !githubRepo || !activeProfileId) return;
+    var adpt = createSyncAdapter({ backend: "github", pat: githubPat, repo: githubRepo });
+    syncPull(adpt, activeProfileId).then(function(result) {
+      if (!result.ok || !result.snapshot) return;
+      var blob = new Blob([JSON.stringify(result.snapshot, null, 2)], { type: "application/json" });
+      var url = URL.createObjectURL(blob);
+      var a = document.createElement("a");
+      a.href = url;
+      a.download = "check-remote-" + activeProfileId + "-" + new Date().toISOString().slice(0, 10) + ".json";
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    }).catch(function() {});
+  }
+
+  function loadSnapshotList() {
+    if (!githubPat || !githubRepo || !activeProfileId) return;
+    var adpt = createSyncAdapter({ backend: "github", pat: githubPat, repo: githubRepo });
+    setSnapshotLoading(true);
+    listAvailableSnapshots(adpt, activeProfileId).then(function(list) {
+      setSnapshotList(list);
+      setSnapshotLoading(false);
+      setShowRestoreModal(true);
+    }).catch(function() { setSnapshotLoading(false); });
+  }
+
+  function restoreFromSnapshot(slug) {
+    if (!githubPat || !githubRepo || !activeProfileId) return;
+    var adpt = createSyncAdapter({ backend: "github", pat: githubPat, repo: githubRepo });
+    readSnapshot(adpt, activeProfileId, slug).then(function(snap) {
+      if (!snap) return;
+      var clean = Object.assign({}, snap);
+      delete clean._syncMeta;
+      restoreState(clean);
+      setShowRestoreModal(false);
+      setRestoreConfirm(null);
+    }).catch(function() {});
+  }
 
   // ─── Raccourcis clavier (desktop, onglet Correction uniquement) ───
   useEffect(function() {
@@ -332,6 +532,7 @@ export default function App() {
       if (saved) restoreState(saved);
     });
     setShowProfileMenu(false);
+    setDeviceName(getLocalSyncState(profileId).deviceName);
   }
 
   function createProfile(name) {
@@ -548,71 +749,6 @@ function retirerDsSynthese(examId) {
   setSynthese(filtree);
 }
 
-  // ─── Fonctions de synchronisation GitHub ────────────────────────
-
-  function githubSyncPath(profileId) {
-    return "check-data/profil-" + (profileId || "default") + ".json";
-  }
-
-  function buildSnapshot() {
-    return JSON.stringify(buildAppState());
-  }
-
-  function githubSave() {
-    if (!githubPat || !githubRepo) return;
-    setSyncLoading(true); setSyncStatus("");
-    var path = githubSyncPath(activeProfileId);
-    var content = buildSnapshot();
-    var b64 = btoa(unescape(encodeURIComponent(content)));
-    // Récupérer le SHA courant du fichier (obligatoire pour les mises à jour)
-    fetch("https://api.github.com/repos/" + githubRepo + "/contents/" + path, {
-      headers: { "Authorization": "token " + githubPat, "Accept": "application/vnd.github+json" }
-    }).then(function(r) { return r.ok ? r.json() : null; }).then(function(existing) {
-      var body = { message: "Sauvegarde CHECK " + new Date().toLocaleString("fr-FR"), content: b64 };
-      if (existing && existing.sha) body.sha = existing.sha;
-      return fetch("https://api.github.com/repos/" + githubRepo + "/contents/" + path, {
-        method: "PUT",
-        headers: { "Authorization": "token " + githubPat, "Accept": "application/vnd.github+json", "Content-Type": "application/json" },
-        body: JSON.stringify(body),
-      });
-    }).then(function(r) {
-      if (r && r.ok) {
-        var now = new Date().toLocaleString("fr-FR");
-        setSyncDate(now); setSyncStatus("✅ Sauvegardé le " + now);
-      } else {
-        setSyncStatus("❌ Erreur lors de la sauvegarde.");
-      }
-      setSyncLoading(false);
-    }).catch(function() { setSyncStatus("❌ Erreur réseau."); setSyncLoading(false); });
-  }
-
-  function githubLoad() {
-    if (!githubPat || !githubRepo) return;
-    if (!window.confirm("Charger la sauvegarde distante ? L'état actuel sera écrasé.")) return;
-    setSyncLoading(true); setSyncStatus("");
-    var path = githubSyncPath(activeProfileId);
-    fetch("https://api.github.com/repos/" + githubRepo + "/contents/" + path, {
-      headers: { "Authorization": "token " + githubPat, "Accept": "application/vnd.github+json" }
-    }).then(function(r) { return r.ok ? r.json() : null; }).then(function(data) {
-      if (!data || !data.content) { setSyncStatus("❌ Aucune sauvegarde trouvée."); setSyncLoading(false); return; }
-      var json = decodeURIComponent(escape(atob(data.content.replace(/\n/g, ""))));
-      var d = JSON.parse(json);
-      var v = validateState(d);
-      if (!v.valid) {
-        setSyncStatus("❌ Données distantes invalides : " + v.errors[0]);
-        setSyncLoading(false);
-        return;
-      }
-      if (v.warnings.length > 0) {
-        console.warn("GitHub sync — avertissements :", v.warnings);
-      }
-      restoreState(v.data);
-      var now = new Date().toLocaleString("fr-FR");
-      setSyncDate(now); setSyncStatus("✅ Chargé le " + now);
-      setSyncLoading(false);
-    }).catch(function() { setSyncStatus("❌ Erreur réseau."); setSyncLoading(false); });
-  }
-
   function loadJSONFile(e) {
     var f = e.target.files[0]; if (!f) return;
     var r = new FileReader();
@@ -626,6 +762,12 @@ function retirerDsSynthese(examId) {
         }
         if (v.warnings.length > 0) {
           console.warn("Import — avertissements :", v.warnings);
+        }
+        var estVide = v.data.exams.length === 0 && v.data.students.length === 0;
+        var estVideActuel = exams.length === 0 && students.length === 0;
+        if (estVide && !estVideActuel) {
+          setConfirmImportVide(function() { return function() { restoreState(v.data); }; });
+          return;
         }
         restoreState(v.data);
       } catch(err) {
@@ -887,6 +1029,21 @@ function retirerDsSynthese(examId) {
         </div>
       </div>}
 
+      {confirmImportVide && <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.45)", zIndex: 300, display: "flex", alignItems: "center", justifyContent: "center" }} onClick={function() { setConfirmImportVide(null); }}>
+        <div style={{ background: th.card, borderRadius: th.radius, border: "1px solid " + th.border, padding: "24px 28px", width: 340, boxShadow: "0 8px 32px rgba(0,0,0,0.25)", textAlign: "center" }} onClick={function(e) { e.stopPropagation(); }}>
+          <div style={{ fontSize: 28, marginBottom: 10 }}>⚠️</div>
+          <div style={{ fontSize: 14, fontWeight: 700, fontFamily: FONT, marginBottom: 6, color: th.text }}>Attention — fichier vide détecté</div>
+          <div style={{ fontSize: 12, color: th.textMuted, fontFamily: FONT_B, marginBottom: 20, lineHeight: 1.5 }}>
+            {"Le fichier sélectionné ne contient aucun DS ni élève. Charger ce fichier remplacerait votre travail en cours par un état vide."}
+            <br /><br />{"Vérifiez que vous avez sélectionné le bon fichier."}
+          </div>
+          <div style={{ display: "flex", gap: 10 }}>
+            <button onClick={function() { confirmImportVide(); setConfirmImportVide(null); }} style={{ flex: 1, padding: "9px", borderRadius: th.radiusSm, cursor: "pointer", fontFamily: FONT_B, fontSize: 13, fontWeight: 600, background: th.surface, border: "1px solid " + th.border, color: th.textMuted }}>Charger quand même</button>
+            <button autoFocus onClick={function() { setConfirmImportVide(null); }} style={{ flex: 1, padding: "9px", borderRadius: th.radiusSm, cursor: "pointer", fontFamily: FONT_B, fontSize: 13, fontWeight: 700, background: th.accent, border: "none", color: "#fff" }}>Annuler</button>
+          </div>
+        </div>
+      </div>}
+
       {/* HEADER — escamotable au scroll, taille agrandie */}
       <header style={{ background: th.card, borderBottom: "2px solid " + th.headerBorder, padding: isMobile ? "8px 10px" : "10px 14px", display: "flex", alignItems: "center", gap: isMobile ? 6 : 8, position: "sticky", top: 0, zIndex: 100, boxShadow: th.shadow, flexShrink: 0 }}>
         <img src={appTheme === "dark" ? LOGO_DARK : appTheme === "young" ? LOGO_YOUNG : LOGO_LIGHT} alt="C.H.E.C.K." style={{ height: isMobile ? 32 : 42, objectFit: "contain" }} />
@@ -935,6 +1092,19 @@ function retirerDsSynthese(examId) {
             </div>
           </div>}
         </div>
+        {/* Pastille de synchronisation */}
+        <SyncIndicator
+          status={syncHook.status}
+          remoteMeta={syncHook.remoteMeta}
+          lastSyncAt={syncHook.lastSyncAt}
+          error={syncHook.error}
+          toast={syncHook.toast}
+          onPush={syncHook.push}
+          onPull={syncHook.pull}
+          onCheck={syncHook.checkNow}
+          onResolveConflict={function() { setShowConflictModal(true); }}
+          th={th} FONT_B={FONT_B} MONO={MONO}
+        />
         {!isMobile && examNomDS && (function() {
           if (exams.length <= 1) {
             return <span style={{ fontSize: 13, color: th.textMuted, fontFamily: FONT, fontStyle: "italic" }}>{"\u2014 " + examNomDS + (examDateDS ? " \u00B7 " + examDateDS : "")}</span>;
@@ -1768,8 +1938,16 @@ function retirerDsSynthese(examId) {
           commentaireDS={commentaireDS} setCommentaireDS={setCommentaireDS}
           rapportClasseConfig={rapportClasseConfig} setRapportClasseConfig={setRapportClasseConfig}
           githubPat={githubPat} githubRepo={githubRepo}
-          githubSave={githubSave} githubLoad={githubLoad}
-          syncLoading={syncLoading} syncStatus={syncStatus} syncDate={syncDate}
+          githubSave={syncHook.push} githubLoad={syncHook.pull}
+          syncLoading={syncHook.status === "pushing" || syncHook.status === "pulling"}
+          syncStatus={
+            syncHook.status === "error" ? "❌ " + syncHook.error :
+            syncHook.status === "synced" && syncHook.lastSyncAt ? "✅ Synchronisé à " + syncHook.lastSyncAt.toLocaleTimeString("fr-FR") :
+            ""
+          }
+          syncDate={syncHook.lastSyncAt ? syncHook.lastSyncAt.toLocaleString("fr-FR") : ""}
+          syncDailySnapshot={syncDailySnapshot} setSyncDailySnapshot={setSyncDailySnapshot}
+          loadSnapshotList={loadSnapshotList} snapshotLoading={snapshotLoading}
           getNote20={getNote20} getBrut20={getBrut20}
           exportCSV={exportCSV}
           nomFichierSynthese={nomFichierSynthese}
@@ -1785,6 +1963,67 @@ function retirerDsSynthese(examId) {
       </div>{/* fin div overflow wrapper */}
 
       {showMore && <div style={{ position: "fixed", inset: 0, zIndex: 99 }} onClick={function() { setShowMore(false); }} />}
+
+{/* MODAL RESTAURATION SNAPSHOT */}
+{showRestoreModal && <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", zIndex: 240, display: "flex", alignItems: "center", justifyContent: "center" }} onClick={function() { setShowRestoreModal(false); setRestoreConfirm(null); }}>
+  <div style={{ background: th.card, borderRadius: 12, border: "1px solid " + th.border, padding: "24px 28px", width: 400, maxWidth: "95vw", boxShadow: "0 8px 32px rgba(0,0,0,0.25)", fontFamily: FONT_B }} onClick={function(e) { e.stopPropagation(); }}>
+    <div style={{ fontSize: 16, fontWeight: 700, color: th.text, marginBottom: 12 }}>{"🕐 Restaurer un snapshot"}</div>
+    {snapshotList.length === 0
+      ? <div style={{ fontSize: 12, color: th.textMuted }}>{"Aucun snapshot disponible."}</div>
+      : <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+          {snapshotList.map(function(item) {
+            var isConfirming = restoreConfirm === item.slug;
+            return (
+              <div key={item.slug} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "8px 10px", background: th.surface, borderRadius: th.radiusSm, border: "1px solid " + th.border }}>
+                <div style={{ fontSize: 12, color: th.text, fontWeight: 600 }}>{item.slug}</div>
+                {isConfirming
+                  ? <div style={{ display: "flex", gap: 6 }}>
+                      <button onClick={function() { restoreFromSnapshot(item.slug); }} style={{ padding: "4px 10px", borderRadius: th.radiusSm, cursor: "pointer", fontFamily: FONT_B, fontSize: 11, fontWeight: 700, background: th.danger, border: "none", color: "#fff" }}>{"Confirmer"}</button>
+                      <button onClick={function() { setRestoreConfirm(null); }} style={{ padding: "4px 10px", borderRadius: th.radiusSm, cursor: "pointer", fontFamily: FONT_B, fontSize: 11, background: "transparent", border: "1px solid " + th.border, color: th.textMuted }}>{"Annuler"}</button>
+                    </div>
+                  : <button onClick={function() { setRestoreConfirm(item.slug); }} style={{ padding: "4px 10px", borderRadius: th.radiusSm, cursor: "pointer", fontFamily: FONT_B, fontSize: 11, fontWeight: 700, background: th.accentBg, border: "1px solid " + th.accent + "40", color: th.accent }}>{"Restaurer"}</button>
+                }
+              </div>
+            );
+          })}
+        </div>
+    }
+    <button onClick={function() { setShowRestoreModal(false); setRestoreConfirm(null); }} style={{ marginTop: 14, display: "block", width: "100%", padding: "7px", borderRadius: th.radiusSm, cursor: "pointer", fontFamily: FONT_B, fontSize: 12, background: "transparent", border: "1px solid " + th.border, color: th.textMuted }}>{"Fermer"}</button>
+  </div>
+</div>}
+
+{/* MODAL CONFLIT DE SYNCHRONISATION */}
+{showConflictModal && <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", zIndex: 250, display: "flex", alignItems: "center", justifyContent: "center" }}>
+  <div style={{ background: th.card, borderRadius: 12, border: "1px solid " + th.border, padding: "24px 28px", width: 440, maxWidth: "95vw", boxShadow: "0 8px 32px rgba(0,0,0,0.3)", fontFamily: FONT_B }}>
+    <div style={{ fontSize: 18, fontWeight: 700, color: th.danger, marginBottom: 8 }}>{"⚠ Conflit de synchronisation"}</div>
+    <div style={{ fontSize: 12, color: th.textMuted, lineHeight: 1.6, marginBottom: 16 }}>{"Les deux versions ont été modifiées depuis la dernière synchronisation. Choisissez quelle version conserver."}</div>
+    <div style={{ display: "flex", gap: 10, marginBottom: 16 }}>
+      <div style={{ flex: 1, background: th.accentBg, border: "1px solid " + th.accent + "40", borderRadius: th.radiusSm, padding: "10px 12px" }}>
+        <div style={{ fontSize: 11, fontWeight: 700, color: th.accent, marginBottom: 4 }}>{"Version locale"}</div>
+        <div style={{ fontSize: 10, color: th.textMuted }}>{"Cet appareil · " + (deviceName || "Appareil inconnu")}</div>
+      </div>
+      <div style={{ flex: 1, background: th.dangerBg, border: "1px solid " + th.danger + "40", borderRadius: th.radiusSm, padding: "10px 12px" }}>
+        <div style={{ fontSize: 11, fontWeight: 700, color: th.danger, marginBottom: 4 }}>{"Version distante"}</div>
+        <div style={{ fontSize: 10, color: th.textMuted }}>
+          {syncHook.remoteMeta
+            ? (syncHook.remoteMeta.pushedByName || syncHook.remoteMeta.pushedBy || "Appareil inconnu") + (syncHook.remoteMeta.pushedAt ? " · " + new Date(syncHook.remoteMeta.pushedAt).toLocaleString("fr-FR") : "")
+            : "Appareil inconnu"}
+        </div>
+      </div>
+    </div>
+    <button onClick={downloadRemoteSnapshot} style={{ display: "block", width: "100%", marginBottom: 12, padding: "7px 12px", borderRadius: th.radiusSm, cursor: "pointer", fontFamily: FONT_B, fontSize: 11, fontWeight: 700, background: "transparent", border: "1px solid " + th.border, color: th.textMuted }}>
+      {"⬇ Télécharger la version distante (JSON)"}
+    </button>
+    <div style={{ display: "flex", gap: 8 }}>
+      <button onClick={function() { syncHook.forceRemote(); setShowConflictModal(false); }} style={{ flex: 1, padding: "8px 12px", borderRadius: th.radiusSm, cursor: "pointer", fontFamily: FONT_B, fontSize: 12, fontWeight: 700, background: th.dangerBg, border: "1px solid " + th.danger + "40", color: th.danger }}>
+        {"⬇ Garder la distante"}
+      </button>
+      <button onClick={function() { syncHook.forceLocal(); setShowConflictModal(false); }} style={{ flex: 1, padding: "8px 12px", borderRadius: th.radiusSm, cursor: "pointer", fontFamily: FONT_B, fontSize: 12, fontWeight: 700, background: th.accent, border: "none", color: "#fff" }}>
+        {"☁ Garder la locale"}
+      </button>
+    </div>
+  </div>
+</div>}
 
 {/* MODAL À PROPOS */}
 {showApropos && <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.4)", zIndex: 200, display: "flex", alignItems: "center", justifyContent: "center" }} onClick={function() { setShowApropos(false); }}>
@@ -1859,6 +2098,7 @@ function retirerDsSynthese(examId) {
         soundAudioExt={soundAudioExt} setSoundAudioExt={setSoundAudioExt}
         githubPat={githubPat} setGithubPat={setGithubPat}
         githubRepo={githubRepo} setGithubRepo={setGithubRepo}
+        deviceName={deviceName} setDeviceNameLocal={setDeviceName} activeProfileId={activeProfileId}
         onSave={settingsSaveSignal}
         onClose={function() { setShowSettings(false); }}
         onOpenDebug={function() { setShowDebug(true); }}

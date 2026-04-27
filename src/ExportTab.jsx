@@ -28,6 +28,8 @@ export default function ExportTab({
   githubPat, githubRepo,
   githubSave, githubLoad,
   syncLoading, syncStatus, syncDate,
+  syncDailySnapshot, setSyncDailySnapshot,
+  loadSnapshotList, snapshotLoading,
   getNote20, getBrut20,
   exportCSV,
   nomFichierSynthese,
@@ -129,6 +131,21 @@ export default function ExportTab({
             </div>
             {syncStatus && <div style={{ fontSize: 11, fontFamily: FONT_B, color: syncStatus.startsWith("✅") ? th.success : th.danger, marginTop: 4 }}>{syncStatus}</div>}
             {syncDate && !syncStatus && <div style={{ fontSize: 10, fontFamily: FONT_B, color: th.textDim, marginTop: 4 }}>{"Dernier snapshot : " + syncDate}</div>}
+            {syncOk && <div style={{ marginTop: 12, paddingTop: 10, borderTop: "1px solid " + th.border }}>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
+                <div>
+                  <div style={{ fontSize: 12, fontWeight: 700, color: th.text, fontFamily: FONT_B }}>{"🕐 Snapshots quotidiens"}</div>
+                  <div style={{ fontSize: 10, color: th.textMuted, fontFamily: FONT_B, marginTop: 2 }}>{"Sauvegarde auto après chaque push (hier / −3j / −7j / −14j)."}</div>
+                </div>
+                <label style={{ display: "flex", alignItems: "center", gap: 6, cursor: "pointer" }}>
+                  <input type="checkbox" checked={!!syncDailySnapshot} onChange={function(e) { setSyncDailySnapshot && setSyncDailySnapshot(e.target.checked); }} />
+                  <span style={{ fontSize: 11, fontFamily: FONT_B, color: th.textMuted }}>{syncDailySnapshot ? "Activé" : "Désactivé"}</span>
+                </label>
+              </div>
+              {syncDailySnapshot && <button onClick={loadSnapshotList} disabled={snapshotLoading || syncLoading} style={{ padding: "6px 12px", borderRadius: th.radiusSm, cursor: snapshotLoading ? "not-allowed" : "pointer", fontFamily: FONT_B, fontSize: 11, fontWeight: 700, background: th.surface, border: "1px solid " + th.border, color: th.text }}>
+                {snapshotLoading ? "⏳ Chargement…" : "📋 Voir les snapshots disponibles"}
+              </button>}
+            </div>}
           </Section>
         );
       })()}
