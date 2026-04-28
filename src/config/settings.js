@@ -14,7 +14,7 @@
 // ─── Version de l'application ────────────────────────────────────
 // Modifier uniquement ici — répercuté automatiquement dans l'écran
 // "À propos" et dans l'en-tête de la documentation (HelpTab).
-export const APP_VERSION = "1.2";
+export const APP_VERSION = "1.3";
 
 // ─── Compétences évaluées ────────────────────────────────────────
 // id       : identifiant interne (une lettre, utilisée dans les exports)
@@ -146,3 +146,19 @@ export var FEATURE_PRESETS = {
 };
 
 export var DEFAULT_FEATURES = { preset: "complet", competences: true, coefficients: true, questionBonus: true, bonusComplet: true, malusAuto: true, questionPiege: true };
+
+// ─── Réglages de calcul et d'évaluation par défaut d'un DS ──────
+// Chaque exam porte ses propres settings via exam.settings.
+// Cet objet sert de fallback pour les DS sans settings ET de valeur
+// initiale lors de la création d'un nouveau DS.
+export var DEFAULT_EXAM_SETTINGS = {
+  normMethod: DEFAULT_NORM.method,
+  normParams: { moyenneCible: DEFAULT_NORM.params.moyenneCible, maxCible: 20, sigmaCible: DEFAULT_NORM.params.sigmaCible },
+  seuilDifficile: DEFAULT_SEUIL_DIFFICILE,
+  seuilPiege: DEFAULT_SEUIL_PIEGE,
+  seuilReussite: 50,
+  malusPaliers: DEFAULT_MALUS_PALIERS,
+  malusMode: DEFAULT_MALUS_MODE,
+  seuilsComp: DEFAULT_SEUILS,
+  bonusCompletConfig: DEFAULT_BONUS_COMPLET,
+};

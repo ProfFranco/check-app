@@ -1,3 +1,17 @@
+## v 1.3 — 28 avril 2026
+
+### Synchronisation GitHub introduite
+- Si un dépôt GitHub est indiqué, l'état de la correction **se synchronise automatiquement**, sans export manuel nécessaire. Les conflits sont gérés.
+
+### Réglages globaux/spécifiques aux DS
+- Clarifications dans l'interface "Réglages" des réglages spécifiques à chaque devoir et des réglages globaux
+- Possibilité de changer les réglages par défaut
+
+### Import depuis un autre profil
+- Lors de la création d'un profil, **possibilité d'importer des réglages** ou des listes d'élèves pré-existants
+
+### Correctifs variés
+
 ## v 1.2 — avril 2026
 
 ### Correctifs

@@ -3,7 +3,7 @@
 // ═══════════════════════════════════════════════════════════════════
 
 import { useState, useEffect } from "react";
-import { REMARQUES, TT_GROUPE } from "./config/settings";
+import { REMARQUES, TT_GROUPE, DEFAULT_EXAM_SETTINGS } from "./config/settings";
 import { DEFAULT_HTML_CONFIG } from "./utils/html";
 import { setDeviceName } from "./utils/sync";
 
@@ -11,15 +11,18 @@ export default function SettingsModal({
   th, FONT, FONT_B, MONO,
   settingsTab, setSettingsTab,
   etablissement, setEtablissement,
-  seuils, setSeuils,
-  normMethod, setNormMethod,
-  normParams, setNormParams,
-  seuilDifficile, setSeuilDifficile,
-  seuilReussite, setSeuilReussite,
-  seuilPiege, setSeuilPiege,
-  bonusCompletConfig, setBonusCompletConfig,
-  malusPaliers, setMalusPaliers,
-  malusMode, setMalusMode,
+  // DS actif
+  activeExamSettings, activeExamNom, onExamSetting, onResetExamSettings,
+  // Valeurs par défaut du profil
+  defaultSeuilsComp, setDefaultSeuilsComp,
+  defaultNormMethod, setDefaultNormMethod,
+  defaultNormParams, setDefaultNormParams,
+  defaultSeuilDifficile, setDefaultSeuilDifficile,
+  defaultSeuilReussite, setDefaultSeuilReussite,
+  defaultSeuilPiege, setDefaultSeuilPiege,
+  defaultBonusCompletConfig, setDefaultBonusCompletConfig,
+  defaultMalusPaliers, setDefaultMalusPaliers,
+  defaultMalusMode, setDefaultMalusMode,
   remarquesCustom, setRemarquesCustom,
   remarquesOrdre, setRemarquesOrdre,
   remarquesActives, setRemarquesActives,
@@ -50,6 +53,12 @@ export default function SettingsModal({
     var t = setTimeout(function() { setSavedFlash(false); }, 1500);
     return function() { clearTimeout(t); };
   }, [onSave]);
+
+  // Accordéons DS actif / Valeurs par défaut — états locaux éphémères
+  var _evalDsOpen = useState(true); var evalDsOpen = _evalDsOpen[0]; var setEvalDsOpen = _evalDsOpen[1];
+  var _evalDefOpen = useState(false); var evalDefOpen = _evalDefOpen[0]; var setEvalDefOpen = _evalDefOpen[1];
+  var _calcDsOpen = useState(true); var calcDsOpen = _calcDsOpen[0]; var setCalcDsOpen = _calcDsOpen[1];
+  var _calcDefOpen = useState(false); var calcDefOpen = _calcDefOpen[0]; var setCalcDefOpen = _calcDefOpen[1];
   return (
     <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.4)", zIndex: 200, display: "flex", alignItems: "center", justifyContent: "center" }} onClick={onClose}>
       <div style={{ background: th.card, borderRadius: 12, border: "1px solid " + th.border, padding: 20, width: 540, maxWidth: "96vw", maxHeight: "88vh", overflowY: "auto", boxShadow: "0 8px 32px rgba(0,0,0,0.2)" }} onClick={function(e) { e.stopPropagation(); }}>
@@ -123,89 +132,142 @@ export default function SettingsModal({
 
         {/* ── Onglet Évaluation ── */}
         {settingsTab === "evaluation" && (function() {
-          return (
-            <div>
-              <p style={{ fontSize: '0.78em', color: 'var(--text-muted, #888)', fontStyle: 'italic', marginBottom: '0.8em' }}>
-                ⓘ Ces réglages s'appliquent à tous les devoirs.
-              </p>
-              {/* Seuils de compétence */}
-              <div style={{ fontSize: 11, fontWeight: 700, color: th.textMuted, fontFamily: FONT_B, marginBottom: 8, textTransform: "uppercase", letterSpacing: 1 }}>Seuils de compétence</div>
-              <div style={{ fontSize: 10, color: th.textMuted, fontFamily: FONT_B, marginBottom: 8, lineHeight: 1.5 }}>
-                {"Pourcentage de réussite minimum pour chaque niveau. En dessous de D : NN (non noté si points traités < nonNote%)."}
-              </div>
-              {[
-                { key: "nonNote", label: "Seuil noté (min % traités)" },
-                { key: "D", label: "Seuil D (min %)" },
-                { key: "C", label: "Seuil C (min %)" },
-                { key: "B", label: "Seuil B (min %)" },
-              ].map(function(s) { return (
-                <div key={s.key} style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
-                  <label style={{ flex: 1, fontSize: 11, fontFamily: FONT_B, color: th.text }}>{s.label}</label>
-                  <input type="number" min={0} max={100} value={seuils[s.key]} onChange={function(e) { setSeuils(Object.assign({}, seuils, { [s.key]: Number(e.target.value) })); }}
+          var s = activeExamSettings || DEFAULT_EXAM_SETTINGS;
+          // Indicateur "personnalisé" : au moins un champ d'éval du DS diffère des défauts
+          var evalFields = ["seuilsComp", "seuilDifficile", "seuilPiege", "seuilReussite", "bonusCompletConfig"];
+          var isPersonnalise = evalFields.some(function(k) {
+            return JSON.stringify(s[k]) !== JSON.stringify(DEFAULT_EXAM_SETTINGS[k]);
+          });
+
+          function EvalControls(vals, onChange) {
+            return (
+              <div>
+                {/* Seuils de compétence */}
+                <div style={{ fontSize: 11, fontWeight: 700, color: th.textMuted, fontFamily: FONT_B, marginBottom: 6, textTransform: "uppercase", letterSpacing: 1 }}>Seuils de compétence</div>
+                <div style={{ fontSize: 10, color: th.textMuted, fontFamily: FONT_B, marginBottom: 8, lineHeight: 1.5 }}>
+                  {"Pourcentage de réussite minimum pour chaque niveau. En dessous de D : NN (non noté si points traités < nonNote%)."}
+                </div>
+                {[
+                  { key: "nonNote", label: "Seuil noté (min % traités)" },
+                  { key: "D", label: "Seuil D (min %)" },
+                  { key: "C", label: "Seuil C (min %)" },
+                  { key: "B", label: "Seuil B (min %)" },
+                ].map(function(f) { return (
+                  <div key={f.key} style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 5 }}>
+                    <label style={{ flex: 1, fontSize: 11, fontFamily: FONT_B, color: th.text }}>{f.label}</label>
+                    <input type="number" min={0} max={100} value={(vals.seuilsComp || {})[f.key] || 0}
+                      onChange={function(e) { onChange("seuilsComp", Object.assign({}, vals.seuilsComp, { [f.key]: Number(e.target.value) })); }}
+                      style={{ width: 56, background: th.card, border: "1px solid " + th.border, color: th.text, borderRadius: 4, padding: "3px 6px", fontSize: 12, fontFamily: MONO, outline: "none" }} />
+                    <span style={{ fontSize: 10, color: th.textDim }}>%</span>
+                  </div>); })}
+                {/* Seuil difficulté */}
+                <div style={{ fontSize: 11, fontWeight: 700, color: th.textMuted, fontFamily: FONT_B, marginBottom: 6, marginTop: 14, textTransform: "uppercase", letterSpacing: 1 }}>Question difficile</div>
+                <div style={{ fontSize: 10, color: th.textMuted, fontFamily: FONT_B, marginBottom: 8, lineHeight: 1.5 }}>{"Une question est difficile si moins de X% des présents l'ont réussie."}</div>
+                <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 5 }}>
+                  <label style={{ flex: 1, fontSize: 11, fontFamily: FONT_B, color: th.text }}>{"Seuil difficulté"}</label>
+                  <input type="number" min={0} max={100} value={vals.seuilDifficile}
+                    onChange={function(e) { onChange("seuilDifficile", Number(e.target.value)); }}
                     style={{ width: 56, background: th.card, border: "1px solid " + th.border, color: th.text, borderRadius: 4, padding: "3px 6px", fontSize: 12, fontFamily: MONO, outline: "none" }} />
                   <span style={{ fontSize: 10, color: th.textDim }}>%</span>
-                </div>); })}
+                </div>
+                {/* Seuil réussite */}
+                <div style={{ fontSize: 11, fontWeight: 700, color: th.textMuted, fontFamily: FONT_B, marginBottom: 6, marginTop: 14, textTransform: "uppercase", letterSpacing: 1 }}>{"Seuil réussite ✨"}</div>
+                <div style={{ fontSize: 10, color: th.textMuted, fontFamily: FONT_B, marginBottom: 8, lineHeight: 1.5 }}>{"Un élève a réussi une question difficile (✨) s'il a obtenu au moins X% des points de cette question."}</div>
+                <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 5 }}>
+                  <label style={{ flex: 1, fontSize: 11, fontFamily: FONT_B, color: th.text }}>{"Seuil réussite question"}</label>
+                  <input type="number" min={0} max={100} value={vals.seuilReussite}
+                    onChange={function(e) { onChange("seuilReussite", Number(e.target.value)); }}
+                    style={{ width: 56, background: th.card, border: "1px solid " + th.border, color: th.text, borderRadius: 4, padding: "3px 6px", fontSize: 12, fontFamily: MONO, outline: "none" }} />
+                  <span style={{ fontSize: 10, color: th.textDim }}>%</span>
+                </div>
+                {/* Seuil piège */}
+                <div style={{ fontSize: 11, fontWeight: 700, color: th.textMuted, fontFamily: FONT_B, marginBottom: 6, marginTop: 14, textTransform: "uppercase", letterSpacing: 1 }}>{"Question piège ⚠️"}</div>
+                <div style={{ fontSize: 10, color: th.textMuted, fontFamily: FONT_B, marginBottom: 8, lineHeight: 1.5 }}>{"Une question traitée par ≥ 50% des élèves mais réussie par moins de X% des traitants."}</div>
+                <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 5 }}>
+                  <label style={{ flex: 1, fontSize: 11, fontFamily: FONT_B, color: th.text }}>{"Seuil piège"}</label>
+                  <input type="number" min={0} max={100} value={vals.seuilPiege}
+                    onChange={function(e) { onChange("seuilPiege", Number(e.target.value)); }}
+                    style={{ width: 56, background: th.card, border: "1px solid " + th.border, color: th.text, borderRadius: 4, padding: "3px 6px", fontSize: 12, fontFamily: MONO, outline: "none" }} />
+                  <span style={{ fontSize: 10, color: th.textDim }}>%</span>
+                </div>
+                {/* Bonus exercice complet */}
+                <div style={{ fontSize: 11, fontWeight: 700, color: th.textMuted, fontFamily: FONT_B, marginBottom: 6, marginTop: 14, textTransform: "uppercase", letterSpacing: 1 }}>{"Bonus exercice complet 🏆"}</div>
+                <div style={{ fontSize: 10, color: th.textMuted, fontFamily: FONT_B, marginBottom: 10, lineHeight: 1.5 }}>{"Récompense automatique quand un élève a traité toutes les questions d'un exercice (activé par 🏆 dans la Préparation) et atteint le seuil de réussite."}</div>
+                <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
+                  <label style={{ flex: 1, fontSize: 11, fontFamily: FONT_B, color: th.text }}>{"Seuil de réussite"}</label>
+                  <input type="number" min={0} max={100} value={(vals.bonusCompletConfig || {}).seuil || 0}
+                    onChange={function(e) { onChange("bonusCompletConfig", Object.assign({}, vals.bonusCompletConfig, { seuil: Number(e.target.value) })); }}
+                    style={{ width: 56, background: th.card, border: "1px solid " + th.border, color: th.text, borderRadius: 4, padding: "3px 6px", fontSize: 12, fontFamily: MONO, outline: "none" }} />
+                  <span style={{ fontSize: 10, color: th.textDim }}>%</span>
+                </div>
+                <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
+                  <label style={{ flex: 1, fontSize: 11, fontFamily: FONT_B, color: th.text }}>{"Type de bonus"}</label>
+                  {[{ id: "fixe", label: "Points fixes" }, { id: "pourcent", label: "% du barème" }].map(function(m) { return (
+                    <label key={m.id} style={{ display: "flex", alignItems: "center", gap: 4, cursor: "pointer", fontSize: 11, fontFamily: FONT_B, color: (vals.bonusCompletConfig || {}).mode === m.id ? th.text : th.textMuted }}>
+                      <input type="radio" name={"bonusMode_" + (onChange === onExamSetting ? "ds" : "def")} checked={(vals.bonusCompletConfig || {}).mode === m.id} onChange={function() { onChange("bonusCompletConfig", Object.assign({}, vals.bonusCompletConfig, { mode: m.id })); }} />
+                      {m.label}
+                    </label>); })}
+                </div>
+                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <label style={{ flex: 1, fontSize: 11, fontFamily: FONT_B, color: th.text }}>{"Valeur du bonus"}</label>
+                  <input type="number" min={0} step={0.5} value={(vals.bonusCompletConfig || {}).valeur || 0}
+                    onChange={function(e) { onChange("bonusCompletConfig", Object.assign({}, vals.bonusCompletConfig, { valeur: Number(e.target.value) })); }}
+                    style={{ width: 56, background: th.card, border: "1px solid " + th.border, color: th.text, borderRadius: 4, padding: "3px 6px", fontSize: 12, fontFamily: MONO, outline: "none" }} />
+                  <span style={{ fontSize: 10, color: th.textDim }}>{(vals.bonusCompletConfig || {}).mode === "pourcent" ? "%" : "pts"}</span>
+                </div>
+              </div>
+            );
+          }
 
-              {/* Question difficile */}
-              <div style={{ fontSize: 11, fontWeight: 700, color: th.textMuted, fontFamily: FONT_B, marginBottom: 8, marginTop: 16, textTransform: "uppercase", letterSpacing: 1 }}>Question difficile</div>
-              <div style={{ fontSize: 10, color: th.textMuted, fontFamily: FONT_B, marginBottom: 8, lineHeight: 1.5 }}>
-                {"Une question est difficile si moins de X% des présents l'ont réussie."}
-              </div>
-              <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
-                <label style={{ flex: 1, fontSize: 11, fontFamily: FONT_B, color: th.text }}>{"Seuil difficulté"}</label>
-                <input type="number" min={0} max={100} value={seuilDifficile} onChange={function(e) { setSeuilDifficile(Number(e.target.value)); }}
-                  style={{ width: 56, background: th.card, border: "1px solid " + th.border, color: th.text, borderRadius: 4, padding: "3px 6px", fontSize: 12, fontFamily: MONO, outline: "none" }} />
-                <span style={{ fontSize: 10, color: th.textDim }}>%</span>
+          function defOnChange(key, val) {
+            var setters = { seuilsComp: setDefaultSeuilsComp, seuilDifficile: setDefaultSeuilDifficile, seuilReussite: setDefaultSeuilReussite, seuilPiege: setDefaultSeuilPiege, bonusCompletConfig: setDefaultBonusCompletConfig };
+            if (setters[key]) setters[key](val);
+          }
+
+          return (
+            <div>
+              {/* ── DS actif ── */}
+              <div style={{ marginBottom: 10, border: "1px solid " + th.border, borderRadius: th.radius, overflow: "hidden" }}>
+                <button onClick={function() { setEvalDsOpen(!evalDsOpen); }}
+                  style={{ width: "100%", display: "flex", alignItems: "center", justifyContent: "space-between", padding: "8px 12px", background: evalDsOpen ? th.accentBg : th.surface, border: "none", cursor: "pointer", fontFamily: FONT_B, fontSize: 11, fontWeight: 700, color: evalDsOpen ? th.accent : th.textMuted }}>
+                  <span>
+                    {"▾ 🎓 DS actif"}
+                    {activeExamNom ? (" : " + activeExamNom) : ""}
+                    {isPersonnalise && <span style={{ marginLeft: 8, fontSize: 9, color: th.warning, fontWeight: 700 }}>{"⚠ personnalisé"}</span>}
+                  </span>
+                  <span style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                    {isPersonnalise && <button onClick={function(e) { e.stopPropagation(); onResetExamSettings(); }}
+                      style={{ fontSize: 10, padding: "1px 7px", borderRadius: th.radiusSm, cursor: "pointer", fontFamily: FONT_B, background: "transparent", border: "1px solid " + th.warning, color: th.warning }}>
+                      {"↺ Réinitialiser aux défauts"}
+                    </button>}
+                    <span style={{ fontSize: 10, transition: "transform 0.2s", display: "inline-block", transform: evalDsOpen ? "rotate(0deg)" : "rotate(-90deg)" }}>{"▼"}</span>
+                  </span>
+                </button>
+                <div style={{ maxHeight: evalDsOpen ? "2000px" : "0px", overflow: "hidden", transition: "max-height 0.25s ease" }}>
+                  <div style={{ padding: "10px 12px" }}>
+                    {EvalControls(s, onExamSetting)}
+                  </div>
+                </div>
               </div>
 
-              {/* Seuil réussite ✨ */}
-              <div style={{ fontSize: 11, fontWeight: 700, color: th.textMuted, fontFamily: FONT_B, marginBottom: 8, marginTop: 16, textTransform: "uppercase", letterSpacing: 1 }}>{"Seuil réussite ✨"}</div>
-              <div style={{ fontSize: 10, color: th.textMuted, fontFamily: FONT_B, marginBottom: 8, lineHeight: 1.5 }}>
-                {"Un élève a réussi une question difficile (✨) s'il a obtenu au moins X% des points de cette question."}
-              </div>
-              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                <label style={{ flex: 1, fontSize: 11, fontFamily: FONT_B, color: th.text }}>{"Seuil réussite question"}</label>
-                <input type="number" min={0} max={100} value={seuilReussite} onChange={function(e) { setSeuilReussite(Number(e.target.value)); }}
-                  style={{ width: 56, background: th.card, border: "1px solid " + th.border, color: th.text, borderRadius: 4, padding: "3px 6px", fontSize: 12, fontFamily: MONO, outline: "none" }} />
-                <span style={{ fontSize: 10, color: th.textDim }}>%</span>
-              </div>
-
-              {/* Question piège */}
-              <div style={{ fontSize: 11, fontWeight: 700, color: th.textMuted, fontFamily: FONT_B, marginBottom: 8, marginTop: 16, textTransform: "uppercase", letterSpacing: 1 }}>{"Question piège ⚠️"}</div>
-              <div style={{ fontSize: 10, color: th.textMuted, fontFamily: FONT_B, marginBottom: 8, lineHeight: 1.5 }}>
-                {"Une question traitée par ≥ 50% des élèves mais réussie par moins de X% des traitants."}
-              </div>
-              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                <label style={{ flex: 1, fontSize: 11, fontFamily: FONT_B, color: th.text }}>{"Seuil piège"}</label>
-                <input type="number" min={0} max={100} value={seuilPiege} onChange={function(e) { setSeuilPiege(Number(e.target.value)); }}
-                  style={{ width: 56, background: th.card, border: "1px solid " + th.border, color: th.text, borderRadius: 4, padding: "3px 6px", fontSize: 12, fontFamily: MONO, outline: "none" }} />
-                <span style={{ fontSize: 10, color: th.textDim }}>%</span>
-              </div>
-
-              {/* Bonus exercice complet */}
-              <div style={{ fontSize: 11, fontWeight: 700, color: th.textMuted, fontFamily: FONT_B, marginBottom: 8, marginTop: 16, textTransform: "uppercase", letterSpacing: 1 }}>{"Bonus exercice complet 🏆"}</div>
-              <div style={{ fontSize: 10, color: th.textMuted, fontFamily: FONT_B, marginBottom: 10, lineHeight: 1.5 }}>
-                {"Récompense automatique quand un élève a traité toutes les questions d'un exercice (activé par 🏆 dans la Préparation) et atteint le seuil de réussite."}
-              </div>
-              <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
-                <label style={{ flex: 1, fontSize: 11, fontFamily: FONT_B, color: th.text }}>{"Seuil de réussite"}</label>
-                <input type="number" min={0} max={100} value={bonusCompletConfig.seuil} onChange={function(e) { setBonusCompletConfig(Object.assign({}, bonusCompletConfig, { seuil: Number(e.target.value) })); }}
-                  style={{ width: 56, background: th.card, border: "1px solid " + th.border, color: th.text, borderRadius: 4, padding: "3px 6px", fontSize: 12, fontFamily: MONO, outline: "none" }} />
-                <span style={{ fontSize: 10, color: th.textDim }}>%</span>
-              </div>
-              <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
-                <label style={{ flex: 1, fontSize: 11, fontFamily: FONT_B, color: th.text }}>{"Type de bonus"}</label>
-                {[{ id: "fixe", label: "Points fixes" }, { id: "pourcent", label: "% du barème" }].map(function(m) { return (
-                  <label key={m.id} style={{ display: "flex", alignItems: "center", gap: 4, cursor: "pointer", fontSize: 11, fontFamily: FONT_B, color: bonusCompletConfig.mode === m.id ? th.text : th.textMuted }}>
-                    <input type="radio" name="bonusMode" checked={bonusCompletConfig.mode === m.id} onChange={function() { setBonusCompletConfig(Object.assign({}, bonusCompletConfig, { mode: m.id })); }} />
-                    {m.label}
-                  </label>); })}
-              </div>
-              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                <label style={{ flex: 1, fontSize: 11, fontFamily: FONT_B, color: th.text }}>{"Valeur du bonus"}</label>
-                <input type="number" min={0} step={0.5} value={bonusCompletConfig.valeur} onChange={function(e) { setBonusCompletConfig(Object.assign({}, bonusCompletConfig, { valeur: Number(e.target.value) })); }}
-                  style={{ width: 56, background: th.card, border: "1px solid " + th.border, color: th.text, borderRadius: 4, padding: "3px 6px", fontSize: 12, fontFamily: MONO, outline: "none" }} />
-                <span style={{ fontSize: 10, color: th.textDim }}>{bonusCompletConfig.mode === "pourcent" ? "%" : "pts"}</span>
+              {/* ── Valeurs par défaut ── */}
+              <div style={{ marginBottom: 10, border: "1px solid " + th.border, borderRadius: th.radius, overflow: "hidden" }}>
+                <button onClick={function() { setEvalDefOpen(!evalDefOpen); }}
+                  style={{ width: "100%", display: "flex", alignItems: "center", justifyContent: "space-between", padding: "8px 12px", background: evalDefOpen ? th.surface : th.surface, border: "none", cursor: "pointer", fontFamily: FONT_B, fontSize: 11, fontWeight: 700, color: th.textMuted }}>
+                  <span>{"▾ ⚙️ Valeurs par défaut (nouveaux DS)"}</span>
+                  <span style={{ fontSize: 10, transition: "transform 0.2s", display: "inline-block", transform: evalDefOpen ? "rotate(0deg)" : "rotate(-90deg)" }}>{"▼"}</span>
+                </button>
+                <div style={{ maxHeight: evalDefOpen ? "2000px" : "0px", overflow: "hidden", transition: "max-height 0.25s ease" }}>
+                  <div style={{ padding: "10px 12px" }}>
+                    <div style={{ fontSize: 10, color: th.textMuted, fontFamily: FONT_B, marginBottom: 10, fontStyle: "italic", lineHeight: 1.5 }}>
+                      {"Ces valeurs sont copiées dans chaque nouveau DS à sa création. Elles ne modifient pas les DS existants."}
+                    </div>
+                    {EvalControls(
+                      { seuilsComp: defaultSeuilsComp, seuilDifficile: defaultSeuilDifficile, seuilReussite: defaultSeuilReussite, seuilPiege: defaultSeuilPiege, bonusCompletConfig: defaultBonusCompletConfig },
+                      defOnChange
+                    )}
+                  </div>
+                </div>
               </div>
             </div>
           );
@@ -213,128 +275,182 @@ export default function SettingsModal({
 
         {/* ── Onglet Calcul ── */}
         {settingsTab === "calcul" && (function() {
-          return (
-            <div>
-              <p style={{ fontSize: '0.78em', color: 'var(--text-muted, #888)', fontStyle: 'italic', marginBottom: '0.8em' }}>
-                ⓘ Ces réglages s'appliquent à tous les devoirs.
-              </p>
-              {/* Normalisation */}
-              <div style={{ fontSize: 11, fontWeight: 700, color: th.textMuted, fontFamily: FONT_B, marginBottom: 8, textTransform: "uppercase", letterSpacing: 1 }}>Normalisation</div>
-              {[
-                { id: "none",             label: "Brute /20 (aucune normalisation)", info: "La note affichée est directement le score ramené sur 20, sans transformation." },
-                { id: "proportional",     label: "Proportionnelle (moy→cible)",   info: "Toutes les notes sont multipliées pour que la moyenne devienne la cible." },
-                { id: "proportional_max", label: "Proportionnelle (max→cible)",   info: "Toutes les notes sont multipliées pour que la meilleure note devienne la cible." },
-                { id: "affine",           label: "Affine (moy + σ)",               info: "Transformation affine : la moyenne devient moyenneCible et l'écart-type devient sigmaCible." },
-                { id: "affine_max",       label: "Affine (max + σ)",               info: "La note max devient la cible, l'écart-type est normalisé vers sigmaCible." },
-                { id: "gaussienne",       label: "Gaussienne",                     info: "Chaque note est transformée selon sa position dans la distribution (quantiles gaussiens)." },
-              ].map(function(m) { return (
-                <div key={m.id} style={{ marginBottom: 6 }}>
-                  <label style={{ display: "flex", alignItems: "flex-start", gap: 8, cursor: "pointer" }}>
-                    <input type="radio" name="normMethod" checked={normMethod === m.id} onChange={function() { setNormMethod(m.id); }} style={{ marginTop: 2 }} />
-                    <div>
-                      <div style={{ fontSize: 12, fontFamily: FONT_B, color: normMethod === m.id ? th.text : th.textMuted, fontWeight: normMethod === m.id ? 700 : 400 }}>{m.label}</div>
-                      <div style={{ fontSize: 10, color: th.textDim, fontFamily: FONT_B, lineHeight: 1.4 }}>{m.info}</div>
-                    </div>
-                  </label>
-                </div>); })}
+          var NORM_OPTIONS = [
+            { id: "none",             label: "Brute /20 (aucune normalisation)", info: "La note affichée est directement le score ramené sur 20, sans transformation." },
+            { id: "proportional",     label: "Proportionnelle (moy→cible)",   info: "Toutes les notes sont multipliées pour que la moyenne devienne la cible." },
+            { id: "proportional_max", label: "Proportionnelle (max→cible)",   info: "Toutes les notes sont multipliées pour que la meilleure note devienne la cible." },
+            { id: "affine",           label: "Affine (moy + σ)",               info: "Transformation affine : la moyenne devient moyenneCible et l’écart-type devient sigmaCible." },
+            { id: "affine_max",       label: "Affine (max + σ)",               info: "La note max devient la cible, l’écart-type est normalisé vers sigmaCible." },
+            { id: "gaussienne",       label: "Gaussienne",                         info: "Chaque note est transformée selon sa position dans la distribution (quantiles gaussiens)." },
+          ];
 
-                {normMethod !== "none" && (
+          function NormControls(nm, np, radioName, onMethod, onParams) {
+            return (
+              <div>
+                {NORM_OPTIONS.map(function(m) { return (
+                  <div key={m.id} style={{ marginBottom: 6 }}>
+                    <label style={{ display: "flex", alignItems: "flex-start", gap: 8, cursor: "pointer" }}>
+                      <input type="radio" name={radioName} checked={nm === m.id} onChange={function() { onMethod(m.id); }} style={{ marginTop: 2 }} />
+                      <div>
+                        <div style={{ fontSize: 12, fontFamily: FONT_B, color: nm === m.id ? th.text : th.textMuted, fontWeight: nm === m.id ? 700 : 400 }}>{m.label}</div>
+                        <div style={{ fontSize: 10, color: th.textDim, fontFamily: FONT_B, lineHeight: 1.4 }}>{m.info}</div>
+                      </div>
+                    </label>
+                  </div>); })}
+                {nm !== "none" && (
                   <div style={{ marginTop: 8, padding: "8px 10px", background: th.surface, borderRadius: th.radiusSm, border: "1px solid " + th.border }}>
-                    {/* Proportionnelle (moy) : moyenne cible seulement */}
-                    {normMethod === "proportional" && (
+                    {(nm === "proportional") && (
                       <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                         <label style={{ flex: 1, fontSize: 11, fontFamily: FONT_B, color: th.text }}>Moyenne cible</label>
-                        <input type="number" min={0} max={20} step={0.5} value={normParams.moyenneCible}
-                          onChange={function(e) { setNormParams(Object.assign({}, normParams, { moyenneCible: Number(e.target.value) })); }}
+                        <input type="number" min={0} max={20} step={0.5} value={np.moyenneCible}
+                          onChange={function(e) { onParams(Object.assign({}, np, { moyenneCible: Number(e.target.value) })); }}
                           style={{ width: 56, background: th.card, border: "1px solid " + th.border, color: th.text, borderRadius: 4, padding: "3px 6px", fontSize: 12, fontFamily: MONO, outline: "none" }} />
                         <span style={{ fontSize: 10, color: th.textDim }}>/20</span>
                       </div>
                     )}
-                    {/* Proportionnelle (max) : note max cible seulement */}
-                    {normMethod === "proportional_max" && (
+                    {(nm === "proportional_max") && (
                       <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                         <label style={{ flex: 1, fontSize: 11, fontFamily: FONT_B, color: th.text }}>Note max cible</label>
-                        <input type="number" min={0} max={20} step={0.5} value={normParams.maxCible !== undefined ? normParams.maxCible : 20}
-                          onChange={function(e) { setNormParams(Object.assign({}, normParams, { maxCible: Number(e.target.value) })); }}
+                        <input type="number" min={0} max={20} step={0.5} value={np.maxCible !== undefined ? np.maxCible : 20}
+                          onChange={function(e) { onParams(Object.assign({}, np, { maxCible: Number(e.target.value) })); }}
                           style={{ width: 56, background: th.card, border: "1px solid " + th.border, color: th.text, borderRadius: 4, padding: "3px 6px", fontSize: 12, fontFamily: MONO, outline: "none" }} />
                         <span style={{ fontSize: 10, color: th.textDim }}>/20</span>
                       </div>
                     )}
-                    {/* Affine (moy) : moyenne cible + sigma */}
-                    {normMethod === "affine" && (
+                    {(nm === "affine" || nm === "gaussienne") && (
                       <div>
                         <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
                           <label style={{ flex: 1, fontSize: 11, fontFamily: FONT_B, color: th.text }}>Moyenne cible</label>
-                          <input type="number" min={0} max={20} step={0.5} value={normParams.moyenneCible}
-                            onChange={function(e) { setNormParams(Object.assign({}, normParams, { moyenneCible: Number(e.target.value) })); }}
+                          <input type="number" min={0} max={20} step={0.5} value={np.moyenneCible}
+                            onChange={function(e) { onParams(Object.assign({}, np, { moyenneCible: Number(e.target.value) })); }}
                             style={{ width: 56, background: th.card, border: "1px solid " + th.border, color: th.text, borderRadius: 4, padding: "3px 6px", fontSize: 12, fontFamily: MONO, outline: "none" }} />
                         </div>
                         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                           <label style={{ flex: 1, fontSize: 11, fontFamily: FONT_B, color: th.text }}>Écart-type cible</label>
-                          <input type="number" min={0} max={10} step={0.5} value={normParams.sigmaCible}
-                            onChange={function(e) { setNormParams(Object.assign({}, normParams, { sigmaCible: Number(e.target.value) })); }}
+                          <input type="number" min={0} max={10} step={0.5} value={np.sigmaCible}
+                            onChange={function(e) { onParams(Object.assign({}, np, { sigmaCible: Number(e.target.value) })); }}
                             style={{ width: 56, background: th.card, border: "1px solid " + th.border, color: th.text, borderRadius: 4, padding: "3px 6px", fontSize: 12, fontFamily: MONO, outline: "none" }} />
                         </div>
                       </div>
                     )}
-                    {/* Affine (max) : note max cible + sigma */}
-                    {normMethod === "affine_max" && (
+                    {(nm === "affine_max") && (
                       <div>
                         <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
                           <label style={{ flex: 1, fontSize: 11, fontFamily: FONT_B, color: th.text }}>Note max cible</label>
-                          <input type="number" min={0} max={20} step={0.5} value={normParams.maxCible !== undefined ? normParams.maxCible : 20}
-                            onChange={function(e) { setNormParams(Object.assign({}, normParams, { maxCible: Number(e.target.value) })); }}
+                          <input type="number" min={0} max={20} step={0.5} value={np.maxCible !== undefined ? np.maxCible : 20}
+                            onChange={function(e) { onParams(Object.assign({}, np, { maxCible: Number(e.target.value) })); }}
                             style={{ width: 56, background: th.card, border: "1px solid " + th.border, color: th.text, borderRadius: 4, padding: "3px 6px", fontSize: 12, fontFamily: MONO, outline: "none" }} />
                         </div>
                         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                           <label style={{ flex: 1, fontSize: 11, fontFamily: FONT_B, color: th.text }}>Écart-type cible</label>
-                          <input type="number" min={0} max={10} step={0.5} value={normParams.sigmaCible}
-                            onChange={function(e) { setNormParams(Object.assign({}, normParams, { sigmaCible: Number(e.target.value) })); }}
-                            style={{ width: 56, background: th.card, border: "1px solid " + th.border, color: th.text, borderRadius: 4, padding: "3px 6px", fontSize: 12, fontFamily: MONO, outline: "none" }} />
-                        </div>
-                      </div>
-                    )}
-                    {/* Gaussienne : moyenne + sigma */}
-                    {normMethod === "gaussienne" && (
-                      <div>
-                        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
-                          <label style={{ flex: 1, fontSize: 11, fontFamily: FONT_B, color: th.text }}>Moyenne cible</label>
-                          <input type="number" min={0} max={20} step={0.5} value={normParams.moyenneCible}
-                            onChange={function(e) { setNormParams(Object.assign({}, normParams, { moyenneCible: Number(e.target.value) })); }}
-                            style={{ width: 56, background: th.card, border: "1px solid " + th.border, color: th.text, borderRadius: 4, padding: "3px 6px", fontSize: 12, fontFamily: MONO, outline: "none" }} />
-                        </div>
-                        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                          <label style={{ flex: 1, fontSize: 11, fontFamily: FONT_B, color: th.text }}>Écart-type cible</label>
-                          <input type="number" min={0} max={10} step={0.5} value={normParams.sigmaCible}
-                            onChange={function(e) { setNormParams(Object.assign({}, normParams, { sigmaCible: Number(e.target.value) })); }}
+                          <input type="number" min={0} max={10} step={0.5} value={np.sigmaCible}
+                            onChange={function(e) { onParams(Object.assign({}, np, { sigmaCible: Number(e.target.value) })); }}
                             style={{ width: 56, background: th.card, border: "1px solid " + th.border, color: th.text, borderRadius: 4, padding: "3px 6px", fontSize: 12, fontFamily: MONO, outline: "none" }} />
                         </div>
                       </div>
                     )}
                   </div>
                 )}
-
-              {/* Malus présentation */}
-              <div style={{ fontSize: 11, fontWeight: 700, color: th.textMuted, fontFamily: FONT_B, marginBottom: 8, marginTop: 16, textTransform: "uppercase", letterSpacing: 1 }}>Malus présentation</div>
-              <div style={{ fontSize: 10, color: th.textMuted, fontFamily: FONT_B, marginBottom: 8, lineHeight: 1.5 }}>
-                {"Paliers de malus automatique selon le nombre de remarques (type malus). Le malus est un pourcentage retranché à la note."}
               </div>
-              {malusPaliers.map(function(p, i) { return (
-                <div key={i} style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 5 }}>
-                  <span style={{ fontSize: 10, color: th.textMuted, fontFamily: FONT_B }}>≥</span>
-                  <input type="number" min={1} value={p.seuil} onChange={function(e) { setMalusPaliers(malusPaliers.map(function(pp, j) { return j === i ? { seuil: Number(e.target.value), pct: pp.pct } : pp; })); }}
-                    style={{ width: 44, background: th.card, border: "1px solid " + th.border, color: th.text, borderRadius: 4, padding: "3px 6px", fontSize: 12, fontFamily: MONO, outline: "none" }} />
-                  <span style={{ fontSize: 10, color: th.textMuted, fontFamily: FONT_B }}>remarques →</span>
-                  <input type="number" min={0} max={100} value={p.pct} onChange={function(e) { setMalusPaliers(malusPaliers.map(function(pp, j) { return j === i ? { seuil: pp.seuil, pct: Number(e.target.value) } : pp; })); }}
-                    style={{ width: 44, background: th.card, border: "1px solid " + th.border, color: th.text, borderRadius: 4, padding: "3px 6px", fontSize: 12, fontFamily: MONO, outline: "none" }} />
-                  <span style={{ fontSize: 10, color: th.textDim }}>%</span>
-                  <button onClick={function() { setMalusPaliers(malusPaliers.filter(function(_, j) { return j !== i; })); }} style={{ background: "none", border: "none", color: th.textDim, cursor: "pointer", fontSize: 12 }}>{"\u2715"}</button>
-                </div>); })}
-              <button onClick={function() { setMalusPaliers(malusPaliers.concat([{ seuil: 15, pct: 15 }])); }} style={{ background: "none", border: "1px dashed " + th.border, color: th.textMuted, borderRadius: th.radiusSm, padding: "3px 8px", cursor: "pointer", fontSize: 10, fontFamily: FONT_B, width: "100%", marginBottom: 8 }}>+ Palier</button>
-              {[{ id: "avant", l: "Avant normalisation" }, { id: "apres", l: "Après normalisation" }].map(function(m) { return (
-                <label key={m.id} style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 3, cursor: "pointer", fontSize: 11, fontFamily: FONT_B, color: malusMode === m.id ? th.text : th.textMuted }}>
-                  <input type="radio" name="malusMode" checked={malusMode === m.id} onChange={function() { setMalusMode(m.id); }} /> {m.l}
-                </label>); })}
+            );
+          }
+
+          function MalusPaliersControls(paliers, onChange) {
+            return (
+              <div>
+                <div style={{ fontSize: 10, color: th.textMuted, fontFamily: FONT_B, marginBottom: 8, lineHeight: 1.5 }}>
+                  {"Paliers de malus automatique selon le nombre de remarques (type malus). Le malus est un pourcentage retranché à la note."}
+                </div>
+                {paliers.map(function(p, i) { return (
+                  <div key={i} style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 5 }}>
+                    <span style={{ fontSize: 10, color: th.textMuted, fontFamily: FONT_B }}>{"≥"}</span>
+                    <input type="number" min={1} value={p.seuil} onChange={function(e) { onChange(paliers.map(function(pp, j) { return j === i ? { seuil: Number(e.target.value), pct: pp.pct } : pp; })); }}
+                      style={{ width: 44, background: th.card, border: "1px solid " + th.border, color: th.text, borderRadius: 4, padding: "3px 6px", fontSize: 12, fontFamily: MONO, outline: "none" }} />
+                    <span style={{ fontSize: 10, color: th.textMuted, fontFamily: FONT_B }}>remarques →</span>
+                    <input type="number" min={0} max={100} value={p.pct} onChange={function(e) { onChange(paliers.map(function(pp, j) { return j === i ? { seuil: pp.seuil, pct: Number(e.target.value) } : pp; })); }}
+                      style={{ width: 44, background: th.card, border: "1px solid " + th.border, color: th.text, borderRadius: 4, padding: "3px 6px", fontSize: 12, fontFamily: MONO, outline: "none" }} />
+                    <span style={{ fontSize: 10, color: th.textDim }}>%</span>
+                    <button onClick={function() { onChange(paliers.filter(function(_, j) { return j !== i; })); }} style={{ background: "none", border: "none", color: th.textDim, cursor: "pointer", fontSize: 12 }}>{"✕"}</button>
+                  </div>); })}
+                <button onClick={function() { onChange(paliers.concat([{ seuil: 15, pct: 15 }])); }} style={{ background: "none", border: "1px dashed " + th.border, color: th.textMuted, borderRadius: th.radiusSm, padding: "3px 8px", cursor: "pointer", fontSize: 10, fontFamily: FONT_B, width: "100%", marginBottom: 8 }}>+ Palier</button>
+              </div>
+            );
+          }
+
+          function AccordionCalc(label, open, setOpen, children) {
+            return (
+              <div style={{ marginBottom: 12, border: "1px solid " + th.border, borderRadius: th.radiusSm, overflow: "hidden" }}>
+                <button onClick={function() { setOpen(!open); }} style={{ width: "100%", display: "flex", alignItems: "center", justifyContent: "space-between", padding: "8px 12px", background: th.surface, border: "none", cursor: "pointer", fontFamily: FONT_B, fontSize: 12, fontWeight: 700, color: th.text }}>
+                  <span>{label}</span>
+                  <span style={{ fontSize: 10, color: th.textMuted }}>{open ? "▲" : "▼"}</span>
+                </button>
+                {open && <div style={{ padding: "12px 12px 4px" }}>{children}</div>}
+              </div>
+            );
+          }
+
+          return (
+            <div>
+              {/* DS actif */}
+              {AccordionCalc(
+                activeExamNom ? ("DS actif : " + activeExamNom) : "DS actif",
+                calcDsOpen, setCalcDsOpen,
+                <div>
+                  <div style={{ fontSize: 11, fontWeight: 700, color: th.textMuted, fontFamily: FONT_B, marginBottom: 8, textTransform: "uppercase", letterSpacing: 1 }}>Normalisation</div>
+                  {NormControls(
+                    activeExamSettings.normMethod,
+                    activeExamSettings.normParams,
+                    "normMethodDs",
+                    function(v) { onExamSetting("normMethod", v); },
+                    function(v) { onExamSetting("normParams", v); }
+                  )}
+                  <div style={{ fontSize: 11, fontWeight: 700, color: th.textMuted, fontFamily: FONT_B, marginBottom: 8, marginTop: 14, textTransform: "uppercase", letterSpacing: 1 }}>Malus présentation</div>
+                  {MalusPaliersControls(
+                    activeExamSettings.malusPaliers,
+                    function(v) { onExamSetting("malusPaliers", v); }
+                  )}
+                  <div style={{ fontSize: 11, fontWeight: 700, color: th.textMuted, fontFamily: FONT_B, marginBottom: 6, marginTop: 14, textTransform: "uppercase", letterSpacing: 1 }}>Application du malus</div>
+                  <div style={{ display: "flex", gap: 16, marginBottom: 8 }}>
+                    {[{ id: "avant", l: "Avant normalisation" }, { id: "apres", l: "Après normalisation" }].map(function(m) { return (
+                      <label key={m.id} style={{ display: "flex", alignItems: "center", gap: 6, cursor: "pointer", fontSize: 11, fontFamily: FONT_B, color: activeExamSettings.malusMode === m.id ? th.text : th.textMuted }}>
+                        <input type="radio" name="malusModeDs" checked={activeExamSettings.malusMode === m.id} onChange={function() { onExamSetting("malusMode", m.id); }} /> {m.l}
+                      </label>); })}
+                  </div>
+                  <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 4 }}>
+                    <button onClick={onResetExamSettings} style={{ background: "none", border: "1px solid " + th.border, color: th.textMuted, borderRadius: th.radiusSm, padding: "3px 10px", cursor: "pointer", fontSize: 10, fontFamily: FONT_B }}>
+                      {"↺"} Réinitialiser depuis les valeurs par défaut
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* Valeurs par défaut */}
+              {AccordionCalc(
+                "Valeurs par défaut (nouveaux DS)",
+                calcDefOpen, setCalcDefOpen,
+                <div>
+                  <p style={{ fontSize: 10, color: th.textMuted, fontFamily: FONT_B, fontStyle: "italic", margin: "0 0 10px" }}>
+                    Ces valeurs sont appliquées lors de la création d’un nouveau DS. Elles ne modifient pas les DS existants.
+                  </p>
+                  <div style={{ fontSize: 11, fontWeight: 700, color: th.textMuted, fontFamily: FONT_B, marginBottom: 8, textTransform: "uppercase", letterSpacing: 1 }}>Normalisation</div>
+                  {NormControls(
+                    defaultNormMethod,
+                    defaultNormParams,
+                    "normMethodDef",
+                    setDefaultNormMethod,
+                    setDefaultNormParams
+                  )}
+                  <div style={{ fontSize: 11, fontWeight: 700, color: th.textMuted, fontFamily: FONT_B, marginBottom: 8, marginTop: 14, textTransform: "uppercase", letterSpacing: 1 }}>Malus présentation</div>
+                  {MalusPaliersControls(defaultMalusPaliers, setDefaultMalusPaliers)}
+                  <div style={{ fontSize: 11, fontWeight: 700, color: th.textMuted, fontFamily: FONT_B, marginBottom: 6, marginTop: 14, textTransform: "uppercase", letterSpacing: 1 }}>Application du malus</div>
+                  <div style={{ display: "flex", gap: 16, marginBottom: 8 }}>
+                    {[{ id: "avant", l: "Avant normalisation" }, { id: "apres", l: "Après normalisation" }].map(function(m) { return (
+                      <label key={m.id} style={{ display: "flex", alignItems: "center", gap: 6, cursor: "pointer", fontSize: 11, fontFamily: FONT_B, color: defaultMalusMode === m.id ? th.text : th.textMuted }}>
+                        <input type="radio" name="malusModeDef" checked={defaultMalusMode === m.id} onChange={function() { setDefaultMalusMode(m.id); }} /> {m.l}
+                      </label>); })}
+                  </div>
+                </div>
+              )}
             </div>
           );
         })()}
