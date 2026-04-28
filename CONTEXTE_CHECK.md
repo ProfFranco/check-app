@@ -75,7 +75,7 @@ check-app/
 - **Normalisation** : aucune / proportionnelle (moy) / proportionnelle (max) / affine (moy+σ) / affine (max+σ) / gaussienne — avec infobulles contextuelles.
 - **Zoom interface** : boutons `−/+` dans la nav, propriété CSS `zoom` sur `<main>` (la nav reste fixe), valeur persistée en IndexedDB.
 - **Thème** : trois thèmes — ☀️ Clair / 🌙 Sombre / 🌈 Jeune. Sélecteur dans le menu ⋯. `youngTheme` dans `theme.js` (lavande, Nunito, radius 14px).
-- **Réglages** : panneau modal (540 px) avec 5 onglets : 🏫 Établissement · 🎓 Évaluation · 📊 Notes · ✏️ Correction · 📤 Export. Onglets Évaluation et Notes : note contextuelle discrète "ⓘ Ces réglages s'appliquent à tous les devoirs." Flash **"✓ Sauvegardé"** après toute modification (prop `onSave`, état local `savedFlash` 1500ms, footer du modal). Onglet Correction : deux accordéons (Remarques ouvert, Groupes fermé).
+- **Réglages** : panneau modal (540 px) avec 5 onglets : 🏫 Établissement · 🎓 Évaluation · 📊 Notes · ✏️ Correction · 📤 Export. Flash **"✓ Sauvegardé"** après toute modification (prop `onSave`, état local `savedFlash` 1500ms, footer du modal). Onglet Correction : deux accordéons (Remarques ouvert, Groupes fermé). **Onglets Évaluation et Notes** : deux accordéons chacun — "DS actif" (ouvert par défaut, modifie `exam.settings` via `onExamSetting`, bouton ↺ Réinitialiser) et "Valeurs par défaut (nouveaux DS)" (fermé par défaut, modifie les états `defaultX` du profil). L'onglet Évaluation couvre seuils compétences, seuil difficulté, seuil réussite, seuil piège, bonus exercice complet. L'onglet Notes couvre normalisation, paliers malus, application du malus (avant/après normalisation).
 - **Navigation correction** : boutons bas → exercice préc./suiv. avec wrap ; raccourcis clavier `←/→` (exercices) et `1–9` (saut direct exercice).
 - **Barre de progression** sous le header (correction uniquement).
 - **Copies non corrigées** exclues des stats et de la normalisation.
@@ -91,6 +91,8 @@ check-app/
 exams        : [{ id, name, nomDS, dateDS,
                features: { preset: "simple"|"standard"|"complet"|"custom",
                  competences, coefficients, questionBonus, bonusComplet, malusAuto, questionPiege },
+               settings: { normMethod, normParams, seuilDifficile, seuilPiege, seuilReussite,
+                 malusPaliers, malusMode, seuilsComp, bonusCompletConfig },
                exercises: [{ id, title, coeff: number,
                bonusComplet: bool,
                questions: [{ id, label, bonus: bool,
@@ -112,8 +114,16 @@ remarquesActives    : [id…]
 remarquesCustom     : [{ id, label, icon, malus }]
 remarquesOrdre      : [id…]
 settingsTab         : string
-seuilPiege          : number                ← défaut 30
-bonusCompletConfig  : { seuil: 70, mode: "fixe"|"pourcent", valeur: 1 }
+── Valeurs par défaut pour les nouveaux DS (profil) :
+defaultNormMethod       : string            ← défaut "none"
+defaultNormParams       : { moyenneCible, maxCible, sigmaCible }
+defaultSeuilDifficile   : number            ← défaut 33
+defaultSeuilPiege       : number            ← défaut 30
+defaultSeuilReussite    : number            ← défaut 50
+defaultMalusPaliers     : [{ seuil, pct }]
+defaultMalusMode        : "avant"|"apres"   ← défaut "apres"
+defaultSeuilsComp       : { nonNote, D, C, B }
+defaultBonusCompletConfig : { seuil, mode, valeur }
 htmlConfig          : { theme, noteNorm, noteBrute, rang,
                         statsEleve: { justesse, efficacite, malus },
                         statsClasse: { moy, minMax, sigma },
@@ -153,13 +163,40 @@ if (saved.htmlConfig) {
 if (saved.commentaireDS) setCommentaireDS(saved.commentaireDS);
 if (saved.rapportClasseConfig) setRapportClasseConfig(Object.assign({}, DEFAULT_RAPPORT_CLASSE_CONFIG, saved.rapportClasseConfig));
 
-// features (dans restoreState, lors du chargement des exams)
+// features + settings (dans restoreState, lors du chargement des exams)
 if (d.exams) setExams(d.exams.map(function(ex) {
-  return Object.assign({}, ex, { features: Object.assign({}, DEFAULT_FEATURES, ex.features || {}) });
+  return Object.assign({}, ex, {
+    features: Object.assign({}, DEFAULT_FEATURES, ex.features || {}),
+    settings: Object.assign({}, DEFAULT_EXAM_SETTINGS, ex.settings || {}),
+  });
 }));
+// Valeurs par défaut profil — rétrocompat (anciennes clés sans préfixe "default")
+if (d.defaultNormMethod) setDefaultNormMethod(d.defaultNormMethod);
+else if (d.normMethod) setDefaultNormMethod(d.normMethod);
+// …idem pour les 8 autres états defaultX
+if (d.defaultMalusMode) setDefaultMalusMode(d.defaultMalusMode);
+else if (d.malusMode) setDefaultMalusMode(d.malusMode);
 ```
 
-`DEFAULT_FEATURES` utilise le preset `"complet"` — les DS existants sans champ `features` utilisent déjà toutes les fonctionnalités.
+`DEFAULT_FEATURES` utilise le preset `"complet"` — les DS existants sans champ `features` utilisent déjà toutes les fonctionnalités. `DEFAULT_EXAM_SETTINGS` (dans `settings.js`) fournit les valeurs canoniques pour `exam.settings`.
+
+### `activeExamSettings` et helpers par DS
+
+```js
+// Variable calculée (pas un état React) :
+var activeExam = exams.find(function(e) { return e.id === activeExamId; });
+var activeExamSettings = (activeExam && activeExam.settings)
+  ? Object.assign({}, DEFAULT_EXAM_SETTINGS, activeExam.settings)
+  : DEFAULT_EXAM_SETTINGS;
+
+// Modifier un réglage du DS actif :
+function setExamSetting(key, value) { /* met à jour exam.settings[key] */ }
+
+// Réinitialiser depuis les valeurs par défaut du profil :
+function resetExamSettings() { /* copie les defaultX vers exam.settings */ }
+```
+
+Tous les calculs (normalisation, malus, seuils) utilisent `activeExamSettings.X` — jamais les états `defaultX` directement.
 
 ### `exportOpen` (éphémère, non persisté)
 
@@ -174,6 +211,8 @@ if (d.exams) setExams(d.exams.map(function(ex) {
 - `question.bonus` : booléen, défaut `false`/absent
 - `exercise.bonusComplet` : booléen, défaut `false`/absent
 - `exam.features` : merge défensif avec `DEFAULT_FEATURES` au chargement
+- `exam.settings` : merge défensif avec `DEFAULT_EXAM_SETTINGS` au chargement
+- Clés IndexedDB anciennes (`normMethod`, `malusMode`…) → lues avec fallback `else if` vers les nouveaux `defaultX`
 
 ---
 
@@ -504,6 +543,8 @@ Les données élèves ne transitent par GitHub que dans le dépôt **privé** de
 | **Ω3** ⏭️   | —                                                                                                 | Ignoré (non bloquant) — F1 PERSISTED_KEYS reporté                                                                                                                                                                                                                                                                                                          |
 | **Z1** ✅    | sync.js (nouveau), sync.test.js (nouveau), SyncIndicator.jsx (nouveau), App.jsx                   | Synchronisation intelligente : `contentHash`, `diagnoseSyncStatus`, adapter GitHub abstrait, hook `useSyncStatus` (heartbeat 30s · auto-pull initial · auto-save grâce 2min · mutex) · pastille header · toast · 13 tests Jest                                                                                                                               |
 | **Z2** ✅    | sync.js, App.jsx, SyncIndicator.jsx, SettingsModal.jsx, ExportTab.jsx                             | Champ nom d'appareil éditable (Réglages → Export) · Modale résolution de conflit (non-closable, zIndex 250, téléchargement distant, forceLocal/forceRemote) · Snapshots quotidiens (4 paliers glissants, maintainSnapshots/listAvailableSnapshots/readSnapshot, UI ExportTab + modale restauration)                                                          |
+| **AA** ✅    | settings.js, App.jsx, SettingsModal.jsx                                                           | Réglages par DS : `exam.settings` (normMethod, normParams, seuilDifficile/Piege/Reussite, malusPaliers, malusMode, seuilsComp, bonusCompletConfig) · `DEFAULT_EXAM_SETTINGS` dans settings.js · variable calculée `activeExamSettings` · helpers `setExamSetting` / `resetExamSettings` · états profil renommés `defaultX` · rétrocompat `else if` dans restoreState · onglets Évaluation et Notes restructurés en deux accordéons (DS actif / Valeurs par défaut) |
+| **AB** ✅    | App.jsx                                                                                           | Modale création de profil avec import optionnel : champ inline dropdown remplacé par bouton "+" ouvrant une modale `zIndex: 280` · champ nom + section "Importer depuis un profil existant" (masquée si profil unique) · sélecteur profil source pré-rempli sur l'actif · 6 cases (élèves, export, remarques, établissement, calcul, évaluation) toutes décochées par défaut · `createProfileWithImport` async : crée le profil vide, charge l'état source via `loadDB(sourceId)`, copie les clés sélectionnées, sauvegarde dans la nouvelle base · profil non activé automatiquement |
 
 ---
 
@@ -515,4 +556,4 @@ Les données élèves ne transitent par GitHub que dans le dépôt **privé** de
 - Fournis des patches chirurgicaux (blocs AVANT / APRÈS) plutôt que le fichier complet, sauf si les modifications sont trop nombreuses.
 - **Les snippets de code doivent inclure l'indentation réelle** telle qu'elle apparaîtra dans le fichier.
 - Je valide les changements en remplaçant le fichier et en observant le résultat dans le navigateur (`npm start` tourne en permanence).
-- **Priorité du moment : aucune urgence.** Z1 et Z2 terminés. Prochaine session probable : F2-b (rapport classe LaTeX) ou session PWA (B5/F11/F12).
+- **Priorité du moment : aucune urgence.** Sessions AA et AB terminées. Prochaine session probable : F2-b (rapport classe LaTeX) ou session PWA (B5/F11/F12).

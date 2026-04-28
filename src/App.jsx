@@ -15,7 +15,7 @@ import {
   DEFAULT_SEUILS, DEFAULT_SEUIL_DIFFICILE, DEFAULT_SEUIL_PIEGE,
   DEFAULT_MALUS_PALIERS, DEFAULT_MALUS_MODE,
   DEFAULT_NORM, TT_COEFF, DEFAULT_REMARQUES_ACTIVES, ETABLISSEMENT,
-  DEFAULT_BONUS_COMPLET,
+  DEFAULT_BONUS_COMPLET, DEFAULT_EXAM_SETTINGS,
 } from "./config/settings";
 import { lightTheme, darkTheme, youngTheme, FONT_TITLE, FONT_BODY, FONT_MONO, FONTS_URL } from "./config/theme";
 import {
@@ -214,16 +214,16 @@ export default function App() {
   var _nomDS = useState(""); var setNomDS = _nomDS[1]; var nomDS = _nomDS[0];
   var _dateDS = useState(""); var setDateDS = _dateDS[1]; var dateDS = _dateDS[0];
   var _mode = useState("prep"); var setMode = _mode[1]; var mode = _mode[0];
-  var _seuils = useState(DEFAULT_SEUILS); var setSeuils = _seuils[1]; var seuils = _seuils[0];
-  var _normMethod = useState(DEFAULT_NORM.method); var setNormMethod = _normMethod[1]; var normMethod = _normMethod[0];
-  var _normParams = useState(DEFAULT_NORM.params); var setNormParams = _normParams[1]; var normParams = _normParams[0];
-  var _seuilDifficile = useState(DEFAULT_SEUIL_DIFFICILE); var setSeuilDifficile = _seuilDifficile[1]; var seuilDifficile = _seuilDifficile[0];
-  var _seuilReussite = useState(50); var setSeuilReussite = _seuilReussite[1]; var seuilReussite = _seuilReussite[0];
-  var _seuilPiege = useState(DEFAULT_SEUIL_PIEGE); var setSeuilPiege = _seuilPiege[1]; var seuilPiege = _seuilPiege[0];
-  var _bonusCompletConfig = useState(DEFAULT_BONUS_COMPLET); var setBonusCompletConfig = _bonusCompletConfig[1]; var bonusCompletConfig = _bonusCompletConfig[0];
+  var _seuils = useState(DEFAULT_SEUILS); var setDefaultSeuilsComp = _seuils[1]; var defaultSeuilsComp = _seuils[0];
+  var _normMethod = useState(DEFAULT_NORM.method); var setDefaultNormMethod = _normMethod[1]; var defaultNormMethod = _normMethod[0];
+  var _normParams = useState(DEFAULT_NORM.params); var setDefaultNormParams = _normParams[1]; var defaultNormParams = _normParams[0];
+  var _seuilDifficile = useState(DEFAULT_SEUIL_DIFFICILE); var setDefaultSeuilDifficile = _seuilDifficile[1]; var defaultSeuilDifficile = _seuilDifficile[0];
+  var _seuilReussite = useState(50); var setDefaultSeuilReussite = _seuilReussite[1]; var defaultSeuilReussite = _seuilReussite[0];
+  var _seuilPiege = useState(DEFAULT_SEUIL_PIEGE); var setDefaultSeuilPiege = _seuilPiege[1]; var defaultSeuilPiege = _seuilPiege[0];
+  var _bonusCompletConfig = useState(DEFAULT_BONUS_COMPLET); var setDefaultBonusCompletConfig = _bonusCompletConfig[1]; var defaultBonusCompletConfig = _bonusCompletConfig[0];
   var _gabaritTex = useState(""); var setGabaritTex = _gabaritTex[1]; var gabaritTex = _gabaritTex[0];
-  var _malusPaliers = useState(DEFAULT_MALUS_PALIERS); var setMalusPaliers = _malusPaliers[1]; var malusPaliers = _malusPaliers[0];
-  var _malusMode = useState(DEFAULT_MALUS_MODE); var setMalusMode = _malusMode[1]; var malusMode = _malusMode[0];
+  var _malusPaliers = useState(DEFAULT_MALUS_PALIERS); var setDefaultMalusPaliers = _malusPaliers[1]; var defaultMalusPaliers = _malusPaliers[0];
+  var _malusMode = useState(DEFAULT_MALUS_MODE); var setDefaultMalusMode = _malusMode[1]; var defaultMalusMode = _malusMode[0];
   var _malusManuel = useState({}); var setMalusManuel = _malusManuel[1]; var malusManuel = _malusManuel[0];
   var _commentaires = useState({}); var setCommentaires = _commentaires[1]; var commentaires = _commentaires[0];
   var _remarquesActives = useState(DEFAULT_REMARQUES_ACTIVES); var setRemarquesActives = _remarquesActives[1]; var remarquesActives = _remarquesActives[0];
@@ -286,6 +286,9 @@ export default function App() {
   var _editingProfileId = useState(null); var setEditingProfileId = _editingProfileId[1]; var editingProfileId = _editingProfileId[0];
   var _editingProfileName = useState(""); var setEditingProfileName = _editingProfileName[1]; var editingProfileName = _editingProfileName[0];
   var _newProfileName = useState(""); var setNewProfileName = _newProfileName[1]; var newProfileName = _newProfileName[0];
+  var _showCreateProfile = useState(false); var setShowCreateProfile = _showCreateProfile[1]; var showCreateProfile = _showCreateProfile[0];
+  var _newProfileSourceId = useState(""); var setNewProfileSourceId = _newProfileSourceId[1]; var newProfileSourceId = _newProfileSourceId[0];
+  var _newProfileImport = useState({ students: false, export: false, remarques: false, etablissement: false, calcul: false, evaluation: false }); var setNewProfileImport = _newProfileImport[1]; var newProfileImport = _newProfileImport[0];
   var _synthese = useState([]); var setSynthese = _synthese[1]; var synthese = _synthese[0];
   var _etablissement = useState({
     nom: ETABLISSEMENT.nom,
@@ -299,6 +302,41 @@ export default function App() {
   var csvRef = useRef();
   var touchRef = useRef({ x: 0, y: 0 });
 
+  // ─── Settings du DS actif (avec fallback sur DEFAULT_EXAM_SETTINGS) ───
+  var activeExam = exams.find(function(e) { return e.id === activeExamId; });
+  var activeExamSettings = (activeExam && activeExam.settings)
+    ? Object.assign({}, DEFAULT_EXAM_SETTINGS, activeExam.settings)
+    : DEFAULT_EXAM_SETTINGS;
+
+  function setExamSetting(key, value) {
+    setExams(function(prev) {
+      return prev.map(function(ex) {
+        if (ex.id !== activeExamId) return ex;
+        var s = Object.assign({}, DEFAULT_EXAM_SETTINGS, ex.settings || {});
+        s[key] = value;
+        return Object.assign({}, ex, { settings: s });
+      });
+    });
+  }
+
+  function resetExamSettings() {
+    setExams(function(prev) {
+      return prev.map(function(ex) {
+        if (ex.id !== activeExamId) return ex;
+        return Object.assign({}, ex, { settings: Object.assign({}, DEFAULT_EXAM_SETTINGS, {
+          normMethod: defaultNormMethod,
+          normParams: defaultNormParams,
+          seuilDifficile: defaultSeuilDifficile,
+          seuilPiege: defaultSeuilPiege,
+          seuilReussite: defaultSeuilReussite,
+          malusPaliers: defaultMalusPaliers,
+          malusMode: defaultMalusMode,
+          seuilsComp: defaultSeuilsComp,
+          bonusCompletConfig: defaultBonusCompletConfig,
+        })});
+      });
+    });
+  }
 
   // ─── Persistence: load from IndexedDB on mount ───
   useEffect(function() {
@@ -329,9 +367,9 @@ export default function App() {
     return Object.assign({
       exams: exams, students: students, grades: grades, remarks: remarks,
       absents: absents, groupes: groupes, activeExamId: activeExamId,
-      nomDS: nomDS, dateDS: dateDS, seuils: seuils, normMethod: normMethod,
-      normParams: normParams, seuilDifficile: seuilDifficile, seuilReussite: seuilReussite, seuilPiege: seuilPiege, bonusCompletConfig: bonusCompletConfig,
-      gabaritTex: gabaritTex, malusPaliers: malusPaliers, malusMode: malusMode,
+      nomDS: nomDS, dateDS: dateDS, defaultSeuilsComp: defaultSeuilsComp, defaultNormMethod: defaultNormMethod,
+      defaultNormParams: defaultNormParams, defaultSeuilDifficile: defaultSeuilDifficile, defaultSeuilReussite: defaultSeuilReussite, defaultSeuilPiege: defaultSeuilPiege, defaultBonusCompletConfig: defaultBonusCompletConfig,
+      gabaritTex: gabaritTex, defaultMalusPaliers: defaultMalusPaliers, defaultMalusMode: defaultMalusMode,
       malusManuel: malusManuel, uiScale: uiScale, appTheme: appTheme, groupesDef: groupesDef,
       mode: mode, commentaires: commentaires, remarquesActives: remarquesActives,
       remarquesCustom: remarquesCustom, remarquesOrdre: remarquesOrdre,
@@ -347,7 +385,10 @@ export default function App() {
   // ─── Restauration de l'état depuis un objet sauvegardé (source unique) ────
   function restoreState(d) {
     if (d.exams) setExams(d.exams.map(function(ex) {
-      return Object.assign({}, ex, { features: Object.assign({}, DEFAULT_FEATURES, ex.features || {}) });
+      return Object.assign({}, ex, {
+        features: Object.assign({}, DEFAULT_FEATURES, ex.features || {}),
+        settings: Object.assign({}, DEFAULT_EXAM_SETTINGS, ex.settings || {}),
+      });
     }));
     if (d.students) setStudents(d.students);
     if (d.grades) setGrades(d.grades);
@@ -357,16 +398,26 @@ export default function App() {
     if (d.activeExamId) setActiveExamId(d.activeExamId);
     if (d.nomDS) setNomDS(d.nomDS);
     if (d.dateDS) setDateDS(d.dateDS);
-    if (d.seuils) setSeuils(d.seuils);
-    if (d.normMethod) setNormMethod(d.normMethod);
-    if (d.normParams) setNormParams(d.normParams);
-    if (d.seuilDifficile) setSeuilDifficile(d.seuilDifficile);
-    if (d.seuilReussite !== undefined) setSeuilReussite(d.seuilReussite);
-    if (d.seuilPiege !== undefined) setSeuilPiege(d.seuilPiege);
-    if (d.bonusCompletConfig) setBonusCompletConfig(Object.assign({}, DEFAULT_BONUS_COMPLET, d.bonusCompletConfig));
+    // Clés nouvelles (depuis session AA) — avec fallback sur anciennes clés (rétrocompat)
+    if (d.defaultSeuilsComp) setDefaultSeuilsComp(d.defaultSeuilsComp);
+    else if (d.seuils) setDefaultSeuilsComp(d.seuils);
+    if (d.defaultNormMethod) setDefaultNormMethod(d.defaultNormMethod);
+    else if (d.normMethod) setDefaultNormMethod(d.normMethod);
+    if (d.defaultNormParams) setDefaultNormParams(d.defaultNormParams);
+    else if (d.normParams) setDefaultNormParams(d.normParams);
+    if (d.defaultSeuilDifficile) setDefaultSeuilDifficile(d.defaultSeuilDifficile);
+    else if (d.seuilDifficile) setDefaultSeuilDifficile(d.seuilDifficile);
+    if (d.defaultSeuilReussite !== undefined) setDefaultSeuilReussite(d.defaultSeuilReussite);
+    else if (d.seuilReussite !== undefined) setDefaultSeuilReussite(d.seuilReussite);
+    if (d.defaultSeuilPiege !== undefined) setDefaultSeuilPiege(d.defaultSeuilPiege);
+    else if (d.seuilPiege !== undefined) setDefaultSeuilPiege(d.seuilPiege);
+    if (d.defaultBonusCompletConfig) setDefaultBonusCompletConfig(Object.assign({}, DEFAULT_BONUS_COMPLET, d.defaultBonusCompletConfig));
+    else if (d.bonusCompletConfig) setDefaultBonusCompletConfig(Object.assign({}, DEFAULT_BONUS_COMPLET, d.bonusCompletConfig));
     if (d.gabaritTex) setGabaritTex(d.gabaritTex);
-    if (d.malusPaliers) setMalusPaliers(d.malusPaliers);
-    if (d.malusMode) setMalusMode(d.malusMode);
+    if (d.defaultMalusPaliers) setDefaultMalusPaliers(d.defaultMalusPaliers);
+    else if (d.malusPaliers) setDefaultMalusPaliers(d.malusPaliers);
+    if (d.defaultMalusMode) setDefaultMalusMode(d.defaultMalusMode);
+    else if (d.malusMode) setDefaultMalusMode(d.malusMode);
     if (d.malusManuel) setMalusManuel(d.malusManuel);
     if (d.uiScale) setUiScale(d.uiScale);
     if (d.appTheme !== undefined) setAppTheme(d.appTheme);
@@ -409,7 +460,7 @@ export default function App() {
       saveDB(buildAppState(), activeProfileId);
     }, 500);
     return function() { clearTimeout(timer); };
-  }, [dbLoaded, exams, students, grades, remarks, absents, groupes, activeExamId, nomDS, dateDS, seuils, normMethod, normParams, seuilDifficile, seuilReussite, seuilPiege, bonusCompletConfig, gabaritTex, malusPaliers, malusMode, malusManuel, uiScale, appTheme, groupesDef, mode, commentaires, remarquesActives, remarquesCustom, remarquesOrdre, settingsTab, csvConfig, htmlPresets, htmlConfig, htmlStudentId, synthese, etablissement, soundLinksEnabled, soundBaseUrl, soundAudioExt, commentaireDS, rapportClasseConfig, syncDailySnapshot]);
+  }, [dbLoaded, exams, students, grades, remarks, absents, groupes, activeExamId, nomDS, dateDS, defaultSeuilsComp, defaultNormMethod, defaultNormParams, defaultSeuilDifficile, defaultSeuilReussite, defaultSeuilPiege, defaultBonusCompletConfig, gabaritTex, defaultMalusPaliers, defaultMalusMode, malusManuel, uiScale, appTheme, groupesDef, mode, commentaires, remarquesActives, remarquesCustom, remarquesOrdre, settingsTab, csvConfig, htmlPresets, htmlConfig, htmlStudentId, synthese, etablissement, soundLinksEnabled, soundBaseUrl, soundAudioExt, commentaireDS, rapportClasseConfig, syncDailySnapshot]);
 
   useEffect(function() { if (showSearch && searchInputRef.current) searchInputRef.current.focus(); }, [showSearch]);
   useEffect(function() { var t = setTimeout(function() { setSplash(false); }, 2000); return function() { clearTimeout(t); }; }, []);
@@ -418,8 +469,8 @@ export default function App() {
   useEffect(function() {
     if (!dbLoaded) return;
     setSettingsSaveSignal(function(n) { return n + 1; });
-  }, [seuils, normMethod, normParams, seuilDifficile, seuilReussite, seuilPiege,
-      bonusCompletConfig, malusPaliers, malusMode, remarquesActives, remarquesCustom,
+  }, [defaultSeuilsComp, defaultNormMethod, defaultNormParams, defaultSeuilDifficile, defaultSeuilReussite, defaultSeuilPiege,
+      defaultBonusCompletConfig, defaultMalusPaliers, defaultMalusMode, remarquesActives, remarquesCustom,
       remarquesOrdre, groupesDef, csvConfig, htmlConfig, soundLinksEnabled,
       soundBaseUrl, soundAudioExt, etablissement]);
 
@@ -546,6 +597,60 @@ export default function App() {
     openNamedDB(profileDBName(newId)).catch(function() {});
   }
 
+  async function createProfileWithImport() {
+    var name = newProfileName.trim();
+    if (!name) return;
+    var newId = Math.random().toString(36).slice(2, 10);
+    var newProfile = { id: newId, name: name, createdAt: Date.now() };
+    var newProfiles = profiles.concat([newProfile]);
+    setProfiles(newProfiles);
+    await saveMeta({ profiles: newProfiles, activeId: activeProfileId });
+
+    var hasImport = Object.values(newProfileImport).some(Boolean);
+    if (hasImport && newProfileSourceId) {
+      var sourceState = await loadDB(newProfileSourceId);
+      if (sourceState) {
+        var importedState = {};
+        if (newProfileImport.students) importedState.students = sourceState.students || [];
+        if (newProfileImport.export) {
+          importedState.htmlConfig = sourceState.htmlConfig;
+          importedState.csvConfig = sourceState.csvConfig;
+          importedState.htmlPresets = sourceState.htmlPresets || [];
+        }
+        if (newProfileImport.remarques) {
+          importedState.remarquesCustom = sourceState.remarquesCustom || [];
+          importedState.remarquesActives = sourceState.remarquesActives || [];
+          importedState.remarquesOrdre = sourceState.remarquesOrdre || [];
+        }
+        if (newProfileImport.etablissement) importedState.etablissement = sourceState.etablissement;
+        if (newProfileImport.calcul) {
+          importedState.defaultNormMethod = sourceState.defaultNormMethod;
+          importedState.defaultNormParams = sourceState.defaultNormParams;
+          importedState.defaultNormMu = sourceState.defaultNormMu;
+          importedState.defaultNormSigma = sourceState.defaultNormSigma;
+          importedState.defaultMalusPaliers = sourceState.defaultMalusPaliers;
+          importedState.defaultMalusMode = sourceState.defaultMalusMode;
+          importedState.defaultBonusCompletConfig = sourceState.defaultBonusCompletConfig;
+        }
+        if (newProfileImport.evaluation) {
+          importedState.defaultSeuilDifficile = sourceState.defaultSeuilDifficile;
+          importedState.defaultSeuilPiege = sourceState.defaultSeuilPiege;
+          importedState.defaultSeuilReussite = sourceState.defaultSeuilReussite;
+          importedState.defaultSeuilsComp = sourceState.defaultSeuilsComp;
+        }
+        if (Object.keys(importedState).length > 0) await saveDB(importedState, newId);
+      }
+    } else {
+      openNamedDB(profileDBName(newId)).catch(function() {});
+    }
+
+    setNewProfileName("");
+    setNewProfileSourceId(activeProfileId);
+    setNewProfileImport({ students: false, export: false, remarques: false, etablissement: false, calcul: false, evaluation: false });
+    setShowCreateProfile(false);
+    setShowProfileMenu(false);
+  }
+
   function renameProfile(profileId, newName) {
     var updated = profiles.map(function(p) {
       return p.id === profileId ? Object.assign({}, p, { name: newName.trim() || p.name }) : p;
@@ -586,23 +691,23 @@ export default function App() {
     var etW = examTotalWeighted(exam);
     var raw20 = corriges.map(function(s) {
       // Score pondéré incluant le bonus exercice complet
-      var totalPondere = studentTotalWeighted(grades, s.id, exam, bonusCompletConfig);
+      var totalPondere = studentTotalWeighted(grades, s.id, exam, activeExamSettings.bonusCompletConfig);
       var note = etW > 0 ? noteSur20(totalPondere, etW) : 0;
       if ((groupes.tt || []).indexOf(s.id) >= 0) note = clamp(note * TT_COEFF, 0, 20);
       return note;
     });
-    var getMT = function(sid) { return malusTotal(remarks, sid, exam, malusPaliers, malusManuel, allRemarquesBase); };
-    var preNorm = malusMode === "avant" ? raw20.map(function(nn, i) { return clamp(nn * (1 - getMT(corriges[i].id) / 100), 0, 20); }) : raw20;
-    var normed = normaliser(preNorm, normMethod, normParams);
-    var final2 = malusMode === "apres" ? normed.map(function(nn, i) { return clamp(nn * (1 - getMT(corriges[i].id) / 100), 0, 20); }) : normed;
+    var getMT = function(sid) { return malusTotal(remarks, sid, exam, activeExamSettings.malusPaliers, malusManuel, allRemarquesBase); };
+    var preNorm = activeExamSettings.malusMode === "avant" ? raw20.map(function(nn, i) { return clamp(nn * (1 - getMT(corriges[i].id) / 100), 0, 20); }) : raw20;
+    var normed = normaliser(preNorm, activeExamSettings.normMethod, activeExamSettings.normParams);
+    var final2 = activeExamSettings.malusMode === "apres" ? normed.map(function(nn, i) { return clamp(nn * (1 - getMT(corriges[i].id) / 100), 0, 20); }) : normed;
     var map = {};
     corriges.forEach(function(s, i) { map[s.id] = { brut: raw20[i], norm: final2[i] }; });
     return { map: map };
-  }, [exam, corriges, grades, et, normMethod, normParams, groupes, malusPaliers, malusMode, malusManuel, remarks, bonusCompletConfig]);
+  }, [exam, corriges, grades, et, activeExamSettings, groupes, malusManuel, remarks]);
 
   function getNote20(sid) { var e = normData.map[sid]; return e ? e.norm : 0; }
   function getBrut20(sid) { var e = normData.map[sid]; return e ? e.brut : 0; }
-  var isNorm = normMethod !== "none";
+  var isNorm = activeExamSettings.normMethod !== "none";
   function fmt1(n) { return (Math.round(n * 10) / 10).toFixed(1); }
 
   var inp = { background: th.card, border: "1px solid " + th.border, color: th.text, borderRadius: 4, padding: "4px 8px", fontSize: 13, fontFamily: FONT_B, outline: "none" };
@@ -619,7 +724,7 @@ export default function App() {
   function saveJSON() {
     var today = new Date(); var dd = String(today.getFullYear()) + "-" + String(today.getMonth()+1).padStart(2,"0") + "-" + String(today.getDate()).padStart(2,"0");
     var slug = (examNomDS || "data").replace(/\s+/g, "_");
-    downloadFile(JSON.stringify({ exams: exams, students: students, grades: grades, remarks: remarks, absents: absents, groupes: groupes, nomDS: examNomDS, dateDS: examDateDS, seuils: seuils, seuilDifficile: seuilDifficile, normMethod: normMethod, normParams: normParams, uiScale: uiScale, gabaritTex: gabaritTex, malusPaliers: malusPaliers, malusMode: malusMode, malusManuel: malusManuel, commentaires: commentaires }, null, 2), "check_" + slug + "_" + dd + ".json", "application/json");
+    downloadFile(JSON.stringify({ exams: exams, students: students, grades: grades, remarks: remarks, absents: absents, groupes: groupes, nomDS: examNomDS, dateDS: examDateDS, defaultSeuilsComp: defaultSeuilsComp, defaultSeuilDifficile: defaultSeuilDifficile, defaultNormMethod: defaultNormMethod, defaultNormParams: defaultNormParams, uiScale: uiScale, gabaritTex: gabaritTex, defaultMalusPaliers: defaultMalusPaliers, defaultMalusMode: defaultMalusMode, malusManuel: malusManuel, commentaires: commentaires }, null, 2), "check_" + slug + "_" + dd + ".json", "application/json");
   }
   function exportCSV() {
     if (!exam) return;
@@ -654,8 +759,8 @@ export default function App() {
       var isAbsent = !!absents[s.id];
       var note20 = isAbsent ? null : getNote20(s.id);
       var brut20 = isAbsent ? null : getBrut20(s.id);
-      var compNotes = isAbsent ? {} : notesParCompetence(grades, s.id, exam, seuils);
-      var malus = isAbsent ? 0 : malusTotal(remarks, s.id, exam, malusPaliers, malusManuel, allRemarquesBase);
+      var compNotes = isAbsent ? {} : notesParCompetence(grades, s.id, exam, activeExamSettings.seuilsComp);
+      var malus = isAbsent ? 0 : malusTotal(remarks, s.id, exam, activeExamSettings.malusPaliers, malusManuel, allRemarquesBase);
       var grpObj = [TT_GROUPE].concat(groupesDef).find(function(g) { return (groupes[g.id] || []).indexOf(s.id) >= 0; });
       var grp = grpObj ? grpObj.label : "—";
       var row = [];
@@ -695,7 +800,7 @@ function exporterVersSynthese() {
   ranked.forEach(function(s, i) { rangMap[s.id] = i + 1; });
 
   var nouvelles = corriges.map(function(s) {
-    var comps = notesParCompetence(grades, s.id, exam, seuils);
+    var comps = notesParCompetence(grades, s.id, exam, activeExamSettings.seuilsComp);
     var grpObj = [TT_GROUPE].concat(groupesDef).find(function(g) { return (groupes[g.id] || []).indexOf(s.id) >= 0; });
     var grp = grpObj ? grpObj.label : "";
     return {
@@ -781,7 +886,7 @@ function retirerDsSynthese(examId) {
   // ─── Exam CRUD ───
   function createExam() {
     var id = uid();
-    var newExam = { id: id, name: "Nouveau DS", nomDS: "", dateDS: "", features: { preset: "standard", competences: true, coefficients: false, questionBonus: true, bonusComplet: false, malusAuto: true, questionPiege: false }, exercises: [{ id: uid(), title: "Exercice 1", questions: [{ id: uid(), label: "1", competences: ["R"], items: [{ id: uid(), label: "Item 1", points: 1 }] }] }] };
+    var newExam = { id: id, name: "Nouveau DS", nomDS: "", dateDS: "", features: { preset: "standard", competences: true, coefficients: false, questionBonus: true, bonusComplet: false, malusAuto: true, questionPiege: false }, settings: Object.assign({}, DEFAULT_EXAM_SETTINGS, { normMethod: defaultNormMethod, normParams: defaultNormParams, seuilDifficile: defaultSeuilDifficile, seuilPiege: defaultSeuilPiege, seuilReussite: defaultSeuilReussite, malusPaliers: defaultMalusPaliers, malusMode: defaultMalusMode, seuilsComp: defaultSeuilsComp, bonusCompletConfig: defaultBonusCompletConfig }), exercises: [{ id: uid(), title: "Exercice 1", questions: [{ id: uid(), label: "1", competences: ["R"], items: [{ id: uid(), label: "Item 1", points: 1 }] }] }] };
     setExams(exams.concat([newExam]));
     setActiveExamId(id);
   }
@@ -885,7 +990,7 @@ function retirerDsSynthese(examId) {
   var exCur = exam && exam.exercises[ei] ? exam.exercises[ei] : null;
   var stuTot = exam ? studentTotal(grades, s.id, exam) : 0;
   var cpVals = exam ? competencePct(grades, s.id, exam) : {};
-  var cnVals = exam ? notesParCompetence(grades, s.id, exam, seuils) : {};
+  var cnVals = exam ? notesParCompetence(grades, s.id, exam, activeExamSettings.seuilsComp) : {};
   var eAbsVals = exam ? exercisePctAbsolute(grades, s.id, exam) : [];
   var eRelVals = exam ? exercisePctRelative(grades, s.id, exam, students, absents) : [];
   var curNote = getNote20(s.id);
@@ -900,9 +1005,9 @@ function retirerDsSynthese(examId) {
 
   // Malus for current student
   var remCount = exam && !absents[s.id] ? countMalusRemarks(remarks, s.id, exam, allRemarquesBase) : 0;
-  var autoMalusVal = exam && !absents[s.id] ? malusAuto(remarks, s.id, exam, malusPaliers, allRemarquesBase) : 0;
+  var autoMalusVal = exam && !absents[s.id] ? malusAuto(remarks, s.id, exam, activeExamSettings.malusPaliers, allRemarquesBase) : 0;
   var manMalus = malusManuel[s.id] || 0;
-  var totalMalusVal = exam && !absents[s.id] ? malusTotal(remarks, s.id, exam, malusPaliers, malusManuel, allRemarquesBase) : 0;
+  var totalMalusVal = exam && !absents[s.id] ? malusTotal(remarks, s.id, exam, activeExamSettings.malusPaliers, malusManuel, allRemarquesBase) : 0;
   var hasMalus = totalMalusVal > 0;
   var showMalusBar = !absents[s.id] && (remCount > 0 || manMalus > 0);
 
@@ -948,7 +1053,7 @@ function retirerDsSynthese(examId) {
       map[r.id] = rg;
     });
     return map;
-  }, [corriges, grades, exam, normMethod, normParams, malusPaliers, malusManuel, groupes]);
+  }, [corriges, grades, exam, activeExamSettings, malusManuel, groupes]);
 
   var htmlClasseSrc = useMemo(function() {
     if (!exam || !students.length) return "";
@@ -958,39 +1063,38 @@ function retirerDsSynthese(examId) {
       students: students,
       grades: grades,
       absents: absents,
-      seuils: seuils,
-      seuilDifficile: seuilDifficile,
-      seuilReussite: seuilReussite,
-      seuilPiege: seuilPiege,
+      seuils: activeExamSettings.seuilsComp,
+      seuilDifficile: activeExamSettings.seuilDifficile,
+      seuilReussite: activeExamSettings.seuilReussite,
+      seuilPiege: activeExamSettings.seuilPiege,
       getNote20: getNote20,
       htmlConfig: htmlConfig,
       rapportClasseConfig: rapportClasseConfig,
       commentaire: (commentaireDS && commentaireDS[activeExamId]) || "",
-      bonusCompletConfig: bonusCompletConfig,
+      bonusCompletConfig: activeExamSettings.bonusCompletConfig,
       features: ft,
     });
-  }, [exam, students, grades, absents, seuils, seuilDifficile, seuilReussite, seuilPiege,
-      getNote20, htmlConfig, rapportClasseConfig, commentaireDS, activeExamId, bonusCompletConfig, ft, corriges]);
+  }, [exam, students, grades, absents, activeExamSettings,
+      getNote20, htmlConfig, rapportClasseConfig, commentaireDS, activeExamId, ft, corriges]);
 
   var htmlSrc = useMemo(function() {
     if (!exam || !htmlStudentForPreview) return "";
     return genererHtmlEleve({
       student: htmlStudentForPreview, exam: exam, grades: grades, remarks: remarks, absents: absents,
-      allStudents: students, nomDS: examNomDS, dateDS: examDateDS, seuils: seuils,
-      seuilDifficile: seuilDifficile, seuilReussite: seuilReussite, seuilPiege: seuilPiege,
+      allStudents: students, nomDS: examNomDS, dateDS: examDateDS, seuils: activeExamSettings.seuilsComp,
+      seuilDifficile: activeExamSettings.seuilDifficile, seuilReussite: activeExamSettings.seuilReussite, seuilPiege: activeExamSettings.seuilPiege,
       getNote20: getNote20, getBrut20: getBrut20,
       rankMap: htmlRankMapForPreview,
-      malusPaliers: malusPaliers, malusManuel: malusManuel,
+      malusPaliers: activeExamSettings.malusPaliers, malusManuel: malusManuel,
       commentaires: commentaires, allRemarques: allRemarques,
       htmlConfig: htmlConfig,
       soundLinksEnabled: soundLinksEnabled, soundBaseUrl: soundBaseUrl, soundAudioExt: soundAudioExt,
-      bonusCompletConfig: bonusCompletConfig,
+      bonusCompletConfig: activeExamSettings.bonusCompletConfig,
       features: ft,
     });
   }, [htmlStudentForPreview, htmlRankMapForPreview, exam, grades, remarks, absents, students,
-      examNomDS, examDateDS, seuils, seuilDifficile, seuilReussite, seuilPiege, malusPaliers, malusManuel,
-      commentaires, allRemarques, htmlConfig, soundLinksEnabled, soundBaseUrl, soundAudioExt,
-      bonusCompletConfig, ft]);
+      examNomDS, examDateDS, activeExamSettings, malusManuel,
+      commentaires, allRemarques, htmlConfig, soundLinksEnabled, soundBaseUrl, soundAudioExt, ft]);
 
   var navItems = [{ id: "prep", l: "Préparation", ic: "\u2699\uFE0F" }, { id: "correct", l: "Correction", ic: "\u270F\uFE0F" }, { id: "resultats", l: "Résultats", ic: "\uD83D\uDC64" }, { id: "overview", l: "Vue d\u2019ensemble", ic: "\uD83D\uDCCB" }, { id: "stats", l: "Stats", ic: "\uD83D\uDCCA" }, { id: "export", l: "Export", ic: "\uD83D\uDCC4" }, { id: "aide", l: "Aide", ic: "\u2139\uFE0F" }];  // ═══════════════════════════════════════════════════════════════
   // RENDER
@@ -1082,13 +1186,12 @@ function retirerDsSynthese(examId) {
               );
             })}
             {/* Créer un nouveau profil */}
-            <div style={{ padding: "8px 10px", display: "flex", gap: 6, alignItems: "center" }}>
-              <input value={newProfileName} onChange={function(e) { setNewProfileName(e.target.value); }}
-                onKeyDown={function(e) { if (e.key === "Enter" && newProfileName.trim()) createProfile(newProfileName); }}
-                placeholder="Nouveau profil…"
-                style={{ flex: 1, fontFamily: FONT_B, fontSize: 12, padding: "4px 8px", borderRadius: 4, border: "1px solid " + th.border, background: th.surface, color: th.text, outline: "none" }} />
-              <button onClick={function() { if (newProfileName.trim()) createProfile(newProfileName); }}
-                style={{ fontFamily: FONT_B, fontSize: 12, fontWeight: 700, padding: "4px 8px", borderRadius: 4, cursor: "pointer", background: th.accent, border: "none", color: "#fff" }}>{"+"}</button>
+            <div style={{ padding: "6px 10px" }}>
+              <button
+                onClick={function() { setNewProfileSourceId(activeProfileId); setShowCreateProfile(true); }}
+                style={{ width: "100%", fontFamily: FONT_B, fontSize: 12, fontWeight: 600, padding: "6px 10px", borderRadius: 4, cursor: "pointer", background: th.accentBg, border: "1px solid " + th.accent + "40", color: th.accent, textAlign: "left" }}>
+                {"+ Nouveau profil"}
+              </button>
             </div>
           </div>}
         </div>
@@ -1551,7 +1654,7 @@ function retirerDsSynthese(examId) {
           {/* Exercise tabs */}
           <div style={{ display: "flex", gap: 3, marginBottom: 8 }}>
             {exam.exercises.map(function(x, i) {
-              var sc = exerciseScore(grades, s.id, x, bonusCompletConfig);
+              var sc = exerciseScore(grades, s.id, x, defaultBonusCompletConfig);
               var xt = x.questions.reduce(function(ss, q) { return ss + q.items.reduce(function(si2, it) { return si2 + (+it.points || 0); }, 0); }, 0);
               return (
                 <button key={x.id} onClick={function() { setEi(i); }} style={{ flex: 1, padding: "6px 3px", borderRadius: th.radiusSm, cursor: "pointer", fontFamily: FONT_B, fontSize: 10, fontWeight: 600, background: i === ei ? th.accent + "15" : "transparent", border: "1.5px solid " + (i === ei ? th.accent + "50" : th.border), color: i === ei ? th.accent : th.textMuted }}>
@@ -1733,8 +1836,8 @@ function retirerDsSynthese(examId) {
                 q, tot, nb,
                 tauxTraitement,
                 tauxReussite,
-                difficile: tauxTraitement < seuilDifficile,
-                piege: tauxTraitement >= 50 && tauxReussite < seuilPiege,
+                difficile: tauxTraitement < activeExamSettings.seuilDifficile,
+                piege: tauxTraitement >= 50 && tauxReussite < activeExamSettings.seuilPiege,
               };
             });
             return (
@@ -1811,7 +1914,7 @@ function retirerDsSynthese(examId) {
               </div>
               {sorted.map(function(r, i) {
                 var rang2 = rangMap2[r.student.id];
-                var cn2 = notesParCompetence(grades, r.student.id, exam, seuils);
+                var cn2 = notesParCompetence(grades, r.student.id, exam, activeExamSettings.seuilsComp);
                 var exVals = exam.exercises.map(function(ex) { var s = exerciseScore(grades, r.student.id, ex); return s.total > 0 ? s.earned / s.total : 0; });
                 return (
                   <div key={r.student.id} style={{ display: "flex", alignItems: "center", gap: 5, padding: "5px 2px", borderBottom: i < sorted.length - 1 ? "1px solid " + th.border : "none" }}>
@@ -1924,9 +2027,9 @@ function retirerDsSynthese(examId) {
           examNomDS={examNomDS} examDateDS={examDateDS}
           presents={presents} corriges={corriges}
           students={students} grades={grades} remarks={remarks} absents={absents}
-          seuils={seuils} seuilDifficile={seuilDifficile} seuilReussite={seuilReussite} seuilPiege={seuilPiege} bonusCompletConfig={bonusCompletConfig}
+          seuils={activeExamSettings.seuilsComp} seuilDifficile={activeExamSettings.seuilDifficile} seuilReussite={activeExamSettings.seuilReussite} seuilPiege={activeExamSettings.seuilPiege} bonusCompletConfig={activeExamSettings.bonusCompletConfig}
           features={ft}
-          malusPaliers={malusPaliers} malusManuel={malusManuel}
+          malusPaliers={activeExamSettings.malusPaliers} malusManuel={malusManuel}
           commentaires={commentaires} allRemarques={allRemarques}
           htmlConfig={htmlConfig} htmlStudentId={htmlStudentId}
           soundLinksEnabled={soundLinksEnabled} soundBaseUrl={soundBaseUrl} soundAudioExt={soundAudioExt}
@@ -2025,6 +2128,85 @@ function retirerDsSynthese(examId) {
   </div>
 </div>}
 
+{/* MODALE CRÉATION DE PROFIL */}
+{showCreateProfile && (
+  <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", zIndex: 280, display: "flex", alignItems: "center", justifyContent: "center" }}>
+    <div style={{ background: th.card, border: "1px solid " + th.border, borderRadius: 12, padding: 24, width: 400, maxWidth: "92vw", fontFamily: FONT_B }} onClick={function(e) { e.stopPropagation(); }}>
+      <div style={{ fontSize: 17, fontWeight: 600, marginBottom: 16, color: th.text }}>{"✦ Nouveau profil"}</div>
+
+      {/* Champ nom */}
+      <div style={{ marginBottom: 16 }}>
+        <label style={{ fontSize: 13, color: th.textMuted, display: "block", marginBottom: 4 }}>{"Nom du profil"}</label>
+        <input
+          type="text"
+          value={newProfileName}
+          onChange={function(e) { setNewProfileName(e.target.value); }}
+          onKeyDown={function(e) { if (e.key === "Enter") createProfileWithImport(); }}
+          placeholder="Ex : MP2I 2025-2026"
+          autoFocus
+          style={{ width: "100%", boxSizing: "border-box", padding: "7px 10px", borderRadius: 7, border: "1px solid " + th.border, background: th.surface, color: th.text, fontFamily: FONT_B, fontSize: 14 }}
+        />
+      </div>
+
+      {/* Section import — masquée si profil unique */}
+      {profiles.length > 1 && (
+        <div style={{ borderTop: "1px solid " + th.border, paddingTop: 14, marginBottom: 16 }}>
+          <div style={{ fontSize: 12, color: th.textMuted, marginBottom: 10, textTransform: "uppercase", letterSpacing: "0.05em" }}>{"Importer depuis un profil existant"}</div>
+          <div style={{ marginBottom: 12 }}>
+            <select
+              value={newProfileSourceId}
+              onChange={function(e) { setNewProfileSourceId(e.target.value); }}
+              style={{ padding: "6px 10px", borderRadius: 7, border: "1px solid " + th.border, background: th.surface, color: th.text, fontFamily: FONT_B, fontSize: 13, width: "100%" }}
+            >
+              {profiles.map(function(p) {
+                return <option key={p.id} value={p.id}>{p.name + (p.id === activeProfileId ? " (actif)" : "")}</option>;
+              })}
+            </select>
+          </div>
+          {[
+            { key: "students", label: "Liste d'élèves", sub: null },
+            { key: "export", label: "Réglages d'export (HTML, CSV)", sub: null },
+            { key: "remarques", label: "Remarques personnalisées", sub: null },
+            { key: "etablissement", label: "Infos établissement", sub: null },
+            { key: "calcul", label: "Valeurs par défaut — Calcul", sub: "normalisation, malus, bonus complet" },
+            { key: "evaluation", label: "Valeurs par défaut — Évaluation", sub: "seuils compétences, difficulté, piège" }
+          ].map(function(item) {
+            return (
+              <label key={item.key} style={{ display: "flex", alignItems: "flex-start", gap: 8, marginBottom: 8, cursor: "pointer" }}>
+                <input
+                  type="checkbox"
+                  checked={newProfileImport[item.key]}
+                  onChange={function(e) { var checked = e.target.checked; setNewProfileImport(function(prev) { return Object.assign({}, prev, { [item.key]: checked }); }); }}
+                  style={{ marginTop: 2 }}
+                />
+                <span>
+                  <span style={{ fontSize: 13, color: th.text }}>{item.label}</span>
+                  {item.sub && <span style={{ fontSize: 11, color: th.textMuted, display: "block" }}>{item.sub}</span>}
+                </span>
+              </label>
+            );
+          })}
+        </div>
+      )}
+
+      {/* Boutons */}
+      <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+        <button
+          onClick={function() { setShowCreateProfile(false); setNewProfileName(""); }}
+          style={{ padding: "7px 16px", borderRadius: 7, border: "1px solid " + th.border, background: "transparent", color: th.text, fontFamily: FONT_B, fontSize: 13, cursor: "pointer" }}>
+          {"Annuler"}
+        </button>
+        <button
+          onClick={createProfileWithImport}
+          disabled={!newProfileName.trim()}
+          style={{ padding: "7px 16px", borderRadius: 7, border: "none", background: newProfileName.trim() ? th.accent : th.border, color: newProfileName.trim() ? "#fff" : th.textMuted, fontFamily: FONT_B, fontSize: 13, cursor: newProfileName.trim() ? "pointer" : "default" }}>
+          {"✓ Créer le profil"}
+        </button>
+      </div>
+    </div>
+  </div>
+)}
+
 {/* MODAL À PROPOS */}
 {showApropos && <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.4)", zIndex: 200, display: "flex", alignItems: "center", justifyContent: "center" }} onClick={function() { setShowApropos(false); }}>
         <div style={{ background: th.card, borderRadius: 12, border: "1px solid " + th.border, padding: "28px 32px", width: showChangelog ? 580 : 360, maxWidth: "95vw", transition: "width 0.2s", boxShadow: "0 8px 32px rgba(0,0,0,0.2)", textAlign: "center" }} onClick={function(e) { e.stopPropagation(); }}>
@@ -2071,15 +2253,19 @@ function retirerDsSynthese(examId) {
         th={th} FONT={FONT} FONT_B={FONT_B} MONO={MONO}
         settingsTab={settingsTab} setSettingsTab={setSettingsTab}
         etablissement={etablissement} setEtablissement={setEtablissement}
-        seuils={seuils} setSeuils={setSeuils}
-        normMethod={normMethod} setNormMethod={setNormMethod}
-        normParams={normParams} setNormParams={setNormParams}
-        seuilDifficile={seuilDifficile} setSeuilDifficile={setSeuilDifficile}
-        seuilReussite={seuilReussite} setSeuilReussite={setSeuilReussite}
-        seuilPiege={seuilPiege} setSeuilPiege={setSeuilPiege}
-        bonusCompletConfig={bonusCompletConfig} setBonusCompletConfig={setBonusCompletConfig}
-        malusPaliers={malusPaliers} setMalusPaliers={setMalusPaliers}
-        malusMode={malusMode} setMalusMode={setMalusMode}
+        activeExamSettings={activeExamSettings}
+        activeExamNom={activeExam ? (activeExam.nomDS || activeExam.name || "DS sans nom") : ""}
+        onExamSetting={setExamSetting}
+        onResetExamSettings={resetExamSettings}
+        defaultSeuilsComp={defaultSeuilsComp} setDefaultSeuilsComp={setDefaultSeuilsComp}
+        defaultNormMethod={defaultNormMethod} setDefaultNormMethod={setDefaultNormMethod}
+        defaultNormParams={defaultNormParams} setDefaultNormParams={setDefaultNormParams}
+        defaultSeuilDifficile={defaultSeuilDifficile} setDefaultSeuilDifficile={setDefaultSeuilDifficile}
+        defaultSeuilReussite={defaultSeuilReussite} setDefaultSeuilReussite={setDefaultSeuilReussite}
+        defaultSeuilPiege={defaultSeuilPiege} setDefaultSeuilPiege={setDefaultSeuilPiege}
+        defaultBonusCompletConfig={defaultBonusCompletConfig} setDefaultBonusCompletConfig={setDefaultBonusCompletConfig}
+        defaultMalusPaliers={defaultMalusPaliers} setDefaultMalusPaliers={setDefaultMalusPaliers}
+        defaultMalusMode={defaultMalusMode} setDefaultMalusMode={setDefaultMalusMode}
         remarquesCustom={remarquesCustom} setRemarquesCustom={setRemarquesCustom}
         remarquesOrdre={remarquesOrdre} setRemarquesOrdre={setRemarquesOrdre}
         remarquesActives={remarquesActives} setRemarquesActives={setRemarquesActives}
