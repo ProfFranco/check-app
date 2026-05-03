@@ -1,3 +1,16 @@
+## v 1.4 - 3 mai 2023
+
+### Notes privées 
+- Introduction d'une fonctionnalité de notes privées, associées à chaque étudiant, complétable lors d'un DS; ces notes ne sont pas exportées, et peuvent être utilisées pour se rappeler d'éléments/d'erreurs pertinents perçus dans une copie
+- Une section "perles" a également été introduite, sur le même principe. Pour rire un peu !
+
+### Page d'accueil
+- Une page d'accueil existe désormais dans CHECK : accessible en cliquant sur le logo, elle affiche les stats du dernier DS, et l'historique des précédentes corrections.
+- Et une perle au hasard ;-)
+
+### StarMap
+- Pour agrémenter la correction de copie, les résultats des étudiants sont interprétés pour créer une carte du ciel, avec constellations. Une manière plaisante de visualiser les données, mais surtout là pour donner envie de corriger ! Accessible à l'export HTML, et pendant la correction sur pression  de la touche "S".
+
 ## v 1.3 — 28 avril 2026
 
 ### Synchronisation GitHub introduite

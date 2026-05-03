@@ -23,6 +23,7 @@ import {
   ratioJustesse, ratioEfficacite,
 } from "./calculs";
 import { slugify, buildAudioFilename } from "./helpers";
+import { renderStarMap } from "./starmap";
 
 // ─── Configuration par défaut ────────────────────────────────────
 
@@ -38,6 +39,15 @@ export const DEFAULT_HTML_CONFIG = {
   detailExercices: true,
   bareme: false,
   histogramme: true,
+  starMap: false,
+  blockOrder: ["stats", "competences", "commentaire", "histogramme", "starMap"],
+  blockLayout: {
+    stats:       "full",
+    competences: "full",
+    commentaire: "full",
+    histogramme: "full",
+    starMap:     "half",
+  },
 };
 
 export const DEFAULT_RAPPORT_CLASSE_CONFIG = {
@@ -65,7 +75,8 @@ function paletteTheme(theme) {
       bg: "#1a1814", card: "#2a261e", border: "#3a3428", surface: "#242018",
       text: "#e8e4dc", textMuted: "#9e9a90", textDim: "#6b675f",
       accent: "#5b9bd5", success: "#7bc67e", warning: "#e8a838",
-      danger: "#d06050", ruled: 0.15, radius: 8,
+      danger: "#d06050", violet: "#a882c8", ruled: 0.15, radius: 8,
+      radiusSm: 5,
       headerFont: "'Lora', Georgia, serif",
       bodyFont: "'Segoe UI', system-ui, sans-serif",
       compColors: { A: "#5b9bd5", N: "#a882c8", R: "#7bc67e", V: "#e8a838" },
@@ -76,7 +87,8 @@ function paletteTheme(theme) {
       bg: "#f0f4ff", card: "#ffffff", border: "#c8d5f8", surface: "#e4ecff",
       text: "#1e1b4b", textMuted: "#6b7280", textDim: "#9ca3af",
       accent: "#4f46e5", success: "#059669", warning: "#d97706",
-      danger: "#dc2626", ruled: 0, ruledLine: "#c8d5f8", radius: 14,
+      danger: "#dc2626", violet: "#a855f7", ruled: 0, ruledLine: "#c8d5f8", radius: 14,
+      radiusSm: 8,
       headerFont: "'Nunito', 'Quicksand', system-ui, sans-serif",
       bodyFont: "'Nunito', 'Quicksand', system-ui, sans-serif",
       compColors: { A: "#e05a9e", N: "#8b5cf6", R: "#10b981", V: "#f59e0b" },
@@ -87,7 +99,8 @@ function paletteTheme(theme) {
     bg: "#faf7f2", card: "#ffffff", border: "#e0d8cc", surface: "#f2ede4",
     text: "#2c2416", textMuted: "#7a7060", textDim: "#b0a898",
     accent: "#2855a0", success: "#2a7a3a", warning: "#c07a10",
-    danger: "#b83030", ruled: 0.45, radius: 8,
+    danger: "#b83030", violet: "#6a3a9a", ruled: 0.45, radius: 8,
+    radiusSm: 5,
     headerFont: "'Lora', Georgia, serif",
     bodyFont: "'Segoe UI', system-ui, sans-serif",
     compColors: { A: "#2855a0", N: "#6a3a9a", R: "#2a7a3a", V: "#c07a10" },
@@ -670,13 +683,96 @@ export function genererHtmlEleve(opts) {
 
   var genDate = new Date().toLocaleDateString("fr-FR", { day: "2-digit", month: "long", year: "numeric" });
 
+  // ── Carte Stellaire (optionnelle) ────────────────────────────────
+  var blocStarMapHtml = "";
+  if (cfg.starMap && typeof document !== "undefined" && document.createElement) {
+    try {
+      var smCanvas = document.createElement("canvas");
+      smCanvas.width = 660;
+      smCanvas.height = 430;
+
+      // classRates : proportion d'élèves ayant ≥50 % des pts de la question
+      var smRates = {};
+      exam.exercises.forEach(function(ex) {
+        ex.questions.forEach(function(q) {
+          var qMax = q.items.reduce(function(s, it) { return s + (parseFloat(it.points) || 0); }, 0);
+          var thresh = qMax * 0.5;
+          var ok = allStudents.filter(function(st) {
+            var earned = q.items.reduce(function(sum, it) {
+              return sum + (grades[gradeKey(st.id, it.id)] ? (parseFloat(it.points) || 0) : 0);
+            }, 0);
+            return earned >= thresh;
+          }).length;
+          smRates[q.id] = allStudents.length > 0 ? ok / allStudents.length : 0;
+        });
+      });
+
+      // Grades filtrés pour cet élève : { itemId: true }
+      var smGrades = {};
+      exam.exercises.forEach(function(ex) {
+        ex.questions.forEach(function(q) {
+          q.items.forEach(function(it) {
+            if (grades[gradeKey(student.id, it.id)]) smGrades[it.id] = true;
+          });
+        });
+      });
+
+      var smDataUrl = renderStarMap(smCanvas, exam, smGrades, smRates, p, { jitterSeed: student.id });
+      blocStarMapHtml =
+        '<div class="bento bento-full">' +
+        '<div class="bento-title">✦ Carte Stellaire</div>' +
+        '<img src="' + smDataUrl + '" style="max-width:660px;width:100%;border-radius:8px;display:block;margin:0 auto;">' +
+        //'<p style="font-size:10px;color:' + p.textDim + ';margin:6px 0 0;">Luminosité = score · Taille = difficulté · Couleur = compétence(s)</p>' +
+        '</div>';
+    } catch (e) {
+      // Canvas non disponible (Node.js ou erreur) : bloc ignoré silencieusement
+    }
+  }
+
+
+  // ── Zone centrale : blocs ordonnables et redimensionnables ──
+  var BLOC_RENDERERS = {
+    stats:       function() { return blocStats(student, presents, getNote20, ratioJ, ratioE, stuMalus, cfg, p); },
+    competences: function() { return ft.competences ? blocCompetences(comps, compPcts, cfg, p) : ""; },
+    commentaire: function() { return blocCommentaire(commentaire, cfg, p); },
+    histogramme: function() { return blocHistogramme(allNotes, noteNorm, cfg, p); },
+    starMap:     function() { return blocStarMapHtml; },
+  };
+
+  var blockOrder  = (cfg.blockOrder  && cfg.blockOrder.length)  ? cfg.blockOrder  : DEFAULT_HTML_CONFIG.blockOrder;
+  var blockLayout = cfg.blockLayout || DEFAULT_HTML_CONFIG.blockLayout;
+
+  // Rendre chaque bloc et filtrer les vides
+  var renderedBlocs = [];
+  blockOrder.forEach(function(key) {
+    var renderer = BLOC_RENDERERS[key];
+    if (!renderer) return;
+    var html = renderer();
+    if (html && html.trim()) {
+      renderedBlocs.push({ layout: (blockLayout[key] === "half") ? "half" : "full", html: html });
+    }
+  });
+
+  // Anti-orphelin : un "half" seul dans sa rangée est promu "full"
+  renderedBlocs.forEach(function(bloc, i) {
+    if (bloc.layout !== "half") return;
+    var prevHalf = i > 0 && renderedBlocs[i - 1].layout === "half";
+    var nextHalf = i < renderedBlocs.length - 1 && renderedBlocs[i + 1].layout === "half";
+    if (!prevHalf && !nextHalf) bloc.layout = "full";
+  });
+
+  // Conteneur CSS Grid 2 colonnes
+  var zoneGrid =
+    '<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:0;">' +
+    renderedBlocs.map(function(bloc) {
+      return '<div style="grid-column:span ' + (bloc.layout === "half" ? "1" : "2") + ';">' + bloc.html + '</div>';
+    }).join("") +
+    '</div>';
+
   var body =
     blocTitreDS(nomDS, dateDS, p) +
     blocHeader(student, noteNorm, noteBrute, rang, effectif, cfg, p) +
-    blocStats(student, presents, getNote20, ratioJ, ratioE, stuMalus, cfg, p) +
-    (ft.competences ? blocCompetences(comps, compPcts, cfg, p) : "") +
-    blocCommentaire(commentaire, cfg, p) +
-    blocHistogramme(allNotes, noteNorm, cfg, p) +
+    zoneGrid +
     blocDetailExercices(student, exam, grades, remarks, presents, allRemarques, cfg, p, seuilDifficile, seuilReussite, opts.seuilPiege || 30, cfg.bonusCompletConfig, ft) +
     blocBareme(student, exam, grades, cfg, p) +
     '<div style="margin-top:32px;padding-top:10px;border-top:1px solid ' + p.border + ';font-size:10px;color:' + p.textDim + ';display:flex;justify-content:space-between;flex-wrap:wrap;gap:4px;">' +

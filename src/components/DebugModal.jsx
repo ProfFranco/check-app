@@ -4,11 +4,11 @@
 
 import { useState } from "react";
 
-export default function DebugModal({ sections, fullState, th, FONT, FONT_B, MONO, onClose }) {
+export default function DebugModal({ sections, th, FONT, FONT_B, MONO, onClose }) {
   var _open = useState({}); var setOpen = _open[1]; var open = _open[0];
   function toggle(key) { setOpen(function(o) { return Object.assign({}, o, { [key]: !o[key] }); }); }
   function copyAll() {
-    try { navigator.clipboard.writeText(JSON.stringify(fullState, null, 2)); } catch(e) {}
+    try { navigator.clipboard.writeText(JSON.stringify(sections, null, 2)); } catch(e) {}
   }
   return (
     <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.55)", zIndex: 250, display: "flex", alignItems: "center", justifyContent: "center" }} onClick={onClose}>
@@ -18,17 +18,17 @@ export default function DebugModal({ sections, fullState, th, FONT, FONT_B, MONO
           <button onClick={copyAll} style={{ fontSize: 11, fontFamily: FONT_B, fontWeight: 700, padding: "4px 10px", borderRadius: 4, cursor: "pointer", background: th.accent, border: "none", color: "#fff", marginRight: 8 }}>
             {"Tout copier"}
           </button>
-          <button onClick={onClose} style={{ background: "none", border: "none", color: th.textDim, cursor: "pointer", fontSize: 16 }}>{"\u2715"}</button>
+          <button onClick={onClose} style={{ background: "none", border: "none", color: th.textDim, cursor: "pointer", fontSize: 16 }}>{"✕"}</button>
         </div>
-        {sections.map(function(s) {
-          var isOpen = !!open[s.key];
-          var data = fullState[s.key];
+        {Object.keys(sections).map(function(key) {
+          var isOpen = !!open[key];
+          var data = sections[key];
           var count = Array.isArray(data) ? data.length : typeof data === "object" && data !== null ? Object.keys(data).length : "—";
           return (
-            <div key={s.key} style={{ marginBottom: 6, border: "1px solid " + th.border, borderRadius: th.radiusSm, overflow: "hidden" }}>
-              <button onClick={function() { toggle(s.key); }} style={{ width: "100%", display: "flex", alignItems: "center", gap: 8, padding: "7px 10px", background: th.surface, border: "none", cursor: "pointer", fontFamily: FONT_B, textAlign: "left" }}>
-                <span style={{ fontSize: 11, fontWeight: 700, color: th.text, flex: 1 }}>{s.label}</span>
-                <span style={{ fontSize: 10, color: th.textDim, fontFamily: MONO }}>{count + " entrée" + (count > 1 ? "s" : "")}</span>
+            <div key={key} style={{ marginBottom: 6, border: "1px solid " + th.border, borderRadius: th.radiusSm, overflow: "hidden" }}>
+              <button onClick={function() { toggle(key); }} style={{ width: "100%", display: "flex", alignItems: "center", gap: 8, padding: "7px 10px", background: th.surface, border: "none", cursor: "pointer", fontFamily: FONT_B, textAlign: "left" }}>
+                <span style={{ fontSize: 11, fontWeight: 700, color: th.text, flex: 1 }}>{key}</span>
+                <span style={{ fontSize: 10, color: th.textDim, fontFamily: MONO }}>{count + " entrée" + (typeof count === "number" && count > 1 ? "s" : "")}</span>
                 <span style={{ fontSize: 10, color: th.textDim }}>{isOpen ? "▲" : "▼"}</span>
               </button>
               {isOpen && (
