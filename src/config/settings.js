@@ -14,7 +14,7 @@
 // ─── Version de l'application ────────────────────────────────────
 // Modifier uniquement ici — répercuté automatiquement dans l'écran
 // "À propos" et dans l'en-tête de la documentation (HelpTab).
-export const APP_VERSION = "1.3";
+export const APP_VERSION = "1.4";
 
 // ─── Compétences évaluées ────────────────────────────────────────
 // id       : identifiant interne (une lettre, utilisée dans les exports)

@@ -30,6 +30,7 @@ import {
 } from "./utils/calculs";
 import { genererGabarit, genererDocumentComplet, genererDocumentsIndividuels, genererScriptCompilation } from "./utils/latex";
 import { genererHtmlEleve, genererHtmlTous, DEFAULT_HTML_CONFIG, DEFAULT_RAPPORT_CLASSE_CONFIG, genererRapportClasse } from "./utils/html";
+import { renderStarMap, createAnimatedStarMap } from "./utils/starmap";
 import { buildAudioFilename } from "./utils/helpers";
 import { loadDB, saveDB, loadMeta, saveMeta, initProfiles, profileDBName, openNamedDB } from "./utils/db";
 import { RadarChart, MiniRadarEx, Histo, PBar, ProgressionChart, ProgressionRadar } from "./components/Charts";
@@ -41,11 +42,14 @@ import HelpTab from "./HelpTab";
 import OverviewTab from "./OverviewTab";
 import { createSyncAdapter, syncCheck, syncPush, syncPull, getLocalSyncState, maintainSnapshots, listAvailableSnapshots, readSnapshot, contentHash } from "./utils/sync";
 import SyncIndicator from "./components/SyncIndicator";
+import AccueilTab from "./AccueilTab";
 // ─── Logos (dans public/logos/) ──────────────────────────────────
 const LOGO_LIGHT  = process.env.PUBLIC_URL + "/logos/logo-light.png";
 const LOGO_DARK   = process.env.PUBLIC_URL + "/logos/logo-dark.png";
 const LOGO_YOUNG  = process.env.PUBLIC_URL + "/logos/logo-young.png";
 const SPLASH_IMG = process.env.PUBLIC_URL + "/logos/splash.png";
+
+var PROFILE_COLORS = ["#8B7355","#534AB7","#0F6E56","#A32D2D","#185FA5"];
 
 // ─── Raccourcis ──────────────────────────────────────────────────
 
@@ -193,6 +197,131 @@ function useSyncStatus({ buildAppState, activeProfileId, githubConfig, restoreSt
 }
 
 // ═══════════════════════════════════════════════════════════════════
+// CARTE STELLAIRE — modale d'aperçu animé pour un élève
+// ═══════════════════════════════════════════════════════════════════
+
+function StarMapModal({ exam, student, grades, students, theme, onClose }) {
+  var canvasRef = useRef(null);
+  var animRef = useRef(null);
+  var _tooltip = useState(null); var tooltip = _tooltip[0]; var setTooltip = _tooltip[1];
+
+  // Taux de réussite par question sur tous les élèves
+  var classRates = useMemo(function() {
+    var rates = {};
+    exam.exercises.forEach(function(ex) {
+      ex.questions.forEach(function(q) {
+        var qMax = q.items.reduce(function(s, it) { return s + (parseFloat(it.points) || 0); }, 0);
+        var thresh = qMax * 0.5;
+        var ok = students.filter(function(st) {
+          var earned = q.items.reduce(function(sum, it) {
+            return sum + (grades[gradeKey(st.id, it.id)] ? (parseFloat(it.points) || 0) : 0);
+          }, 0);
+          return earned >= thresh;
+        }).length;
+        rates[q.id] = students.length > 0 ? ok / students.length : 0;
+      });
+    });
+    return rates;
+  }, [exam, students, grades]);
+
+  // Grades filtrés pour cet élève : { itemId: true }
+  var gradesFiltered = useMemo(function() {
+    var g = {};
+    exam.exercises.forEach(function(ex) {
+      ex.questions.forEach(function(q) {
+        q.items.forEach(function(it) {
+          if (grades[gradeKey(student.id, it.id)]) g[it.id] = true;
+        });
+      });
+    });
+    return g;
+  }, [exam, student.id, grades]);
+
+  // Lancer l'animation dès que le canvas est monté
+  useEffect(function() {
+    if (!canvasRef.current) return;
+    var anim = createAnimatedStarMap(
+      canvasRef.current, exam, gradesFiltered, classRates, theme,
+      { varBright: 0.05, jitterSeed: student.id }
+    );
+    animRef.current = anim;
+    return function() { anim.stop(); };
+  }, [exam, gradesFiltered, classRates, theme, student.id]);
+
+  // Tooltip : hit-test sur les étoiles au survol
+  function handleMouseMove(e) {
+    if (!animRef.current || !canvasRef.current) { setTooltip(null); return; }
+    var canvasEl = canvasRef.current;
+    var rect = canvasEl.getBoundingClientRect();
+    var scaleX = canvasEl.width / rect.width;
+    var scaleY = canvasEl.height / rect.height;
+    var mx = (e.clientX - rect.left) * scaleX;
+    var my = (e.clientY - rect.top) * scaleY;
+    var stars = animRef.current.getStars();
+    var found = null;
+    for (var i = 0; i < stars.length; i++) {
+      var st = stars[i];
+      var dx = mx - st.x, dy = my - st.y;
+      if (Math.sqrt(dx * dx + dy * dy) < st.coreR + 12) { found = st; break; }
+    }
+    if (!found) { setTooltip(null); return; }
+    var q = found.q;
+    var seq = q.items.map(function(it) { return gradesFiltered[it.id] ? "●" : "○"; }).join(" ");
+    var pct = Math.round((classRates[q.id] || 0) * 100);
+    var comps = (q.competences && q.competences.length) ? q.competences.join("") : "—";
+    var ptO = String(parseFloat(found.pointsObtenus.toFixed(1)));
+    var ptMax = String(parseFloat(found.totalPts.toFixed(1)));
+    var text = found.exNom + " · Q" + (found.qIdx + 1) + " · " + comps
+      + " · " + ptO + "/" + ptMax + "pt"
+      + " · " + seq
+      + " · classe " + pct + "%";
+    var containerRect = canvasEl.parentElement.getBoundingClientRect();
+    setTooltip({ x: e.clientX - containerRect.left, y: e.clientY - containerRect.top, text: text });
+  }
+
+  var th = theme;
+  return (
+    <div
+      onClick={onClose}
+      style={{ position: "fixed", inset: 0, zIndex: 200, background: "rgba(0,0,0,0.72)",
+               display: "flex", alignItems: "center", justifyContent: "center" }}
+    >
+      <div
+        onClick={function(e) { e.stopPropagation(); }}
+        style={{ position: "relative", borderRadius: th.radius, background: th.card,
+                 padding: "1.5rem", boxShadow: th.shadow }}
+      >
+        <div style={{ fontFamily: "'Lora',serif", fontSize: "1rem", fontWeight: 600,
+                      color: th.text, marginBottom: ".5rem" }}>
+          {"✦ " + student.prenom + " " + student.nom + " — " + (exam.nomDS || exam.name || "DS")}
+        </div>
+        <canvas
+          ref={canvasRef}
+          width={660}
+          height={460}
+          style={{ display: "block", borderRadius: "6px" }}
+          onMouseMove={handleMouseMove}
+          onMouseLeave={function() { setTooltip(null); }}
+        />
+        {tooltip && (
+          <div style={{ position: "absolute", left: tooltip.x + 16, top: tooltip.y,
+                        background: th.surface, color: th.text,
+                        border: "1px solid " + th.border,
+                        borderRadius: th.radiusSm, padding: "5px 9px",
+                        fontSize: "11px", pointerEvents: "none",
+                        maxWidth: "260px", lineHeight: 1.4, zIndex: 10 }}>
+            {tooltip.text}
+          </div>
+        )}
+        <div style={{ fontSize: "10px", color: th.textDim, marginTop: ".4rem" }}>
+          <kbd>{"S"}</kbd>{" ou "}<kbd>{"Échap"}</kbd>{" pour fermer"}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════════
 // MAIN APP
 // ═══════════════════════════════════════════════════════════════════
 export default function App() {
@@ -239,15 +368,21 @@ export default function App() {
   var _showDebug = useState(false); var setShowDebug = _showDebug[1]; var showDebug = _showDebug[0];
   var _csvConfig = useState({ sep: ";", dec: ",", cols: { rang: true, nom: true, prenom: true, absent: true, note: true, noteNorm: true, groupe: false, competences: false, malus: false } }); var setCsvConfig = _csvConfig[1]; var csvConfig = _csvConfig[0];
   var _htmlPresets = useState([]); var setHtmlPresets = _htmlPresets[1]; var htmlPresets = _htmlPresets[0];
-  var _htmlConfig = useState({ theme: "light", noteNorm: true, noteBrute: false, rang: true, statsEleve: { justesse: true, efficacite: true, malus: true }, statsClasse: { moy: true, minMax: true, sigma: false }, competences: "grid", commentaire: true, detailExercices: true, bareme: false, histogramme: true }); var setHtmlConfig = _htmlConfig[1]; var htmlConfig = _htmlConfig[0];  var _htmlStudentId = useState(null); var setHtmlStudentId = _htmlStudentId[1]; var htmlStudentId = _htmlStudentId[0];
+  var _htmlConfig = useState({ theme: "light", noteNorm: true, noteBrute: false, rang: true, statsEleve: { justesse: true, efficacite: true, malus: true }, statsClasse: { moy: true, minMax: true, sigma: false }, competences: "grid", commentaire: true, detailExercices: true, bareme: false, histogramme: true, starMap: false }); var setHtmlConfig = _htmlConfig[1]; var htmlConfig = _htmlConfig[0];  var _htmlStudentId = useState(null); var setHtmlStudentId = _htmlStudentId[1]; var htmlStudentId = _htmlStudentId[0];
   var _commentaireDS = useState({}); var setCommentaireDS = _commentaireDS[1]; var commentaireDS = _commentaireDS[0];
   var _rapportClasseConfig = useState(DEFAULT_RAPPORT_CLASSE_CONFIG); var setRapportClasseConfig = _rapportClasseConfig[1]; var rapportClasseConfig = _rapportClasseConfig[0];
   var _soundLinksEnabled = useState(false); var setSoundLinksEnabled = _soundLinksEnabled[1]; var soundLinksEnabled = _soundLinksEnabled[0];
   var _soundBaseUrl = useState(""); var setSoundBaseUrl = _soundBaseUrl[1]; var soundBaseUrl = _soundBaseUrl[0];
   var _soundAudioExt = useState("webm"); var setSoundAudioExt = _soundAudioExt[1]; var soundAudioExt = _soundAudioExt[0];
+  var _notesPrivees = useState({}); var notesPrivees = _notesPrivees[0]; var setNotesPrivees = _notesPrivees[1];
+  var _perles = useState({}); var perles = _perles[0]; var setPerles = _perles[1];
 
   var _si = useState(0); var setSi = _si[1]; var si = _si[0];
   var _ei = useState(0); var setEi = _ei[1]; var ei = _ei[0];
+  var _ajoutPerle = useState(false); var ajoutPerle = _ajoutPerle[0]; var setAjoutPerle = _ajoutPerle[1];
+  var _perleTexte = useState(""); var perleTexte = _perleTexte[0]; var setPerleTexte = _perleTexte[1];
+  var _perleContexte = useState(""); var perleContexte = _perleContexte[0]; var setPerleContexte = _perleContexte[1];
+  var _showComments = useState(true); var showComments = _showComments[0]; var setShowComments = _showComments[1];
   var _uiScale = useState(1); var setUiScale = _uiScale[1]; var uiScale = _uiScale[0];
   var _showSearch = useState(false); var setShowSearch = _showSearch[1]; var showSearch = _showSearch[0];
   var _searchTerm = useState(""); var setSearchTerm = _searchTerm[1]; var searchTerm = _searchTerm[0];
@@ -271,12 +406,14 @@ export default function App() {
   var _snapshotList = useState([]); var setSnapshotList = _snapshotList[1]; var snapshotList = _snapshotList[0];
   var _snapshotLoading = useState(false); var setSnapshotLoading = _snapshotLoading[1]; var snapshotLoading = _snapshotLoading[0];
   var _showRestoreModal = useState(false); var setShowRestoreModal = _showRestoreModal[1]; var showRestoreModal = _showRestoreModal[0];
+  var _showLayoutModal = useState(false); var setShowLayoutModal = _showLayoutModal[1]; var showLayoutModal = _showLayoutModal[0];
   var _restoreConfirm = useState(null); var setRestoreConfirm = _restoreConfirm[1]; var restoreConfirm = _restoreConfirm[0];
   var _featOpen = useState(true); var setFeatOpen = _featOpen[1]; var featOpen = _featOpen[0];
   var _exportOpen = useState({ eleves: true, enseignant: true, gabarit: false, rapportClasse: false, synthese: false, github: false, sync: true, sound: false }); var setExportOpen = _exportOpen[1]; var exportOpen = _exportOpen[0];
   var _showApropos = useState(false); var setShowApropos = _showApropos[1]; var showApropos = _showApropos[0];
   var _showChangelog = useState(false); var setShowChangelog = _showChangelog[1]; var showChangelog = _showChangelog[0];
   var _changelogText = useState(""); var setChangelogText = _changelogText[1]; var changelogText = _changelogText[0];
+  var _starMapOpen = useState(false); var setStarMapOpen = _starMapOpen[1]; var starMapOpen = _starMapOpen[0];
   var _githubPat = useState(""); var setGithubPat = _githubPat[1]; var githubPat = _githubPat[0];
   var _githubRepo = useState(""); var setGithubRepo = _githubRepo[1]; var githubRepo = _githubRepo[0];
   var _deviceName = useState("Cet appareil"); var setDeviceName = _deviceName[1]; var deviceName = _deviceName[0];
@@ -379,6 +516,8 @@ export default function App() {
       synthese: synthese, etablissement: etablissement,
       soundLinksEnabled: soundLinksEnabled, soundBaseUrl: soundBaseUrl, soundAudioExt: soundAudioExt,
       syncDailySnapshot: syncDailySnapshot,
+      notesPrivees: notesPrivees, // notesPrivees et perles : inclus dans backup, exclus de tous les exports élèves
+      perles: perles,
     }, overrides || {});
   }
 
@@ -434,8 +573,10 @@ export default function App() {
     if (d.htmlConfig) {
       var sc = d.htmlConfig;
       setHtmlConfig(Object.assign({}, DEFAULT_HTML_CONFIG, sc, {
-        statsEleve: Object.assign({}, DEFAULT_HTML_CONFIG.statsEleve, sc.statsEleve),
+        statsEleve:  Object.assign({}, DEFAULT_HTML_CONFIG.statsEleve,  sc.statsEleve),
         statsClasse: Object.assign({}, DEFAULT_HTML_CONFIG.statsClasse, sc.statsClasse),
+        blockLayout: Object.assign({}, DEFAULT_HTML_CONFIG.blockLayout, sc.blockLayout),
+        blockOrder:  Array.isArray(sc.blockOrder) && sc.blockOrder.length ? sc.blockOrder : DEFAULT_HTML_CONFIG.blockOrder,
       }));
     }
     if (d.commentaireDS) setCommentaireDS(d.commentaireDS);
@@ -446,6 +587,10 @@ export default function App() {
     if (d.soundBaseUrl !== undefined) setSoundBaseUrl(d.soundBaseUrl);
     if (d.soundAudioExt !== undefined) setSoundAudioExt(d.soundAudioExt);
     if (d.syncDailySnapshot !== undefined) setSyncDailySnapshot(d.syncDailySnapshot);
+    if (d.notesPrivees !== undefined) setNotesPrivees(d.notesPrivees);
+    else setNotesPrivees({});
+    if (d.perles !== undefined) setPerles(d.perles);
+    else setPerles({});
     if (d.etablissement) setEtablissement(Object.assign({}, {
       nom: ETABLISSEMENT.nom, classe: ETABLISSEMENT.classe,
       matricule: ETABLISSEMENT.matricule, promotion: ETABLISSEMENT.promotion,
@@ -460,9 +605,14 @@ export default function App() {
       saveDB(buildAppState(), activeProfileId);
     }, 500);
     return function() { clearTimeout(timer); };
-  }, [dbLoaded, exams, students, grades, remarks, absents, groupes, activeExamId, nomDS, dateDS, defaultSeuilsComp, defaultNormMethod, defaultNormParams, defaultSeuilDifficile, defaultSeuilReussite, defaultSeuilPiege, defaultBonusCompletConfig, gabaritTex, defaultMalusPaliers, defaultMalusMode, malusManuel, uiScale, appTheme, groupesDef, mode, commentaires, remarquesActives, remarquesCustom, remarquesOrdre, settingsTab, csvConfig, htmlPresets, htmlConfig, htmlStudentId, synthese, etablissement, soundLinksEnabled, soundBaseUrl, soundAudioExt, commentaireDS, rapportClasseConfig, syncDailySnapshot]);
+  }, [dbLoaded, exams, students, grades, remarks, absents, groupes, activeExamId, nomDS, dateDS, defaultSeuilsComp, defaultNormMethod, defaultNormParams, defaultSeuilDifficile, defaultSeuilReussite, defaultSeuilPiege, defaultBonusCompletConfig, gabaritTex, defaultMalusPaliers, defaultMalusMode, malusManuel, uiScale, appTheme, groupesDef, mode, commentaires, remarquesActives, remarquesCustom, remarquesOrdre, settingsTab, csvConfig, htmlPresets, htmlConfig, htmlStudentId, synthese, etablissement, soundLinksEnabled, soundBaseUrl, soundAudioExt, commentaireDS, rapportClasseConfig, syncDailySnapshot, notesPrivees, perles]);
 
   useEffect(function() { if (showSearch && searchInputRef.current) searchInputRef.current.focus(); }, [showSearch]);
+  useEffect(function() {
+    setAjoutPerle(false);
+    setPerleTexte("");
+    setPerleContexte("");
+  }, [si]);
   useEffect(function() { var t = setTimeout(function() { setSplash(false); }, 2000); return function() { clearTimeout(t); }; }, []);
 
   var _settingsSaveSignal = useState(0); var setSettingsSaveSignal = _settingsSaveSignal[1]; var settingsSaveSignal = _settingsSaveSignal[0];
@@ -536,6 +686,21 @@ export default function App() {
       if (mode !== "correct") return;
       var tag = document.activeElement ? document.activeElement.tagName : "";
       if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
+      // Ouvrir/fermer Carte Stellaire — touche S
+      if (e.key === "s" || e.key === "S") {
+        if (students.length > 0) {
+          e.preventDefault();
+          setStarMapOpen(function(prev) { return !prev; });
+        }
+        return;
+      }
+      // Fermer la carte stellaire sur Échap
+      if (e.key === "Escape" && starMapOpen) {
+        setStarMapOpen(false);
+        return;
+      }
+      // Navigation — désactivée quand la carte stellaire est ouverte
+      if (starMapOpen) return;
       var numEx = exam ? exam.exercises.length : 0;
       if (e.key === "ArrowLeft") {
         e.preventDefault();
@@ -552,7 +717,7 @@ export default function App() {
     }
     window.addEventListener("keydown", handleKey);
     return function() { window.removeEventListener("keydown", handleKey); };
-  }, [mode, isMobile, ei, si, exam, students.length]);
+  }, [mode, isMobile, ei, si, exam, students.length, starMapOpen]);
 
   var exam = exams.find(function(e) { return e.id === activeExamId; }) || exams[0] || null;
   var ft = exam ? Object.assign({}, DEFAULT_FEATURES, exam.features || {}) : DEFAULT_FEATURES;
@@ -1150,7 +1315,7 @@ function retirerDsSynthese(examId) {
 
       {/* HEADER — escamotable au scroll, taille agrandie */}
       <header style={{ background: th.card, borderBottom: "2px solid " + th.headerBorder, padding: isMobile ? "8px 10px" : "10px 14px", display: "flex", alignItems: "center", gap: isMobile ? 6 : 8, position: "sticky", top: 0, zIndex: 100, boxShadow: th.shadow, flexShrink: 0 }}>
-        <img src={appTheme === "dark" ? LOGO_DARK : appTheme === "young" ? LOGO_YOUNG : LOGO_LIGHT} alt="C.H.E.C.K." style={{ height: isMobile ? 32 : 42, objectFit: "contain" }} />
+        <img src={appTheme === "dark" ? LOGO_DARK : appTheme === "young" ? LOGO_YOUNG : LOGO_LIGHT} alt="C.H.E.C.K." onClick={function() { setMode("accueil"); }} style={{ height: isMobile ? 32 : 42, objectFit: "contain", cursor: "pointer" }} />
         {/* Sélecteur de profil — toujours visible */}
         <div style={{ position: "relative" }}>
           <button onClick={function() { setShowProfileMenu(!showProfileMenu); setEditingProfileId(null); setNewProfileName(""); }}
@@ -1340,6 +1505,7 @@ function retirerDsSynthese(examId) {
                   )}
                   <div style={{ flex: 1 }} />
                 </div>
+
                 {/* Panel config rapport classe */}
                 {modeClasse && (
                   <div style={{ background: th.surface || th.card, borderBottom: "1px solid " + th.border, padding: "6px 14px", display: "flex", alignItems: "center", gap: 12, flexShrink: 0, flexWrap: "wrap" }}>
@@ -1362,6 +1528,17 @@ function retirerDsSynthese(examId) {
                         </label>
                       );
                     })}
+                  </div>
+                )}
+                {/* Bouton Mise en page — rapport individuel uniquement */}
+                {!modeClasse && (
+                  <div style={{ background: th.surface || th.card, borderBottom: "1px solid " + th.border, padding: "5px 14px", display: "flex", alignItems: "center", flexShrink: 0 }}>
+                    <div style={{ flex: 1 }} />
+                    <button
+                      onClick={function() { setShowLayoutModal(true); }}
+                      style={{ fontSize: 11, padding: "3px 10px", borderRadius: th.radiusSm, border: "1px solid " + th.border, background: th.surface, color: th.textMuted, cursor: "pointer", fontFamily: FONT_B, fontWeight: 600 }}>
+                      {"⊞ Mise en page"}
+                    </button>
                   </div>
                 )}
                 {/* Iframe d'aperçu — jamais démontée au changement d'onglet */}
@@ -1637,8 +1814,35 @@ function retirerDsSynthese(examId) {
             {totalMalusVal > 0 && <span style={{ fontSize: 11, fontWeight: 700, fontFamily: MONO, color: th.danger }}>{"Total: -" + totalMalusVal + "%"}</span>}
           </div>}
 
+          {/* TOGGLE COMMENTAIRES */}
+          {!absents[s.id] && (function() {
+            var hasComment = !!(commentaires[s.id] && commentaires[s.id].trim());
+            var hasNote = !!(notesPrivees[s.id] && notesPrivees[s.id].trim());
+            var perleCount = (perles[s.id] || []).length;
+            var hasContent = hasComment || hasNote || perleCount > 0;
+            return (
+              <div style={{ marginBottom: 6 }}>
+                <button
+                  onClick={function() { setShowComments(function(v) { return !v; }); }}
+                  style={{ display: "flex", alignItems: "center", gap: 6, width: "100%",
+                    background: "none", border: "none", cursor: "pointer", padding: "2px 0",
+                    fontFamily: FONT_B, fontSize: 11, color: th.textMuted, textAlign: "left" }}>
+                  <span style={{ fontSize: 10 }}>{showComments ? "\u25be" : "\u25b8"}</span>
+                  <span style={{ fontWeight: 600, letterSpacing: 0.2 }}>{"Commentaires & notes"}</span>
+                  {!showComments && hasContent && (
+                    <span style={{ marginLeft: 4, fontSize: 10, fontWeight: 700,
+                      background: th.accentBg, color: th.accent,
+                      borderRadius: 8, padding: "1px 6px", border: "1px solid " + th.accent + "30" }}>
+                      {[hasComment && "\ud83d\udcac", hasNote && "\ud83d\udd12", perleCount > 0 && ("\ud83d\udc8e" + perleCount)].filter(Boolean).join("  ")}
+                    </span>
+                  )}
+                </button>
+              </div>
+            );
+          })()}
+
           {/* Commentaire libre */}
-          {!absents[s.id] && <div style={{ marginBottom: 8 }}>
+          {!absents[s.id] && showComments && <div style={{ marginBottom: 8 }}>
             <textarea
               value={commentaires[s.id] || ""}
               onChange={function(e) {
@@ -1649,6 +1853,145 @@ function retirerDsSynthese(examId) {
               rows={2}
               style={{ width: "100%", background: th.card, border: "1px solid " + th.border, color: th.text, borderRadius: th.radiusSm, padding: "7px 10px", fontSize: 12, fontFamily: FONT_B, outline: "none", resize: "vertical", boxSizing: "border-box", lineHeight: 1.5 }}
             />
+          </div>}
+
+          {/* NOTE PRIVÉE */}
+          {!absents[s.id] && showComments && <div style={{
+            marginTop: 0, marginBottom: 8,
+            borderLeft: "3px solid #b45309",
+            background: th.surface,
+            borderRadius: th.radiusSm,
+            padding: "10px 12px 10px 14px"
+          }}>
+            <div style={{ fontSize: 11, fontWeight: 700, color: "#b45309",
+              marginBottom: 6, letterSpacing: 0.3 }}>
+              {"🔒 Note privée — non exportée"}
+            </div>
+            <textarea
+              value={notesPrivees[s.id] || ""}
+              onChange={function(e) {
+                var val = e.target.value;
+                setNotesPrivees(function(prev) {
+                  var next = Object.assign({}, prev);
+                  if (val === "") delete next[s.id];
+                  else next[s.id] = val;
+                  return next;
+                });
+              }}
+              placeholder={"Observations personnelles, suivi, rappels…"}
+              rows={3}
+              style={{
+                width: "100%", boxSizing: "border-box", resize: "vertical",
+                background: "transparent", border: "1px solid " + th.border,
+                borderRadius: th.radiusSm, color: th.text, fontFamily: FONT_B,
+                fontSize: 12, padding: "6px 8px", outline: "none"
+              }}
+            />
+          </div>}
+
+          {/* PERLES */}
+          {!absents[s.id] && showComments && <div style={{
+            marginBottom: 8,
+            borderLeft: "3px solid #7c3aed",
+            background: th.surface,
+            borderRadius: th.radiusSm,
+            padding: "10px 12px 10px 14px"
+          }}>
+            <div style={{ display: "flex", alignItems: "center",
+              justifyContent: "space-between", marginBottom: 6 }}>
+              <div style={{ fontSize: 11, fontWeight: 700, color: "#7c3aed", letterSpacing: 0.3 }}>
+                {"💎 Perles — non exportées"}
+              </div>
+              {!ajoutPerle && (
+                <button onClick={function() { setAjoutPerle(true); }}
+                  style={{ fontSize: 11, padding: "2px 8px", borderRadius: th.radiusSm,
+                    border: "1px solid #7c3aed", background: "transparent",
+                    color: "#7c3aed", cursor: "pointer", fontFamily: FONT_B }}>
+                  {"+ Ajouter"}
+                </button>
+              )}
+            </div>
+
+            {(perles[s.id] || []).map(function(p) {
+              return (
+                <div key={p.id} style={{ display: "flex", alignItems: "flex-start",
+                  gap: 8, marginBottom: 6, padding: "6px 8px",
+                  background: th.card, borderRadius: th.radiusSm,
+                  border: "1px solid " + th.border }}>
+                  <div style={{ flex: 1 }}>
+                    <div style={{ fontSize: 12, color: th.text, fontStyle: "italic" }}>
+                      {"“" + p.texte + "”"}
+                    </div>
+                    {p.contexte && (
+                      <div style={{ fontSize: 10, color: th.textMuted, marginTop: 2 }}>
+                        {p.contexte}
+                      </div>
+                    )}
+                  </div>
+                  <button onClick={function() {
+                    setPerles(function(prev) {
+                      var next = Object.assign({}, prev);
+                      next[s.id] = (next[s.id] || []).filter(function(x) { return x.id !== p.id; });
+                      if (next[s.id].length === 0) delete next[s.id];
+                      return next;
+                    });
+                  }}
+                    style={{ background: "none", border: "none", cursor: "pointer",
+                      color: th.textMuted, fontSize: 14, padding: "0 2px",
+                      lineHeight: 1, flexShrink: 0 }}>
+                    {"✕"}
+                  </button>
+                </div>
+              );
+            })}
+
+            {ajoutPerle && (
+              <div style={{ marginTop: 6 }}>
+                <textarea
+                  autoFocus
+                  value={perleTexte}
+                  onChange={function(e) { setPerleTexte(e.target.value); }}
+                  placeholder={"La perle exacte, entre guillemets de préférence…"}
+                  rows={2}
+                  style={{ width: "100%", boxSizing: "border-box", resize: "none",
+                    background: "transparent", border: "1px solid " + th.border,
+                    borderRadius: th.radiusSm, color: th.text, fontFamily: FONT_B,
+                    fontSize: 12, padding: "6px 8px", outline: "none", marginBottom: 4 }}
+                />
+                <input
+                  value={perleContexte}
+                  onChange={function(e) { setPerleContexte(e.target.value); }}
+                  placeholder={"Contexte optionnel (ex. DS3, Ex2)"}
+                  style={{ width: "100%", boxSizing: "border-box",
+                    background: "transparent", border: "1px solid " + th.border,
+                    borderRadius: th.radiusSm, color: th.text, fontFamily: FONT_B,
+                    fontSize: 11, padding: "5px 8px", outline: "none", marginBottom: 6 }}
+                />
+                <div style={{ display: "flex", gap: 6 }}>
+                  <button onClick={function() {
+                    if (!perleTexte.trim()) return;
+                    var newPerle = { id: Math.random().toString(36).slice(2, 10), texte: perleTexte.trim(), contexte: perleContexte.trim() };
+                    setPerles(function(prev) {
+                      var next = Object.assign({}, prev);
+                      next[s.id] = (next[s.id] || []).concat(newPerle);
+                      return next;
+                    });
+                    setPerleTexte(""); setPerleContexte(""); setAjoutPerle(false);
+                  }}
+                    style={{ padding: "5px 14px", borderRadius: th.radiusSm, border: "none",
+                      background: "#7c3aed", color: "#fff", fontFamily: FONT_B,
+                      fontSize: 12, fontWeight: 700, cursor: "pointer" }}>
+                    {"Ajouter"}
+                  </button>
+                  <button onClick={function() { setAjoutPerle(false); setPerleTexte(""); setPerleContexte(""); }}
+                    style={{ padding: "5px 14px", borderRadius: th.radiusSm,
+                      border: "1px solid " + th.border, background: "transparent",
+                      color: th.textMuted, fontFamily: FONT_B, fontSize: 12, cursor: "pointer" }}>
+                    {"Annuler"}
+                  </button>
+                </div>
+              </div>
+            )}
           </div>}
 
           {/* Exercise tabs */}
@@ -2059,11 +2402,34 @@ function retirerDsSynthese(examId) {
           telechargerSynthese={telechargerSynthese}
         />}
         {mode === "export" && !exam && <div style={{ textAlign: "center", padding: 40, color: th.textMuted }}>{"Créez d'abord un devoir dans l'onglet Préparation."}</div>}
+        {mode === "accueil" && (
+          <AccueilTab
+            th={th} FONT_B={FONT_B} MONO={MONO}
+            profiles={profiles}
+            activeProfileId={activeProfileId}
+            PROFILE_COLORS={PROFILE_COLORS}
+            exams={exams}
+            students={students}
+            grades={grades}
+            perles={perles}
+            setMode={setMode}
+            switchProfile={switchProfile}
+            setShowProfileMenu={setShowProfileMenu}
+            askConfirm={askConfirm}
+            onChangelog={function() {
+              if (!changelogText) {
+                fetch(process.env.PUBLIC_URL + "/CHANGELOG.md").then(function(r) { return r.text(); }).then(function(t) { setChangelogText(t); }).catch(function() { setChangelogText("_(changelog non disponible)_"); });
+              }
+              setShowApropos(true);
+              setShowChangelog(true);
+            }}
+          />
+        )}
 
         </main>
-        )}{/* fin {mode !== "resultats"} */}
-        </div>{/* fin div scale */}
-      </div>{/* fin div overflow wrapper */}
+        )}
+        </div>
+      </div>
 
       {showMore && <div style={{ position: "fixed", inset: 0, zIndex: 99 }} onClick={function() { setShowMore(false); }} />}
 
@@ -2094,6 +2460,86 @@ function retirerDsSynthese(examId) {
     <button onClick={function() { setShowRestoreModal(false); setRestoreConfirm(null); }} style={{ marginTop: 14, display: "block", width: "100%", padding: "7px", borderRadius: th.radiusSm, cursor: "pointer", fontFamily: FONT_B, fontSize: 12, background: "transparent", border: "1px solid " + th.border, color: th.textMuted }}>{"Fermer"}</button>
   </div>
 </div>}
+
+
+{showLayoutModal && (function() {
+  var BLOC_LABELS = {
+    stats:       "Stats élève / classe",
+    competences: "Compétences",
+    commentaire: "Commentaire",
+    histogramme: "Histogramme",
+    starMap:     "✦ Carte Stellaire",
+  };
+  var BLOC_ACTIF = {
+    stats:       true,
+    competences: htmlConfig.competences !== "none" && ft.competences,
+    commentaire: !!htmlConfig.commentaire,
+    histogramme: !!htmlConfig.histogramme,
+    starMap:     !!htmlConfig.starMap,
+  };
+  var order  = (htmlConfig.blockOrder  && htmlConfig.blockOrder.length)  ? htmlConfig.blockOrder  : DEFAULT_HTML_CONFIG.blockOrder;
+  var layout = htmlConfig.blockLayout || DEFAULT_HTML_CONFIG.blockLayout;
+
+  function moveBloc(idx, dir) {
+    var o = order.slice();
+    var target = idx + dir;
+    if (target < 0 || target >= o.length) return;
+    var tmp = o[idx]; o[idx] = o[target]; o[target] = tmp;
+    setHtmlConfig(Object.assign({}, htmlConfig, { blockOrder: o }));
+  }
+
+  function toggleLayout(key) {
+    var next = (layout[key] === "half") ? "full" : "half";
+    setHtmlConfig(Object.assign({}, htmlConfig, {
+      blockLayout: Object.assign({}, DEFAULT_HTML_CONFIG.blockLayout, layout, { [key]: next }),
+    }));
+  }
+
+  return (
+    <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.45)", zIndex: 220, display: "flex", alignItems: "center", justifyContent: "center" }}
+      onClick={function() { setShowLayoutModal(false); }}>
+      <div style={{ background: th.card, borderRadius: th.radius, border: "1px solid " + th.border, padding: "20px 24px", width: 320, boxShadow: "0 8px 32px rgba(0,0,0,0.25)" }}
+        onClick={function(e) { e.stopPropagation(); }}>
+        <div style={{ fontSize: 14, fontWeight: 700, fontFamily: FONT, color: th.text, marginBottom: 16 }}>{"⊞ Mise en page du rapport"}</div>
+        {order.map(function(key, i) {
+          var actif = !!BLOC_ACTIF[key];
+          var isHalf = layout[key] === "half";
+          return (
+            <div key={key} style={{ display: "flex", alignItems: "center", gap: 8, padding: "5px 0", borderBottom: "1px solid " + th.border + "55", opacity: actif ? 1 : 0.38 }}>
+              {/* Boutons ▲▼ */}
+              <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+                <button onClick={function() { moveBloc(i, -1); }} disabled={i === 0}
+                  style={{ fontSize: 9, lineHeight: 1, padding: "2px 5px", border: "1px solid " + th.border, borderRadius: 3, background: th.surface, color: th.text, cursor: i === 0 ? "default" : "pointer", opacity: i === 0 ? 0.25 : 1 }}>{"▲"}</button>
+                <button onClick={function() { moveBloc(i, 1); }} disabled={i === order.length - 1}
+                  style={{ fontSize: 9, lineHeight: 1, padding: "2px 5px", border: "1px solid " + th.border, borderRadius: 3, background: th.surface, color: th.text, cursor: i === order.length - 1 ? "default" : "pointer", opacity: i === order.length - 1 ? 0.25 : 1 }}>{"▼"}</button>
+              </div>
+              {/* Libellé */}
+              <span style={{ flex: 1, fontSize: 12, color: th.text, fontFamily: FONT_B }}>{BLOC_LABELS[key] || key}</span>
+              {/* Toggle Plein / Demi */}
+              <div style={{ display: "flex", borderRadius: 4, overflow: "hidden", border: "1px solid " + th.border }}>
+                <button onClick={function() { if (isHalf && actif) toggleLayout(key); }}
+                  style={{ padding: "3px 10px", fontSize: 11, fontWeight: !isHalf ? 700 : 400, background: !isHalf ? th.accent : th.surface, color: !isHalf ? "#fff" : th.textMuted, border: "none", cursor: (isHalf && actif) ? "pointer" : "default" }}>{"Plein"}</button>
+                <button onClick={function() { if (!isHalf && actif) toggleLayout(key); }}
+                  style={{ padding: "3px 10px", fontSize: 11, fontWeight: isHalf ? 700 : 400, background: isHalf ? th.accent : th.surface, color: isHalf ? "#fff" : th.textMuted, border: "none", cursor: (!isHalf && actif) ? "pointer" : "default" }}>{"Demi"}</button>
+              </div>
+            </div>
+          );
+        })}
+        <div style={{ marginTop: 16, display: "flex", gap: 8 }}>
+          <button
+            onClick={function() { setShowLayoutModal(false); setSettingsTab("export"); setShowSettings(true); }}
+            style={{ flex: 1, padding: "8px", borderRadius: th.radiusSm, cursor: "pointer", fontFamily: FONT_B, fontSize: 12, fontWeight: 600, background: th.surface, border: "1px solid " + th.border, color: th.textMuted }}>
+            {"⚙ Réglages export"}
+          </button>
+          <button onClick={function() { setShowLayoutModal(false); }}
+            style={{ flex: 1, padding: "8px", borderRadius: th.radiusSm, cursor: "pointer", fontFamily: FONT_B, fontSize: 13, fontWeight: 600, background: th.accent, border: "none", color: "#fff" }}>
+            {"Fermer"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+})()}
 
 {/* MODAL CONFLIT DE SYNCHRONISATION */}
 {showConflictModal && <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", zIndex: 250, display: "flex", alignItems: "center", justifyContent: "center" }}>
@@ -2247,7 +2693,19 @@ function retirerDsSynthese(examId) {
         </div>
       </div>}
 
-      
+
+{/* CARTE STELLAIRE */}
+{starMapOpen && exam && students.length > 0 && (
+  <StarMapModal
+    exam={exam}
+    student={s}
+    grades={grades}
+    students={students}
+    theme={th}
+    onClose={function() { setStarMapOpen(false); }}
+  />
+)}
+
 {/* SETTINGS */}
 {showSettings && <SettingsModal
         th={th} FONT={FONT} FONT_B={FONT_B} MONO={MONO}
@@ -2293,20 +2751,10 @@ function retirerDsSynthese(examId) {
 
       {/* DEBUG */}
       {showDebug && (function() {
-        var sections = [
-          { key: "exams",        label: "exams" },
-          { key: "students",     label: "students" },
-          { key: "grades",       label: "grades" },
-          { key: "remarks",      label: "remarks" },
-          { key: "commentaires", label: "commentaires" },
-          { key: "absents",      label: "absents" },
-          { key: "groupes",      label: "groupes" },
-          { key: "malusManuel",  label: "malusManuel" },
-        ];
-        var fullState = { exams: exams, students: students, grades: grades, remarks: remarks, commentaires: commentaires, absents: absents, groupes: groupes, malusManuel: malusManuel };
+        var debugSections = buildAppState();
         return (
           <DebugModal
-            sections={sections} fullState={fullState}
+            sections={debugSections}
             th={th} FONT={FONT} FONT_B={FONT_B} MONO={MONO}
             onClose={function() { setShowDebug(false); }}
           />

@@ -717,6 +717,7 @@ export default function SettingsModal({
                   { key: "detailExercices", label: "Détail par exercice (✨🎁)" },
                   { key: "bareme",          label: "Barème item par item" },
                   { key: "histogramme",     label: "Histogramme de la classe" },
+                  { key: "starMap",         label: "✦ Carte Stellaire" },
                 ].map(function(it) { return (
                   <label key={it.key} style={{ display: "flex", alignItems: "center", gap: 7, marginBottom: 5, cursor: "pointer", fontSize: 11, fontFamily: FONT_B, color: htmlConfig[it.key] ? th.text : th.textMuted }}>
                     <input type="checkbox" checked={!!htmlConfig[it.key]} onChange={function(e) { setHtmlConfig(Object.assign({}, htmlConfig, { [it.key]: e.target.checked })); }} />

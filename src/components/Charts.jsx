@@ -257,6 +257,7 @@ export function ProgressionChart({ data, th }) {
       {data.map(function(d, i) { return (
         <text key={"xl" + i} x={xOf(i)} y={H - PAD.bottom + 14}
           textAnchor="middle" fontSize={9} fontFamily={FONT_B} fill={th.textMuted}>
+          <title>{d.dsNom}</title>
           {d.dsNom.length > 10 ? d.dsNom.slice(0, 10) + "…" : d.dsNom}
         </text>
       ); })}
@@ -383,6 +384,7 @@ export function ProgressionRadar({ data, th }) {
           <text key={"lb" + i} x={lx} y={ly + labelDy(i)}
             textAnchor={labelAnchor(i)}
             fontSize={9} fontFamily={FONT_B} fill={th.textMuted}>
+            <title>{d.dsNom}</title>
             {d.dsNom.length > 10 ? d.dsNom.slice(0, 10) + "…" : d.dsNom}
           </text>
         );
