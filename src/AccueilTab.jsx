@@ -123,7 +123,7 @@ function CompBar({ label, value, color }) {
   );
 }
 
-function AccueilTab({ th, FONT_B, MONO, profiles, activeProfileId, PROFILE_COLORS, exams, students, grades, perles, setMode, switchProfile, setShowProfileMenu, askConfirm, onChangelog }) {
+function AccueilTab({ th, FONT_B, MONO, profiles, activeProfileId, PROFILE_COLORS, exams, students, grades, perles, setMode, switchProfile, setShowProfileMenu, setActiveExamId, askConfirm, onChangelog }) {
   var _ddOpen = useState(false); var ddOpen = _ddOpen[0]; var setDdOpen = _ddOpen[1];
   var _perleIdx = useState(0); var perleIdx = _perleIdx[0]; var setPerleIdx = _perleIdx[1];
 
@@ -283,6 +283,7 @@ function AccueilTab({ th, FONT_B, MONO, profiles, activeProfileId, PROFILE_COLOR
                 <div style={{ background: th.surface, borderRadius: th.radiusSm, padding: "8px 10px", textAlign: "center" }}>
                   <div style={{ fontSize: 10, color: th.textMuted, marginBottom: 2 }}>{"Moyenne"}</div>
                   <div style={{ fontSize: 16, fontWeight: 700, color: th.text, fontFamily: MONO }}>{lastAvg !== null ? fmt1(lastAvg) : "—"}</div>
+                  {lastAvg !== null && <div style={{ fontSize: 9, color: th.textMuted, marginTop: 1 }}>{"brut"}</div>}
                 </div>
                 <div style={{ background: th.surface, borderRadius: th.radiusSm, padding: "8px 10px", textAlign: "center" }}>
                   <div style={{ fontSize: 10, color: th.textMuted, marginBottom: 2 }}>{"Étendue"}</div>
@@ -303,15 +304,15 @@ function AccueilTab({ th, FONT_B, MONO, profiles, activeProfileId, PROFILE_COLOR
 
               {/* Boutons */}
               <div style={{ display: "flex", gap: 8 }}>
-                <button onClick={function() { setMode("correct"); }}
+                <button onClick={function() { setActiveExamId(lastExam.id); setMode("correct"); }}
                   style={{ flex: 1, padding: "7px 0", borderRadius: th.radiusSm, border: "none", background: profileColor, color: "#fff", fontFamily: FONT_B, fontSize: 12, fontWeight: 700, cursor: "pointer" }}>
                   {"Correction →"}
                 </button>
-                <button onClick={function() { setMode("resultats"); }}
+                <button onClick={function() { setActiveExamId(lastExam.id); setMode("resultats"); }}
                   style={{ flex: 1, padding: "7px 0", borderRadius: th.radiusSm, border: "1px solid " + th.border, background: th.surface, color: th.text, fontFamily: FONT_B, fontSize: 12, fontWeight: 600, cursor: "pointer" }}>
                   {"Résultats"}
                 </button>
-                <button onClick={function() { setMode("export"); }}
+                <button onClick={function() { setActiveExamId(lastExam.id); setMode("export"); }}
                   style={{ flex: 1, padding: "7px 0", borderRadius: th.radiusSm, border: "1px solid " + th.border, background: th.surface, color: th.text, fontFamily: FONT_B, fontSize: 12, fontWeight: 600, cursor: "pointer" }}>
                   {"Export"}
                 </button>
@@ -342,7 +343,10 @@ function AccueilTab({ th, FONT_B, MONO, profiles, activeProfileId, PROFILE_COLOR
                       <div style={{ fontWeight: 600, fontSize: 13, color: th.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{ex.nomDS || ex.name || "Sans titre"}</div>
                       <div style={{ fontSize: 11, color: th.textMuted }}>{(ex.dateDS || "—") + " · " + students.length + " élève" + (students.length > 1 ? "s" : "")}</div>
                     </div>
-                    <div style={{ fontSize: 13, fontWeight: 700, color: th.text, fontFamily: MONO, flexShrink: 0 }}>{avg !== null ? fmt1(avg) : "—"}</div>
+                    <div style={{ textAlign: "right", flexShrink: 0 }}>
+                      <div style={{ fontSize: 13, fontWeight: 700, color: th.text, fontFamily: MONO }}>{avg !== null ? fmt1(avg) : "—"}</div>
+                      {avg !== null && <div style={{ fontSize: 9, color: th.textMuted }}>{"brut"}</div>}
+                    </div>
                     <span style={{ width: 8, height: 8, borderRadius: "50%", background: isComplete ? "#22c55e" : "#f59e0b", flexShrink: 0 }} title={isComplete ? "Complet" : "Copies manquantes"} />
                   </div>
                 );

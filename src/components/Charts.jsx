@@ -20,11 +20,17 @@ export function RadarChart({ compValues, exAbsValues, exRelValues, size = 90, da
   const [mode, setMode] = useState(initialMode);
   const th = dark ? darkTheme : lightTheme;
 
-  const data = mode === "comp"
+  const rawData = mode === "comp"
     ? COMPETENCES.map(c => ({ label: c.short, value: compValues[c.id] || 0, color: compColor(c, dark) }))
     : (mode === "exAbs" ? exAbsValues : exRelValues).map((v, i) => ({
         label: v.label, value: v.pct, color: [th.accent, th.violet, th.success, th.warning, th.danger][i % 5]
       }));
+
+  // Si le mode exercices ne peut pas s'afficher (< 3 exercices), revenir aux compétences
+  const data = rawData.length < 3 && mode !== "comp"
+    ? COMPETENCES.map(c => ({ label: c.short, value: compValues[c.id] || 0, color: compColor(c, dark) }))
+    : rawData;
+  const effectiveMode = data === rawData ? mode : "comp";
 
   // Padding around the SVG so labels don't get clipped
   const pad = 16;
@@ -56,7 +62,7 @@ export function RadarChart({ compValues, exAbsValues, exRelValues, size = 90, da
           );
         })}
       </svg>
-      {interactive && <div style={{ fontSize: Math.max(8, size * 0.08), color: th.textDim, fontFamily: FONT_B, marginTop: 0 }}>{(RADAR_MODES.find(m => m.id === mode) || {}).label} ▾</div>}
+      {interactive && <div style={{ fontSize: Math.max(8, size * 0.08), color: th.textDim, fontFamily: FONT_B, marginTop: 0 }}>{(RADAR_MODES.find(m => m.id === effectiveMode) || {}).label} ▾</div>}
     </div>
   );
 }
