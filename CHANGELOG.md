@@ -1,3 +1,14 @@
+## v 1.42 — 16 mai 2026
+
+### Indices de correction sur les items
+- En onglet **Préparation**, chaque item dispose d'un champ optionnel "Indice de correction" (en italique, sous le libellé). Il permet de noter un rappel ou un critère d'attribution des points, visible uniquement par l'enseignant.
+- En onglet **Correction**, si un indice est renseigné, une icône **ⓘ** apparaît sur l'item. Sur ordinateur, l'indice s'affiche au survol (après 0,2 s) ; sur tablette et mobile, un tap sur l'icône l'affiche ou le masque.
+- Les indices ne sont jamais inclus dans les exports (HTML, LaTeX, CSV).
+
+### Filtre "Corrigés seulement" dans la Vue d'ensemble
+- Un bouton **✓ Corrigés seulement** est disponible dans la barre de la Vue d'ensemble. Activé, il masque les élèves pour lesquels aucune note n'a encore été saisie — pratique en cours de correction pour ne voir que les copies traitées.
+- Le bouton indique le nombre de copies corrigées sur le total (ex. `✓ Corrigés seulement (12/24)`).
+
 ## v 1.4 - 3 mai 2023
 
 ### Notes privées 
