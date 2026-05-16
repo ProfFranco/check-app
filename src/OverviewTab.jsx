@@ -68,6 +68,19 @@ function OverviewTab({ exam, students, grades, absents, th, FONT, FONT_B, MONO, 
 
   var _sort = useState({ col: null, dir: "none" });
   var sort = _sort[0]; var setSort = _sort[1];
+  var _hideUncorrected = useState(false); var hideUncorrected = _hideUncorrected[0]; var setHideUncorrected = _hideUncorrected[1];
+  // Détecte si un élève a au moins une note ou une question traitée
+  function isStudentCorrected(studentId) {
+    for (var exz of exam.exercises) {
+      for (var qz of exz.questions) {
+        if (grades["treated_" + studentId + "_" + qz.id]) return true;
+        for (var itz of qz.items) {
+          if (grades[studentId + "__" + itz.id]) return true;
+        }
+      }
+    }
+    return false;
+  }
 
   // Refs pour scroll vers exercice
   var exRefs = useRef({});
@@ -165,7 +178,10 @@ function OverviewTab({ exam, students, grades, absents, th, FONT, FONT_B, MONO, 
     });
   }
 
-  var sortedStudents = presents.slice().sort(function(a, b) {
+  var filteredPresents = hideUncorrected
+    ? presents.filter(function(s) { return isStudentCorrected(s.id); })
+    : presents;
+  var sortedStudents = filteredPresents.slice().sort(function(a, b) {
     if (sort.col === null || sort.dir === "none") {
       // Tri alphabétique par défaut
       var na = (a.nom + a.prenom).toLowerCase();
@@ -260,6 +276,18 @@ function OverviewTab({ exam, students, grades, absents, th, FONT, FONT_B, MONO, 
           })}
         </div>
 
+        {/* Toggle corrigés seulement */}
+        <button
+          onClick={function() { setHideUncorrected(function(v) { return !v; }); }}
+          style={{
+            padding: "5px 10px", borderRadius: th.radiusSm, cursor: "pointer",
+            fontFamily: FONT_B, fontSize: 11, fontWeight: 600,
+            background: hideUncorrected ? th.accentBg : th.surface,
+            border: "1px solid " + (hideUncorrected ? th.accent + "55" : th.border),
+            color: hideUncorrected ? th.accent : th.textMuted,
+          }}>
+          {"✓ Corrigés seulement" + (hideUncorrected ? " (" + filteredPresents.length + "/" + presents.length + ")" : "")}
+        </button>
         {/* Légende couleurs */}
         <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
           {[

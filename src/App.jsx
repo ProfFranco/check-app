@@ -327,6 +327,7 @@ function StarMapModal({ exam, student, grades, students, theme, onClose }) {
 export default function App() {
   // ─── State ───
   var _appTheme = useState("light"); var setAppTheme = _appTheme[1]; var appTheme = _appTheme[0];
+  var mainScrollRef = useRef(null);
   var dark = appTheme === "dark";
   var _splash = useState(true); var setSplash = _splash[1]; var showSplash = _splash[0];
   var th = appTheme === "dark" ? darkTheme : appTheme === "young" ? youngTheme : lightTheme;
@@ -427,6 +428,7 @@ export default function App() {
   var _newProfileSourceId = useState(""); var setNewProfileSourceId = _newProfileSourceId[1]; var newProfileSourceId = _newProfileSourceId[0];
   var _newProfileImport = useState({ students: false, export: false, remarques: false, etablissement: false, calcul: false, evaluation: false }); var setNewProfileImport = _newProfileImport[1]; var newProfileImport = _newProfileImport[0];
   var _synthese = useState([]); var setSynthese = _synthese[1]; var synthese = _synthese[0];
+  var _itemHintVisible = useState(null); var itemHintVisible = _itemHintVisible[0]; var setItemHintVisible = _itemHintVisible[1];
   var _etablissement = useState({
     nom: ETABLISSEMENT.nom,
     classe: ETABLISSEMENT.classe,
@@ -437,7 +439,7 @@ export default function App() {
   var searchInputRef = useRef();
   var fileRef = useRef();
   var csvRef = useRef();
-  var touchRef = useRef({ x: 0, y: 0 });
+  var touchRef = useRef({ x: 0, y: 0 });  var hintTimerRef = useRef(null);
 
   // ─── Settings du DS actif (avec fallback sur DEFAULT_EXAM_SETTINGS) ───
   var activeExam = exams.find(function(e) { return e.id === activeExamId; });
@@ -882,7 +884,7 @@ export default function App() {
   var setWinW = _winW[1]; var winW = _winW[0];
   useEffect(function() { var h = function() { setWinW(window.innerWidth); }; window.addEventListener("resize", h); return function() { window.removeEventListener("resize", h); }; }, []);
   
-  var isMobile = winW < 700;
+  var isMobile = winW < 700;  var isTouch = winW < 1024;
   var sc = isMobile ? Math.min(uiScale, 1.1) : uiScale;
 
   // JSON save/load
@@ -1471,7 +1473,7 @@ function retirerDsSynthese(examId) {
       )}
 
       {/* MAIN — zoomé via la propriété CSS zoom (scroll natif, pas de compensation) */}
-      <div style={{ flex: 1, overflowY: mode === "resultats" ? "hidden" : "auto", position: "relative" }}>
+      <div ref={mainScrollRef} style={{ flex: 1, overflowY: mode === "resultats" ? "hidden" : "auto", position: "relative" }}>
         <div style={{ zoom: isMobile ? 1 : sc }}>
         {/* ═══ RESULTATS — panneau persistant, jamais démonté au changement d'onglet ═══ */}
         <div style={{ display: mode === "resultats" ? "flex" : "none", flexDirection: "column", height: "calc(100vh - 52px)" }}>
@@ -1701,6 +1703,7 @@ function retirerDsSynthese(examId) {
                                 <div key={it.id} style={{ display: "flex", alignItems: "center", gap: 4, marginBottom: 2 }}>
                                   <span style={{ color: th.textDim, fontSize: 8 }}>{"\u2022"}</span>
                                   <input value={it.label} onChange={function(e) { updateExam(updPath(exam, ["exercises", exIdx, "questions", qIdx, "items", iIdx, "label"], e.target.value)); }} style={{ ...inp, flex: 1, fontSize: 11, padding: "2px 6px" }} placeholder="Description..." />
+                                  <input value={it.hint || ""} onChange={function(e) { updateExam(updPath(exam, ["exercises", exIdx, "questions", qIdx, "items", iIdx, "hint"], e.target.value)); }} style={{ ...inp, flex: 1, fontSize: 10, padding: "2px 6px", color: th.textMuted, fontStyle: "italic" }} placeholder={"Indice de correction\u2026"} />
                                   <input type="number" step="0.5" min="0" value={it.points} onChange={function(e) { updateExam(updPath(exam, ["exercises", exIdx, "questions", qIdx, "items", iIdx, "points"], parseFloat(e.target.value) || 0)); }} style={{ ...inp, width: 44, fontSize: 11, fontFamily: MONO, textAlign: "center", color: th.accent, padding: "2px 3px" }} />
                                   <button onClick={function() { askConfirm("l\u2019item \u00AB\u00A0" + (it.label || "sans nom") + "\u00A0\u00BB", function() { delAt(exIdx, qIdx, iIdx); }); }} style={{ background: "none", border: "none", color: th.textDim, cursor: "pointer", fontSize: 9 }}>{"\u2715"}</button>
                                 </div>
@@ -2032,9 +2035,21 @@ function retirerDsSynthese(examId) {
                   {q.items.map(function(it) {
                     var ch = !!grades[gradeKey(s.id, it.id)];
                     return (
-                      <button key={it.id} onClick={function() { setGrades(function(p) { var n = {}; for (var k in p) n[k] = p[k]; n[gradeKey(s.id, it.id)] = !p[gradeKey(s.id, it.id)]; return n; }); }} style={{ display: "flex", alignItems: "center", gap: isMobile ? 10 : 8, width: "100%", padding: isMobile ? "14px 12px" : "11px 10px", marginBottom: 2, borderRadius: th.radiusSm, cursor: "pointer", fontFamily: FONT_B, fontSize: isMobile ? 15 : 13, textAlign: "left", background: ch ? th.success + "0a" : "transparent", border: "1.5px solid " + (ch ? th.success + "35" : th.border), color: ch ? th.text : th.textMuted, WebkitTapHighlightColor: "transparent" }}>
+                      <button key={it.id} onClick={function() { setGrades(function(p) { var n = {}; for (var k in p) n[k] = p[k]; n[gradeKey(s.id, it.id)] = !p[gradeKey(s.id, it.id)]; return n; }); }} style={{ display: "flex", alignItems: "center", gap: isMobile ? 10 : 8, width: "100%", padding: isMobile ? "14px 12px" : "11px 10px", marginBottom: 2, borderRadius: th.radiusSm, cursor: "pointer", fontFamily: FONT_B, fontSize: isMobile ? 15 : 13, textAlign: "left", background: ch ? th.success + "0a" : "transparent", border: "1.5px solid " + (ch ? th.success + "35" : th.border), color: ch ? th.text : th.textMuted, WebkitTapHighlightColor: "transparent" }} onMouseEnter={!isTouch ? function() { hintTimerRef.current = setTimeout(function() { if (it.hint) setItemHintVisible(it.id); }, 200); } : undefined} onMouseLeave={!isTouch ? function() { clearTimeout(hintTimerRef.current); setItemHintVisible(null); } : undefined}>
                         <div style={{ width: isMobile ? 28 : 22, height: isMobile ? 28 : 22, borderRadius: 4, display: "flex", alignItems: "center", justifyContent: "center", fontSize: isMobile ? 16 : 13, fontWeight: 800, background: ch ? th.success : "transparent", border: "2px solid " + (ch ? th.success : th.textDim), color: ch ? (dark ? "#1a1814" : "#fff") : "transparent", flexShrink: 0 }}>{"\u2713"}</div>
                         <span style={{ flex: 1, fontWeight: 500 }}>{it.label}</span>
+                        {it.hint && (
+                          <span
+                            onClick={isTouch ? function(e) { e.stopPropagation(); setItemHintVisible(function(prev) { return prev === it.id ? null : it.id; }); } : undefined}
+                            style={{ position: "relative", display: "inline-flex", alignItems: "center", cursor: isTouch ? "pointer" : "default", flexShrink: 0 }}>
+                            <span style={{ width: 15, height: 15, borderRadius: "50%", border: "1px solid " + th.accent + "88", fontSize: 9, fontWeight: 700, display: "inline-flex", alignItems: "center", justifyContent: "center", color: th.accent, background: th.accentBg, userSelect: "none" }}>{"ⓘ"}</span>
+                            {itemHintVisible === it.id && (
+                              <span style={{ position: "absolute", bottom: "calc(100% + 6px)", right: 0, minWidth: 160, maxWidth: 260, background: th.card, border: "1px solid " + th.accent + "55", borderRadius: th.radiusSm, padding: "6px 10px", fontSize: 11, fontFamily: FONT_B, color: th.text, boxShadow: "0 4px 16px rgba(0,0,0,0.18)", zIndex: 50, lineHeight: 1.5, whiteSpace: "pre-wrap", pointerEvents: "none" }}>
+                                {it.hint}
+                              </span>
+                            )}
+                          </span>
+                        )}
                         <span style={{ fontFamily: MONO, fontSize: 11, fontWeight: 700, color: ch ? th.success : th.textDim }}>{it.points}</span>
                       </button>); })}
                   <div style={{ display: "flex", flexWrap: "wrap", gap: 3, marginTop: 4 }}>
@@ -2043,6 +2058,36 @@ function retirerDsSynthese(examId) {
                       return <button key={rem.id} onClick={function() { setRemarks(function(p) { var k = remarkKey(s.id, q.id); var c = p[k] || []; var n = {}; for (var kk in p) n[kk] = p[kk]; n[k] = c.indexOf(rem.id) >= 0 ? c.filter(function(r) { return r !== rem.id; }) : c.concat([rem.id]); return n; }); }} style={{ padding: isMobile ? "8px 12px" : "5px 9px", borderRadius: 14, cursor: "pointer", fontFamily: FONT_B, fontSize: isMobile ? 12 : 10, fontWeight: 600, background: act ? th.warningBg : "transparent", border: "1px solid " + (act ? th.warning + "40" : th.border), color: act ? th.warning : th.textMuted }}>{rem.icon + " " + rem.label}</button>; })}
                   </div>
                   {/* Case "traitée" — visible seulement si aucun item n'est coché */}
+                  <div style={{ display: "flex", gap: 4, alignItems: "center", marginTop: 4 }}>
+                  {q.items.length >= 2 && (function() {
+                    var allChecked = q.items.every(function(it) { return !!grades[gradeKey(s.id, it.id)]; });
+                    return (
+                      <button
+                        onClick={function(e) {
+                          e.stopPropagation();
+                          setGrades(function(p) {
+                            var ng = {}; for (var k in p) ng[k] = p[k];
+                            q.items.forEach(function(it) { ng[gradeKey(s.id, it.id)] = !allChecked; });
+                            return ng;
+                          });
+                        }}
+                        title={allChecked ? "Tout décocher" : "Tout cocher"}
+                        style={{
+                          background: "none",
+                          border: "1px solid " + th.border,
+                          borderRadius: 3,
+                          cursor: "pointer",
+                          fontSize: 9,
+                          color: allChecked ? th.success : th.textDim,
+                          padding: "2px 8px",
+                          fontFamily: FONT_B,
+                          fontWeight: 700,
+                          opacity: 0.8,
+                        }}>
+                        {allChecked ? "✓✓" : "☐→✓"}
+                      </button>
+                    );
+                  })()}
                   {sc.earned === 0 && (
                     <button
                       onClick={function() {
@@ -2054,21 +2099,21 @@ function retirerDsSynthese(examId) {
                         });
                       }}
                       style={{
-                        marginTop: 4,
                         padding: "2px 8px",
                         fontSize: 9,
                         borderRadius: 3,
                         cursor: "pointer",
-                        border: "1px solid " + (grades[treatedKey(s.id, q.id)] ? th.warning + "66" : th.border),
+                        border: "2px solid " + (grades[treatedKey(s.id, q.id)] ? th.warning : th.warning + "88"),
                         background: grades[treatedKey(s.id, q.id)] ? th.warning + "22" : "transparent",
-                        color: grades[treatedKey(s.id, q.id)] ? th.warning : th.textDim,
+                        color: grades[treatedKey(s.id, q.id)] ? th.warning : th.warning,
                         fontFamily: FONT_B,
-                        fontWeight: 600,
+                        fontWeight: 700,
                       }}
                     >
                       {grades[treatedKey(s.id, q.id)] ? "✓ traitée (0 pt)" : "marquer traitée"}
                     </button>
                   )}
+                  </div>
 
                 </div>
               </div>); })}
@@ -2084,6 +2129,7 @@ function retirerDsSynthese(examId) {
                 setSi(si - 1);
                 setEi(exam.exercises.length - 1);
               }
+              if (mainScrollRef.current) mainScrollRef.current.scrollTop = 0;
             }} style={{ flex: 1, padding: isMobile ? "16px" : "14px", borderRadius: th.radiusSm, cursor: "pointer", fontFamily: FONT_B, fontSize: isMobile ? 14 : 13, fontWeight: 700, background: th.card, border: "1px solid " + th.border, color: (si === 0 && ei === 0) ? th.textDim : th.text, boxShadow: th.shadow }}>{"◄ Ex. pr\u00E9c."}</button>
             <button onClick={function() {
               if (ei < exam.exercises.length - 1) {
@@ -2092,6 +2138,7 @@ function retirerDsSynthese(examId) {
                 setSi(si + 1);
                 setEi(0);
               }
+              if (mainScrollRef.current) mainScrollRef.current.scrollTop = 0;
             }} style={{ flex: 1, padding: isMobile ? "16px" : "14px", borderRadius: th.radiusSm, cursor: "pointer", fontFamily: FONT_B, fontSize: isMobile ? 14 : 13, fontWeight: 700, background: th.accent, border: "none", color: "#fff", boxShadow: th.shadow }}>{"Ex. suiv. \u25BA"}</button>
           </div>
         </div>}
@@ -2415,6 +2462,7 @@ function retirerDsSynthese(examId) {
             setMode={setMode}
             switchProfile={switchProfile}
             setShowProfileMenu={setShowProfileMenu}
+            setActiveExamId={setActiveExamId}
             askConfirm={askConfirm}
             onChangelog={function() {
               if (!changelogText) {
