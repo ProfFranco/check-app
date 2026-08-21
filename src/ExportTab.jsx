@@ -2,8 +2,8 @@
 // ExportTab — onglet Export
 // ═══════════════════════════════════════════════════════════════════
 
-import { genererGabarit, genererDocumentComplet, genererDocumentsIndividuels, genererScriptCompilation } from "./utils/latex";
-import { genererHtmlEleve, genererHtmlTous, DEFAULT_RAPPORT_CLASSE_CONFIG, genererRapportClasse } from "./utils/html";
+import { genererGabarit, genererGabaritPapier, genererDocumentComplet, genererDocumentsIndividuels, genererScriptCompilation } from "./utils/latex";
+import { genererHtmlEleve, genererHtmlTous, genererHtmlTousPrintable, genererScriptsConversionPdf, DEFAULT_RAPPORT_CLASSE_CONFIG, genererRapportClasse } from "./utils/html";
 import { downloadFile } from "./utils/calculs";
 
 export default function ExportTab({
@@ -12,11 +12,11 @@ export default function ExportTab({
   examNomDS, examDateDS,
   presents, corriges,
   students, grades, remarks, absents,
-  seuils, seuilDifficile, seuilReussite, seuilPiege, bonusCompletConfig,
+  seuils, seuilDifficile, seuilReussite, seuilPiege, bonusCompletConfig, clampQuestion,
   features,
   malusPaliers, malusManuel,
   commentaires, allRemarques,
-  htmlConfig, htmlStudentId,
+  htmlConfig, setHtmlConfig, htmlStudentId,
   soundLinksEnabled, soundBaseUrl, soundAudioExt,
   gabaritTex, setGabaritTex,
   etablissement,
@@ -36,6 +36,9 @@ export default function ExportTab({
   exporterVersSynthese,
   retirerDsSynthese,
   telechargerSynthese,
+  onFullBackup,
+  onOpenRestore,
+  backupBusy,
 }) {
   var ft = features || { competences: true, coefficients: true, questionBonus: true, bonusComplet: true, malusAuto: true, questionPiege: true };
   // ── Helpers locaux ──────────────────────────────────────────
@@ -109,47 +112,6 @@ export default function ExportTab({
   return (
     <div style={{ maxWidth: 760, margin: "0 auto" }}>
 
-      {/* ── Section Synchronisation ── */}
-      {(function() {
-        var syncOk = !!(githubPat && githubRepo);
-        var btnStyle = function(active) { return { flex: 1, padding: "11px", borderRadius: th.radiusSm, cursor: active ? "pointer" : "not-allowed", fontFamily: FONT_B, fontSize: 13, fontWeight: 700, background: active ? th.accentBg : th.surface, border: "1px solid " + (active ? th.accent + "55" : th.border), color: active ? th.accent : th.textDim, opacity: syncLoading ? 0.6 : 1 }; };
-        return (
-          <Section skey="sync" icon="☁️" title="Synchronisation">
-            <div style={{ fontSize: 12, color: th.textMuted, fontFamily: FONT_B, padding: "10px 0 6px", lineHeight: 1.6 }}>
-              {"Sauvegarde et restauration via un dépôt GitHub privé. Configurez votre PAT et le dépôt dans Réglages > Export."}
-            </div>
-            {!syncOk && <div style={{ fontSize: 11, color: th.warning, fontFamily: FONT_B, padding: "6px 10px", background: th.warningBg, borderRadius: th.radiusSm, marginBottom: 10, border: "1px solid " + th.warning + "33" }}>
-              {"⚠ Configurez d'abord votre PAT GitHub et le nom de votre dépôt dans Réglages > Export > Synchronisation GitHub."}
-            </div>}
-            <div style={{ display: "flex", gap: 8, marginBottom: 8 }}>
-              <button onClick={githubSave} disabled={!syncOk || syncLoading} style={btnStyle(syncOk && !syncLoading)}>
-                {syncLoading ? "⏳ En cours…" : "☁️ Sauvegarder"}
-              </button>
-              <button onClick={githubLoad} disabled={!syncOk || syncLoading} style={btnStyle(syncOk && !syncLoading)}>
-                {syncLoading ? "⏳ En cours…" : "☁️ Charger"}
-              </button>
-            </div>
-            {syncStatus && <div style={{ fontSize: 11, fontFamily: FONT_B, color: syncStatus.startsWith("✅") ? th.success : th.danger, marginTop: 4 }}>{syncStatus}</div>}
-            {syncDate && !syncStatus && <div style={{ fontSize: 10, fontFamily: FONT_B, color: th.textDim, marginTop: 4 }}>{"Dernier snapshot : " + syncDate}</div>}
-            {syncOk && <div style={{ marginTop: 12, paddingTop: 10, borderTop: "1px solid " + th.border }}>
-              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
-                <div>
-                  <div style={{ fontSize: 12, fontWeight: 700, color: th.text, fontFamily: FONT_B }}>{"🕐 Snapshots quotidiens"}</div>
-                  <div style={{ fontSize: 10, color: th.textMuted, fontFamily: FONT_B, marginTop: 2 }}>{"Sauvegarde auto après chaque push (hier / −3j / −7j / −14j)."}</div>
-                </div>
-                <label style={{ display: "flex", alignItems: "center", gap: 6, cursor: "pointer" }}>
-                  <input type="checkbox" checked={!!syncDailySnapshot} onChange={function(e) { setSyncDailySnapshot && setSyncDailySnapshot(e.target.checked); }} />
-                  <span style={{ fontSize: 11, fontFamily: FONT_B, color: th.textMuted }}>{syncDailySnapshot ? "Activé" : "Désactivé"}</span>
-                </label>
-              </div>
-              {syncDailySnapshot && <button onClick={loadSnapshotList} disabled={snapshotLoading || syncLoading} style={{ padding: "6px 12px", borderRadius: th.radiusSm, cursor: snapshotLoading ? "not-allowed" : "pointer", fontFamily: FONT_B, fontSize: 11, fontWeight: 700, background: th.surface, border: "1px solid " + th.border, color: th.text }}>
-                {snapshotLoading ? "⏳ Chargement…" : "📋 Voir les snapshots disponibles"}
-              </button>}
-            </div>}
-          </Section>
-        );
-      })()}
-
       {/* ── 📄 Pour les élèves ── */}
       <Section skey="eleves" icon="📄" title="Pour les élèves">
         <div style={{ padding: "8px 0 0" }}>{dsMeta}</div>
@@ -169,7 +131,7 @@ export default function ExportTab({
               malusPaliers: malusPaliers, malusManuel: malusManuel,
               commentaires: commentaires, allRemarques: allRemarques, htmlConfig: htmlConfig,
               soundLinksEnabled: soundLinksEnabled, soundBaseUrl: soundBaseUrl, soundAudioExt: soundAudioExt,
-              bonusCompletConfig: bonusCompletConfig,
+              bonusCompletConfig: bonusCompletConfig, clampQuestion: clampQuestion,
               features: ft,
             });
             var slug = (htmlStudent.nom + "_" + htmlStudent.prenom).normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-zA-Z0-9_-]/g, "_");
@@ -178,13 +140,13 @@ export default function ExportTab({
         />
         <ExportRow
           label={"Tous les rapports HTML"}
-          sub={corriges.length + " fichiers compressés"}
+          sub={corriges.length + " fichiers · + impression groupée · + scripts PDF"}
           btnLabel={"Télécharger .zip"}
           color={th.success}
           disabled={!corriges.length}
           onClick={function() {
             if (!corriges.length) return;
-            var docs = genererHtmlTous({
+            var htmlOpts = {
               exam: exam, students: students, grades: grades, remarks: remarks, absents: absents,
               nomDS: examNomDS, dateDS: examDateDS, seuils: seuils,
               seuilDifficile: seuilDifficile, seuilReussite: seuilReussite, seuilPiege: seuilPiege,
@@ -192,14 +154,20 @@ export default function ExportTab({
               malusPaliers: malusPaliers, malusManuel: malusManuel,
               commentaires: commentaires, allRemarques: allRemarques, htmlConfig: htmlConfig,
               soundLinksEnabled: soundLinksEnabled, soundBaseUrl: soundBaseUrl, soundAudioExt: soundAudioExt,
-              bonusCompletConfig: bonusCompletConfig,
+              bonusCompletConfig: bonusCompletConfig, clampQuestion: clampQuestion,
               features: ft,
-            });
+            };
+            var docs = genererHtmlTous(htmlOpts);
+            var printable = genererHtmlTousPrintable(htmlOpts);
+            var scripts = genererScriptsConversionPdf(examNomDS);
             var el = document.createElement("script");
             el.src = "https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js";
             el.onload = function() {
               var zip = new window.JSZip();
               docs.forEach(function(f) { zip.file(f.filename, f.content); });
+              zip.file("IMPRIMER_TOUT.html", printable);
+              zip.file("convertir_en_pdf.sh", scripts.sh);
+              zip.file("convertir_en_pdf.py", scripts.py);
               zip.generateAsync({ type: "blob" }).then(function(blob) {
                 var url = URL.createObjectURL(blob);
                 var a = document.createElement("a"); a.href = url;
@@ -212,6 +180,7 @@ export default function ExportTab({
             document.head.appendChild(el);
           }}
         />
+        {/* baremeLatex déplacé dans Réglages → Export → LaTeX */}
         <ExportRow
           label={"Rapport LaTeX — " + (htmlStudent ? htmlStudent.prenom + " " + htmlStudent.nom : "—")}
           sub={"Élève affiché dans l'onglet Résultats"}
@@ -220,7 +189,7 @@ export default function ExportTab({
           disabled={!htmlStudent}
           onClick={function() {
             if (!htmlStudent) return;
-            var currentGab = gabaritTex || genererGabarit(examNomDS, examDateDS, etablissement);
+            var currentGab = htmlConfig.papierLatex === true ? genererGabaritPapier(examNomDS, examDateDS, etablissement) : (gabaritTex || genererGabarit(examNomDS, examDateDS, etablissement));
             var docs = genererDocumentsIndividuels({
               gabarit: currentGab, exam: exam, students: students, grades: grades, remarks: remarks, absents: absents,
               nomDS: examNomDS, dateDS: examDateDS, seuils: seuils,
@@ -228,8 +197,11 @@ export default function ExportTab({
               malusPaliers: malusPaliers, malusManuel: malusManuel,
               commentaires: commentaires, allRemarques: allRemarques,
               soundLinksEnabled: soundLinksEnabled, soundBaseUrl: soundBaseUrl, soundAudioExt: soundAudioExt,
-              bonusCompletConfig: bonusCompletConfig,
+              bonusCompletConfig: bonusCompletConfig, clampQuestion: clampQuestion,
               features: ft,
+              baremeLatex: htmlConfig.baremeLatex !== false,
+              papierLatex: htmlConfig.papierLatex === true,
+              papierTextes: htmlConfig.papierTextes || null,
             });
             var doc = docs.find(function(d) { return d.filename.indexOf(
               (htmlStudent.nom + "_" + htmlStudent.prenom).normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-zA-Z0-9_-]/g, "_").slice(0, 30)
@@ -246,7 +218,7 @@ export default function ExportTab({
             disabled={!corriges.length}
             onClick={function() {
               if (!corriges.length) return;
-              var currentGab = gabaritTex || genererGabarit(examNomDS, examDateDS, etablissement);
+              var currentGab = htmlConfig.papierLatex === true ? genererGabaritPapier(examNomDS, examDateDS, etablissement) : (gabaritTex || genererGabarit(examNomDS, examDateDS, etablissement));
               var docs = genererDocumentsIndividuels({
                 gabarit: currentGab, exam: exam, students: students, grades: grades, remarks: remarks, absents: absents,
                 nomDS: examNomDS, dateDS: examDateDS, seuils: seuils,
@@ -254,8 +226,11 @@ export default function ExportTab({
                 malusPaliers: malusPaliers, malusManuel: malusManuel,
                 commentaires: commentaires, allRemarques: allRemarques,
                 soundLinksEnabled: soundLinksEnabled, soundBaseUrl: soundBaseUrl, soundAudioExt: soundAudioExt,
-                bonusCompletConfig: bonusCompletConfig,
+                bonusCompletConfig: bonusCompletConfig, clampQuestion: clampQuestion,
                 features: ft,
+                baremeLatex: htmlConfig.baremeLatex !== false,
+                papierLatex: htmlConfig.papierLatex === true,
+                papierTextes: htmlConfig.papierTextes || null,
               });
               var script = genererScriptCompilation(examNomDS);
               var el = document.createElement("script");
@@ -290,7 +265,7 @@ export default function ExportTab({
           color={th.accent}
           disabled={!corriges.length}
           onClick={function() {
-            var currentGab = gabaritTex || genererGabarit(examNomDS, examDateDS, etablissement);
+            var currentGab = htmlConfig.papierLatex === true ? genererGabaritPapier(examNomDS, examDateDS, etablissement) : (gabaritTex || genererGabarit(examNomDS, examDateDS, etablissement));
             var tex = genererDocumentComplet({
               gabarit: currentGab, exam: exam, students: students, grades: grades, remarks: remarks, absents: absents,
               nomDS: examNomDS, dateDS: examDateDS, seuils: seuils,
@@ -298,8 +273,11 @@ export default function ExportTab({
               malusPaliers: malusPaliers, malusManuel: malusManuel,
               commentaires: commentaires, allRemarques: allRemarques,
               soundLinksEnabled: soundLinksEnabled, soundBaseUrl: soundBaseUrl, soundAudioExt: soundAudioExt,
-              bonusCompletConfig: bonusCompletConfig,
+              bonusCompletConfig: bonusCompletConfig, clampQuestion: clampQuestion,
               features: ft,
+              baremeLatex: htmlConfig.baremeLatex !== false,
+              papierLatex: htmlConfig.papierLatex === true,
+              papierTextes: htmlConfig.papierTextes || null,
             });
             downloadFile(tex, "CR_" + (examNomDS || "DS") + ".tex", "text/x-tex");
           }}

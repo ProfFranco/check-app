@@ -41,6 +41,7 @@ export default function SettingsModal({
   soundAudioExt, setSoundAudioExt,
   githubPat, setGithubPat,
   githubRepo, setGithubRepo,
+  syncBackend, setSyncBackend,
   deviceName, setDeviceNameLocal, activeProfileId,
   onClose,
   onSave,
@@ -72,6 +73,7 @@ export default function SettingsModal({
             { id: "calcul",        label: "\uD83D\uDCCA Notes" },
             { id: "correction",    label: "\u270F\uFE0F Correction" },
             { id: "export",        label: "\uD83D\uDCE4 Export" },
+            { id: "sauvegarde",    label: "\u2601\uFE0F Sauvegarde" },
           ];
           return (
             <div style={{ display: "flex", gap: 4, marginBottom: 16, borderBottom: "2px solid " + th.border, paddingBottom: 0 }}>
@@ -416,6 +418,14 @@ export default function SettingsModal({
                         <input type="radio" name="malusModeDs" checked={activeExamSettings.malusMode === m.id} onChange={function() { onExamSetting("malusMode", m.id); }} /> {m.l}
                       </label>); })}
                   </div>
+                  <div style={{ fontSize: 11, fontWeight: 700, color: th.textMuted, fontFamily: FONT_B, marginBottom: 6, marginTop: 14, textTransform: "uppercase", letterSpacing: 1 }}>Items négatifs</div>
+                  <label style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer", fontSize: 11, fontFamily: FONT_B, color: th.text, marginBottom: 8 }}>
+                    <input type="checkbox" checked={!!activeExamSettings.clampQuestion} onChange={function() { onExamSetting("clampQuestion", !activeExamSettings.clampQuestion); }} />
+                    Score question clampé à 0
+                  </label>
+                  <div style={{ fontSize: 10, color: th.textDim, fontFamily: FONT_B, marginBottom: 4 }}>
+                    {"Si décoché, le score d'une question peut être négatif. Le score d'exercice est toujours clampé à 0."}
+                  </div>
                   <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 4 }}>
                     <button onClick={onResetExamSettings} style={{ background: "none", border: "1px solid " + th.border, color: th.textMuted, borderRadius: th.radiusSm, padding: "3px 10px", cursor: "pointer", fontSize: 10, fontFamily: FONT_B }}>
                       {"↺"} Réinitialiser depuis les valeurs par défaut
@@ -736,6 +746,63 @@ export default function SettingsModal({
                 </div>
               </div>}
 
+              {/* ── LaTeX ── */}
+              {SectionHeader("latex", "📄", "Export LaTeX")}
+              {exportOpen.latex && <div style={{ marginBottom: 16 }}>
+                <div style={{ fontSize: 10, color: th.textMuted, fontFamily: FONT_B, marginBottom: 8, lineHeight: 1.5 }}>
+                  {"Options appliquées à tous les exports LaTeX (rapports individuels et document complet)."}
+                </div>
+                <label style={{ display: "flex", alignItems: "center", gap: 7, marginBottom: 5, cursor: "pointer", fontSize: 11, fontFamily: FONT_B, color: htmlConfig.baremeLatex !== false ? th.text : th.textMuted }}>
+                  <input type="checkbox"
+                    checked={htmlConfig.baremeLatex !== false}
+                    onChange={function(e) { setHtmlConfig(Object.assign({}, htmlConfig, { baremeLatex: e.target.checked })); }}
+                  />
+                  {"Inclure le tableau complet des items (dernière page)"}
+                </label>
+                <label style={{ display: "flex", alignItems: "center", gap: 7, marginBottom: 5, cursor: "pointer", fontSize: 11, fontFamily: FONT_B, color: htmlConfig.papierLatex === true ? th.text : th.textMuted }}>
+                  <input type="checkbox"
+                    checked={htmlConfig.papierLatex === true}
+                    onChange={function(e) { setHtmlConfig(Object.assign({}, htmlConfig, { papierLatex: e.target.checked })); }}
+                  />
+                  {"Mode article de recherche (faux papier académique, deux colonnes)"}
+                </label>
+                {htmlConfig.papierLatex && <div style={{ marginTop: 10, paddingTop: 10, borderTop: "1px solid " + th.border }}>
+                  <div style={{ fontSize: 10, color: th.textMuted, fontFamily: FONT_B, marginBottom: 8, lineHeight: 1.5 }}>
+                    {"Personnalisez les phrases tirées aléatoirement (une entrée par ligne). Laissez vide pour garder les textes par défaut. Écrivez des phrases complètes ; les données s'insèrent via les placeholders {sujet}, {ds}, {note}, {rang}, {effectif}, {nTraitees}, {totalQuestions}, {moyenne}. Exception : les verdicts complètent « Ces résultats sont … »."}
+                  </div>
+                  {[
+                    ["ouverture", "Phrases d'ouverture du résumé"],
+                    ["verdict", "Verdicts du résumé"],
+                    ["limites", "Limites de l'étude"],
+                    ["conflit", "Conflit d'intérêts"],
+                    ["financement", "Financement"],
+                    ["remerciements_divers", "Remerciements divers"],
+                    ["conclusion", "Conclusions"],
+                  ].map(function(entry) {
+                    var cle = entry[0], label = entry[1];
+                    return (
+                      <div key={cle} style={{ marginBottom: 8 }}>
+                        <div style={{ fontSize: 10, fontFamily: FONT_B, color: th.textMuted, marginBottom: 3 }}>{label}</div>
+                        <textarea
+                          key={cle + (htmlConfig.papierTextes ? "-custom" : "-default")}
+                          defaultValue={(htmlConfig.papierTextes && htmlConfig.papierTextes[cle] || []).join("\n")}
+                          onChange={function(e) {
+                            var lignes = e.target.value.split("\n").map(function(l) { return l.trim(); }).filter(Boolean);
+                            var newPapierTextes = Object.assign({}, htmlConfig.papierTextes || {}, { [cle]: lignes });
+                            setHtmlConfig(Object.assign({}, htmlConfig, { papierTextes: newPapierTextes }));
+                          }}
+                          style={{ width: "100%", background: th.surface, border: "1px solid " + th.border, color: th.text, borderRadius: 4, padding: "5px 8px", fontSize: 11, fontFamily: MONO, minHeight: 60, resize: "vertical" }}
+                        />
+                      </div>
+                    );
+                  })}
+                  <button onClick={function() { setHtmlConfig(Object.assign({}, htmlConfig, { papierTextes: null })); }}
+                    style={{ fontSize: 10, padding: "3px 9px", borderRadius: th.radiusSm, cursor: "pointer", fontFamily: FONT_B, background: "transparent", border: "1px solid " + th.warning, color: th.warning }}>
+                    {"↺ Réinitialiser les textes"}
+                  </button>
+                </div>}
+              </div>}
+
               {/* ── Liens audio ── */}
               {SectionHeader("sound", "🔊", "Liens audio")}
               {exportOpen.sound && <div style={{ marginBottom: 16 }}>
@@ -770,55 +837,78 @@ export default function SettingsModal({
                 </div>
               </div>}
 
-              {/* ── Synchronisation GitHub ── */}
-              {SectionHeader("github", "☁️", "Synchronisation GitHub")}
-              {exportOpen.github && <div style={{ marginBottom: 16 }}>
-                <div style={{ fontSize: 10, color: th.textMuted, fontFamily: FONT_B, marginBottom: 10, lineHeight: 1.6 }}>
-                  {"Pour sauvegarder/restaurer vos données entre appareils via un dépôt GitHub privé."}
-                  <br />{"Créez un PAT sur github.com → Settings → Developer settings → Personal access tokens → Tokens (classic), avec la portée "}
-                  <strong>{"repo"}</strong>{"."}
-                </div>
-                <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-                  <div>
-                    <div style={{ fontSize: 10, fontWeight: 700, color: th.textMuted, fontFamily: FONT_B, marginBottom: 3 }}>{"Personal Access Token (PAT)"}</div>
-                    <input type="password" value={githubPat} onChange={function(e) { setGithubPat(e.target.value); localStorage.setItem("check_github_pat", e.target.value); }}
-                      placeholder="ghp_xxxxxxxxxxxxxxxxxxxx"
-                      style={{ width: "100%", background: th.card, border: "1px solid " + th.border, color: th.text, borderRadius: 4, padding: "5px 8px", fontSize: 12, fontFamily: MONO, outline: "none" }} />
-                  </div>
-                  <div style={{ fontSize: 11, color: th.warning, marginTop: 4, lineHeight: 1.4 }}>
-                    {"⚠️ Ce token est stocké en clair dans le navigateur (localStorage). "}
-                    {"Utilisez un "}
-                      <a href="https://github.com/settings/personal-access-tokens/new"
-                        target="_blank" rel="noopener noreferrer"
-                         style={{ color: th.accent }}>
-                        {"fine-grained token"}
-                     </a>
-                    {" avec accès limité à un seul dépôt privé (permission Contents: read & write uniquement)."}
-                  </div>
-                  <div>
-                    <div style={{ fontSize: 10, fontWeight: 700, color: th.textMuted, fontFamily: FONT_B, marginBottom: 3 }}>{"Dépôt privé (compte/nom-du-dépôt)"}</div>
-                    <input type="text" value={githubRepo} onChange={function(e) { setGithubRepo(e.target.value); localStorage.setItem("check_github_repo", e.target.value); }}
-                      placeholder="moncompte/check-sauvegarde"
-                      style={{ width: "100%", background: th.card, border: "1px solid " + th.border, color: th.text, borderRadius: 4, padding: "5px 8px", fontSize: 12, fontFamily: MONO, outline: "none" }} />
-                  </div>
-                  <div>
-                    <div style={{ fontSize: 10, fontWeight: 700, color: th.textMuted, fontFamily: FONT_B, marginBottom: 3 }}>{"Nom de cet appareil"}</div>
-                    <input type="text" value={deviceName || ""} onChange={function(e) { setDeviceName(activeProfileId, e.target.value); setDeviceNameLocal(e.target.value); }}
-                      placeholder="MacBook Bureau"
-                      style={{ width: "100%", background: th.card, border: "1px solid " + th.border, color: th.text, borderRadius: 4, padding: "5px 8px", fontSize: 12, fontFamily: FONT_B, outline: "none" }} />
-                    <div style={{ fontSize: 9, color: th.textDim, fontFamily: FONT_B, marginTop: 3 }}>{"Affiché sur les autres appareils lors d'une synchronisation."}</div>
-                  </div>
-                  <div style={{ fontSize: 9, color: th.textDim, fontFamily: FONT_B, lineHeight: 1.5 }}>
-                    {"Le PAT et le dépôt sont stockés dans le localStorage de votre navigateur (séparé des données métier). Ils ne sont jamais envoyés à d'autres serveurs qu'api.github.com."}
-                  </div>
-                  {(githubPat || githubRepo) && <button onClick={function() { setGithubPat(""); setGithubRepo(""); localStorage.removeItem("check_github_pat"); localStorage.removeItem("check_github_repo"); }} style={{ marginTop: 6, padding: "5px 12px", borderRadius: th.radiusSm, cursor: "pointer", fontFamily: FONT_B, fontSize: 11, fontWeight: 700, background: "transparent", border: "1px solid " + th.danger, color: th.danger }}>
-                    {"🔓 Dissocier ce compte GitHub"}
-                  </button>}
-                </div>
-              </div>}
             </div>
           );
         })()}
+
+        {/* ── Onglet Sauvegarde & synchronisation ── */}
+        {settingsTab === "sauvegarde" && (
+          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            {/* Choix du backend de synchronisation (GitHub historique | serveur Sycomore) */}
+            <div>
+              <div style={{ fontSize: 10, fontWeight: 700, color: th.textMuted, fontFamily: FONT_B, marginBottom: 4 }}>{"Destination de la synchronisation"}</div>
+              <div style={{ display: "flex", gap: 6 }}>
+                {[{ id: "github", label: "\u2601\uFE0F GitHub" }, { id: "sycomore", label: "\uD83C\uDF33 Sycomore" }].map(function(opt) {
+                  var actif = (syncBackend || "github") === opt.id;
+                  return (
+                    <button key={opt.id}
+                      onClick={function() { setSyncBackend(opt.id); localStorage.setItem("check_sync_backend", opt.id); }}
+                      style={{ flex: 1, padding: "7px 10px", borderRadius: 4, cursor: "pointer", fontFamily: FONT_B, fontSize: 12, fontWeight: 700,
+                        background: actif ? th.accentBg : th.card, border: "1px solid " + (actif ? th.accent + "55" : th.border),
+                        color: actif ? th.accent : th.textMuted }}>
+                      {opt.label}
+                    </button>
+                  );
+                })}
+              </div>
+              <div style={{ fontSize: 10, color: th.textMuted, fontFamily: FONT_B, marginTop: 6, lineHeight: 1.5 }}>
+                {(syncBackend || "github") === "sycomore"
+                  ? "Connexion, phrase secrète et rapprochement des \u00e9l\u00e8ves se configurent dans l\u2019onglet Sauvegarde \u2192 \uD83C\uDF33 Sycomore."
+                  : "Les r\u00e9glages GitHub ci-dessous restent utilis\u00e9s tant que ce backend est s\u00e9lectionn\u00e9."}
+              </div>
+            </div>
+            <div style={{ height: 1, background: th.border, margin: "4px 0" }} />
+            <div style={{ fontSize: 10, color: th.textMuted, fontFamily: FONT_B, marginBottom: 6, lineHeight: 1.6 }}>
+              {"Synchronisation inter-appareils via un dépôt GitHub privé."}
+              <br />{"Créez un PAT sur github.com → Settings → Developer settings → Personal access tokens → Tokens (classic), avec la portée "}
+              <strong>{"repo"}</strong>{"."}
+            </div>
+            <div>
+              <div style={{ fontSize: 10, fontWeight: 700, color: th.textMuted, fontFamily: FONT_B, marginBottom: 3 }}>{"Personal Access Token (PAT)"}</div>
+              <input type="password" value={githubPat} onChange={function(e) { setGithubPat(e.target.value); localStorage.setItem("check_github_pat", e.target.value); }}
+                placeholder="ghp_xxxxxxxxxxxxxxxxxxxx"
+                style={{ width: "100%", background: th.card, border: "1px solid " + th.border, color: th.text, borderRadius: 4, padding: "5px 8px", fontSize: 12, fontFamily: MONO, outline: "none" }} />
+            </div>
+            <div style={{ fontSize: 11, color: th.warning, lineHeight: 1.4 }}>
+              {"⚠️ Ce token est stocké en clair dans le navigateur (localStorage). "}
+              {"Utilisez un "}
+              <a href="https://github.com/settings/personal-access-tokens/new" target="_blank" rel="noopener noreferrer" style={{ color: th.accent }}>{"fine-grained token"}</a>
+              {" avec accès limité à un seul dépôt privé (permission Contents: read & write uniquement)."}
+            </div>
+            <div>
+              <div style={{ fontSize: 10, fontWeight: 700, color: th.textMuted, fontFamily: FONT_B, marginBottom: 3 }}>{"Dépôt privé (compte/nom-du-dépôt)"}</div>
+              <input type="text" value={githubRepo} onChange={function(e) { setGithubRepo(e.target.value); localStorage.setItem("check_github_repo", e.target.value); }}
+                placeholder="moncompte/check-sauvegarde"
+                style={{ width: "100%", background: th.card, border: "1px solid " + th.border, color: th.text, borderRadius: 4, padding: "5px 8px", fontSize: 12, fontFamily: MONO, outline: "none" }} />
+            </div>
+            <div>
+              <div style={{ fontSize: 10, fontWeight: 700, color: th.textMuted, fontFamily: FONT_B, marginBottom: 3 }}>{"Nom de cet appareil"}</div>
+              <input type="text" value={deviceName || ""} onChange={function(e) { setDeviceName(activeProfileId, e.target.value); setDeviceNameLocal(e.target.value); }}
+                placeholder="MacBook Bureau"
+                style={{ width: "100%", background: th.card, border: "1px solid " + th.border, color: th.text, borderRadius: 4, padding: "5px 8px", fontSize: 12, fontFamily: FONT_B, outline: "none" }} />
+              <div style={{ fontSize: 9, color: th.textDim, fontFamily: FONT_B, marginTop: 3 }}>{"Affiché sur les autres appareils lors d'une synchronisation."}</div>
+            </div>
+            <div style={{ fontSize: 9, color: th.textDim, fontFamily: FONT_B, lineHeight: 1.5 }}>
+              {"Le PAT et le dépôt sont stockés dans le localStorage de votre navigateur (séparé des données métier). Ils ne sont jamais envoyés à d'autres serveurs qu'api.github.com."}
+            </div>
+            {(githubPat || githubRepo) && (
+              <button onClick={function() { setGithubPat(""); setGithubRepo(""); localStorage.removeItem("check_github_pat"); localStorage.removeItem("check_github_repo"); }}
+                style={{ marginTop: 4, padding: "5px 12px", borderRadius: th.radiusSm, cursor: "pointer", fontFamily: FONT_B, fontSize: 11, fontWeight: 700, background: "transparent", border: "1px solid " + th.danger, color: th.danger }}>
+                {"🔓 Dissocier ce compte GitHub"}
+              </button>
+            )}
+          </div>
+        )}
 
         {/* ── Bas du modal : debug + fermer ── */}
         <div style={{ marginTop: 16, paddingTop: 12, borderTop: "1px solid " + th.border, display: "flex", alignItems: "center", justifyContent: "space-between" }}>

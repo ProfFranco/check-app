@@ -128,7 +128,10 @@ function sycomoreAdapter(config) {
   if (!token) throw new Error("Config Sycomore incomplète : jeton d'accès manquant");
   if (!passphrase) throw new Error("Config Sycomore incomplète : phrase secrète manquante");
 
-  const root = apiBase + "/api/check-sync";
+  // apiBase vide = même origine que CHECK, servi derrière le nginx qui expose
+  // l'API sous /api (cas de la production). Renseigné, il est pris tel quel
+  // comme racine d'API — ce qui permet de viser un uvicorn local en dev.
+  const root = (apiBase || "/api") + "/check-sync";
   const headers = { "Authorization": "Bearer " + token };
 
   function urlFor(profileId, suffix) {

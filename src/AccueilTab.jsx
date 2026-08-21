@@ -123,7 +123,9 @@ function CompBar({ label, value, color }) {
   );
 }
 
-function AccueilTab({ th, FONT_B, MONO, profiles, activeProfileId, PROFILE_COLORS, exams, students, grades, perles, setMode, switchProfile, setShowProfileMenu, setActiveExamId, askConfirm, onChangelog }) {
+function AccueilTab({ th, FONT_B, MONO, profiles, activeProfileId, PROFILE_COLORS, exams, students, grades, perles, setMode, switchProfile, setShowProfileMenu, setActiveExamId, askConfirm, onChangelog, onFullBackup, onOpenRestore, backupBusy,
+  linkedFileSupported, linkedFileName, linkedFilePerm,
+  onLinkFile, onUnlinkFile, onReauthorize }) {
   var _ddOpen = useState(false); var ddOpen = _ddOpen[0]; var setDdOpen = _ddOpen[1];
   var _perleIdx = useState(0); var perleIdx = _perleIdx[0]; var setPerleIdx = _perleIdx[1];
 
@@ -385,6 +387,47 @@ function AccueilTab({ th, FONT_B, MONO, profiles, activeProfileId, PROFILE_COLOR
                 color: th.textMuted, padding: "4px 8px", flexShrink: 0 }}>
               {"🔀"}
             </button>
+          )}
+        </div>
+      )}
+
+      {/* SAUVEGARDE & RESTAURATION (filet universel) */}
+      {(onFullBackup || onOpenRestore) && (
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 8, marginBottom: 10 }}>
+          {onFullBackup && (
+            <button onClick={onFullBackup} disabled={!!backupBusy}
+              title={"Télécharge un fichier JSON contenant tous vos profils"}
+              style={{ background: "transparent", border: "1px solid " + th.border, borderRadius: th.radiusSm, padding: "6px 12px", cursor: backupBusy ? "not-allowed" : "pointer", fontFamily: FONT_B, fontSize: 11, color: th.textMuted, opacity: backupBusy ? 0.6 : 1 }}>
+              {backupBusy ? "⏳ Sauvegarde…" : "💾 Sauvegarder mes données"}
+            </button>
+          )}
+          {onOpenRestore && (
+            <button onClick={onOpenRestore} disabled={!!backupBusy}
+              title={"Restaurer depuis un fichier de sauvegarde"}
+              style={{ background: "transparent", border: "1px solid " + th.border, borderRadius: th.radiusSm, padding: "6px 12px", cursor: backupBusy ? "not-allowed" : "pointer", fontFamily: FONT_B, fontSize: 11, color: th.textMuted, opacity: backupBusy ? 0.6 : 1 }}>
+              {"📂 Restaurer"}
+            </button>
+          )}
+        </div>
+      )}
+
+      {linkedFileSupported && (
+        <div style={{ marginTop: 6, fontSize: 10, color: th.textMuted, fontFamily: FONT_B }}>
+          {!linkedFileName && (
+            <span style={{ cursor: "pointer", textDecoration: "underline" }} onClick={onLinkFile}>
+              {"🔗 Lier un fichier pour la sauvegarde auto"}
+            </span>
+          )}
+          {linkedFileName && linkedFilePerm === "granted" && (
+            <span>{"✅ Auto-sauvegarde active — "}<span style={{ cursor: "pointer", textDecoration: "underline" }} onClick={onUnlinkFile}>{"délier"}</span></span>
+          )}
+          {linkedFileName && linkedFilePerm === "prompt" && (
+            <span style={{ color: th.warning, cursor: "pointer", textDecoration: "underline" }} onClick={onReauthorize}>
+              {"⚠ Réautoriser la sauvegarde auto"}
+            </span>
+          )}
+          {linkedFileName && linkedFilePerm === "denied" && (
+            <span style={{ color: th.danger }}>{"❌ Sauvegarde auto désactivée (permission refusée)"}</span>
           )}
         </div>
       )}

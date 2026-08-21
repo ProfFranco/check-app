@@ -40,6 +40,10 @@ export const lightTheme = {
   ruledLine: "#c8bfb0",     // Lignes de cahier
   headerBorder: "#2c2416",  // Bordure basse de l'en-tête
   shadow: "0 1px 3px rgba(0,0,0,0.06)",
+  negBg: "#fcebeb",
+  negBorder: "#e24b4a",
+  negText: "#791f1f",
+  negCheckBg: "#f7c1c1",
 };
 
 // ─── Thème sombre ────────────────────────────────────────────────
@@ -66,6 +70,10 @@ export const darkTheme = {
   ruledLine: "#3a3428",
   headerBorder: "#e8e4dc",
   shadow: "0 1px 3px rgba(0,0,0,0.2)",
+  negBg: "#3d1f1f",
+  negBorder: "#c0504f",
+  negText: "#f09595",
+  negCheckBg: "#5a2525",
 };
 
 // ─── Thème Jeune ─────────────────────────────────────────────────
@@ -92,4 +100,8 @@ export const youngTheme = {
   ruledLine: "#c8d4f8",     // Lignes de cahier
   headerBorder: "#5b5ef4",  // Bordure basse de l'en-tête (accent)
   shadow: "0 2px 8px rgba(91,94,244,0.10)",
+  negBg: "#fff0ee",
+  negBorder: "#c8882a",
+  negText: "#633806",
+  negCheckBg: "#fac775",
 };
