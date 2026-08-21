@@ -13,6 +13,7 @@ export default function SauvegardeTab({
   onFullBackup, onOpenRestore, backupBusy,
   linkedFileSupported, linkedFileName, linkedFilePerm, linkedFileBusy,
   onLinkFile, onUnlinkFile, onReauthorize,
+  syncBackend, syncConfigured, sycomore,
 }) {
   function Section(props) {
     var key = props.skey;
@@ -25,7 +26,7 @@ export default function SauvegardeTab({
           <span style={{ fontSize: 14, fontWeight: 700, fontFamily: FONT, flex: 1 }}>{props.title}</span>
           <span style={{ fontSize: 11, color: th.textMuted, display: "inline-block", transition: "transform 0.28s ease", transform: isOpen ? "rotate(180deg)" : "rotate(0deg)" }}>{"▼"}</span>
         </div>
-        <div style={{ maxHeight: isOpen ? 1200 : 0, overflow: "hidden", transition: "max-height 0.38s ease" }}>
+        <div style={{ maxHeight: isOpen ? (props.maxH || 1200) : 0, overflow: "hidden", transition: "max-height 0.38s ease" }}>
           <div style={{ borderTop: "1px solid " + th.border, padding: "0 16px 16px" }}>
             {props.children}
           </div>
@@ -39,15 +40,20 @@ export default function SauvegardeTab({
 
       {/* ── Section Synchronisation ── */}
       {(function() {
-        var syncOk = !!(githubPat && githubRepo);
+        var estSycomore = syncBackend === "sycomore";
+        var syncOk = syncConfigured !== undefined ? !!syncConfigured : !!(githubPat && githubRepo);
         var btnStyle = function(active) { return { flex: 1, padding: "11px", borderRadius: th.radiusSm, cursor: active ? "pointer" : "not-allowed", fontFamily: FONT_B, fontSize: 13, fontWeight: 700, background: active ? th.accentBg : th.surface, border: "1px solid " + (active ? th.accent + "55" : th.border), color: active ? th.accent : th.textDim, opacity: syncLoading ? 0.6 : 1 }; };
         return (
           <Section skey="sync" icon="☁️" title="Synchronisation">
             <div style={{ fontSize: 12, color: th.textMuted, fontFamily: FONT_B, padding: "10px 0 6px", lineHeight: 1.6 }}>
-              {"Sauvegarde et restauration via un dépôt GitHub privé. Configurez votre PAT et le dépôt dans Réglages → ☁️ Sauvegarde."}
+              {estSycomore
+                ? "Sauvegarde et restauration sur votre serveur Sycomore. La sauvegarde est chiffrée dans ce navigateur avant l'envoi : le serveur ne stocke qu'un bloc illisible sans votre phrase secrète."
+                : "Sauvegarde et restauration via un dépôt GitHub privé. Configurez votre PAT et le dépôt dans Réglages → ☁️ Sauvegarde."}
             </div>
             {!syncOk && <div style={{ fontSize: 11, color: th.warning, fontFamily: FONT_B, padding: "6px 10px", background: th.warningBg, borderRadius: th.radiusSm, marginBottom: 10, border: "1px solid " + th.warning + "33" }}>
-              {"⚠ Configurez d'abord votre PAT GitHub et le nom de votre dépôt dans Réglages → ☁️ Sauvegarde."}
+              {estSycomore
+                ? "⚠ Connectez-vous à Sycomore et définissez une phrase secrète (section 🌳 ci-dessous)."
+                : "⚠ Configurez d'abord votre PAT GitHub et le nom de votre dépôt dans Réglages → ☁️ Sauvegarde."}
             </div>}
             <div style={{ display: "flex", gap: 8, marginBottom: 8 }}>
               <button onClick={githubSave} disabled={!syncOk || syncLoading} style={btnStyle(syncOk && !syncLoading)}>
@@ -74,6 +80,141 @@ export default function SauvegardeTab({
                 {snapshotLoading ? "⏳ Chargement…" : "📋 Voir les snapshots disponibles"}
               </button>}
             </div>}
+          </Section>
+        );
+      })()}
+
+      {/* ── 🌳 Sycomore : connexion, rapprochement des élèves, envoi des résultats ── */}
+      {sycomore && (function() {
+        var s = sycomore;
+        var champ = { width: "100%", padding: "8px 10px", borderRadius: th.radiusSm, border: "1px solid " + th.border, background: th.surface, color: th.text, fontFamily: FONT_B, fontSize: 12, boxSizing: "border-box" };
+        var label = { fontSize: 10, fontWeight: 700, color: th.textMuted, fontFamily: FONT_B, marginBottom: 3 };
+        var btn = function(actif, principal) {
+          return {
+            padding: "9px 14px", borderRadius: th.radiusSm, cursor: actif ? "pointer" : "not-allowed",
+            fontFamily: FONT_B, fontSize: 12, fontWeight: 700,
+            background: principal ? th.accentBg : th.surface,
+            border: "1px solid " + (principal ? th.accent + "55" : th.border),
+            color: principal ? th.accent : th.text, opacity: actif ? 1 : 0.5,
+          };
+        };
+        var nbMappes = Object.keys(s.sycomoreMap || {}).length;
+        var connecte = !!s.sycomoreToken;
+
+        return (
+          <Section skey="sycomore" icon="🌳" title="Sycomore" maxH={2600}>
+            <div style={{ fontSize: 12, color: th.textMuted, fontFamily: FONT_B, padding: "10px 0 10px", lineHeight: 1.6 }}>
+              {"Envoi des résultats de DS vers Sycomore pour le suivi par élève. Seuls les identifiants d'élèves et les notes sont transmis — aucun nom ne quitte ce navigateur."}
+            </div>
+
+            {/* Connexion */}
+            <div style={{ marginBottom: 12 }}>
+              <div style={label}>{"Racine de l'API (vide = /api sur ce serveur)"}</div>
+              <input type="text" value={s.sycomoreUrl} placeholder="http://localhost:8000"
+                onChange={function(e) { s.setSycomoreUrl(e.target.value); localStorage.setItem("check_sycomore_url", e.target.value); }}
+                style={Object.assign({}, champ, { marginBottom: 8 })} />
+              <div style={label}>{"Identifiant Sycomore"}</div>
+              <input type="text" value={s.sycomoreUser} autoComplete="username"
+                onChange={function(e) { s.setSycomoreUser(e.target.value); }}
+                style={Object.assign({}, champ, { marginBottom: 8 })} />
+              <div style={label}>{"Mot de passe"}</div>
+              <input type="password" id="sycomore-pass" autoComplete="current-password"
+                placeholder={connecte ? "déjà connecté" : ""}
+                style={Object.assign({}, champ, { marginBottom: 8 })} />
+              <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                <button disabled={s.sycomoreBusy} style={btn(!s.sycomoreBusy, true)}
+                  onClick={function() {
+                    var el = document.getElementById("sycomore-pass");
+                    s.sycomoreLogin(el ? el.value : "").then(function(ok) { if (ok && el) el.value = ""; });
+                  }}>
+                  {s.sycomoreBusy ? "⏳…" : connecte ? "🔄 Se reconnecter" : "🔑 Se connecter"}
+                </button>
+                {connecte && <span style={{ fontSize: 11, color: th.success, fontFamily: FONT_B }}>{"✓ connecté"}</span>}
+              </div>
+            </div>
+
+            {/* Phrase secrète de chiffrement */}
+            <div style={{ marginBottom: 12, paddingTop: 10, borderTop: "1px solid " + th.border }}>
+              <div style={label}>{"Phrase secrète (chiffre la sauvegarde avant l'envoi)"}</div>
+              <input type="password" value={s.sycomorePass} autoComplete="new-password"
+                onChange={function(e) { s.setSycomorePass(e.target.value); localStorage.setItem("check_sycomore_passphrase", e.target.value); }}
+                style={champ} />
+              <div style={{ fontSize: 10, color: th.warning, fontFamily: FONT_B, marginTop: 6, lineHeight: 1.5 }}>
+                {"⚠ Sans cette phrase, une sauvegarde envoyée sur le serveur est définitivement illisible — y compris par vous. Notez-la ailleurs."}
+              </div>
+            </div>
+
+            {/* Rapprochement des élèves */}
+            <div style={{ marginBottom: 12, paddingTop: 10, borderTop: "1px solid " + th.border }}>
+              <div style={{ fontSize: 12, fontWeight: 700, color: th.text, fontFamily: FONT_B, marginBottom: 4 }}>
+                {"🔗 Rapprochement des élèves"}
+              </div>
+              <div style={{ fontSize: 10, color: th.textMuted, fontFamily: FONT_B, marginBottom: 8, lineHeight: 1.5 }}>
+                {"Importez le pack d'identités Sycomore pour associer chaque élève CHECK à son identifiant serveur. Le pack est lu en mémoire et n'est jamais envoyé nulle part."}
+              </div>
+              <input type="file" accept="application/json,.json"
+                onChange={function(e) { s.sycomoreImporterPack(e.target.files && e.target.files[0]); e.target.value = ""; }}
+                style={{ fontSize: 11, fontFamily: FONT_B, color: th.textMuted, marginBottom: 8 }} />
+              <div style={{ fontSize: 11, fontFamily: FONT_B, color: nbMappes ? th.success : th.textDim }}>
+                {nbMappes + " élève(s) rapproché(s) sur " + (s.students || []).length}
+              </div>
+              {s.sycomoreAppariement && s.sycomoreAppariement.nonApparies.length > 0 && (
+                <div style={{ marginTop: 8 }}>
+                  <div style={{ fontSize: 10, color: th.warning, fontFamily: FONT_B, marginBottom: 4 }}>
+                    {"Sans correspondance automatique — à associer à la main :"}
+                  </div>
+                  {s.sycomoreAppariement.nonApparies.map(function(el) {
+                    return (
+                      <div key={el.id} style={{ display: "flex", gap: 6, alignItems: "center", marginBottom: 4 }}>
+                        <span style={{ fontSize: 11, fontFamily: FONT_B, color: th.text, flex: 1 }}>
+                          {(el.prenom || "") + " " + (el.nom || "")}
+                        </span>
+                        <input type="number" placeholder="id Sycomore"
+                          defaultValue={s.sycomoreMap[el.id] || ""}
+                          onBlur={function(e) { s.sycomoreDefinirMapping(el.id, e.target.value); }}
+                          style={Object.assign({}, champ, { width: 110, padding: "5px 8px", fontSize: 11 })} />
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+
+            {/* Envoi de la synthèse */}
+            <div style={{ paddingTop: 10, borderTop: "1px solid " + th.border }}>
+              <div style={{ fontSize: 12, fontWeight: 700, color: th.text, fontFamily: FONT_B, marginBottom: 6 }}>
+                {"📤 Envoyer les résultats du DS actif"}
+              </div>
+              <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 8 }}>
+                <select value={s.sycomoreClasseId} disabled={!connecte}
+                  onChange={function(e) { s.setSycomoreClasseId(e.target.value); }}
+                  style={Object.assign({}, champ, { flex: 1 })}>
+                  <option value="">{"— choisir une classe —"}</option>
+                  {(s.sycomoreClasses || []).map(function(c) {
+                    return <option key={c.id} value={c.id}>{c.nom + " (" + c.niveau + ")"}</option>;
+                  })}
+                </select>
+                <button onClick={s.sycomoreChargerClasses} disabled={!connecte || s.sycomoreBusy}
+                  style={btn(connecte && !s.sycomoreBusy, false)}>{"↻"}</button>
+              </div>
+              <button onClick={s.sycomorePousserSynthese}
+                disabled={!connecte || !s.sycomoreClasseId || s.sycomoreBusy || !s.examNomDS}
+                style={Object.assign({}, btn(connecte && s.sycomoreClasseId && !s.sycomoreBusy, true), { width: "100%" })}>
+                {s.sycomoreBusy ? "⏳ Envoi…" : "📤 Envoyer « " + (s.examNomDS || "DS sans nom") + " »"}
+              </button>
+            </div>
+
+            {/* Message d'état */}
+            {s.sycomoreMsg && (
+              <div style={{
+                marginTop: 10, padding: "8px 10px", borderRadius: th.radiusSm, fontSize: 11, fontFamily: FONT_B, lineHeight: 1.5,
+                color: s.sycomoreMsg.type === "error" ? th.danger : s.sycomoreMsg.type === "warn" ? th.warning : th.success,
+                background: th.surface,
+                border: "1px solid " + (s.sycomoreMsg.type === "error" ? th.danger : s.sycomoreMsg.type === "warn" ? th.warning : th.success) + "44",
+              }}>
+                {s.sycomoreMsg.texte}
+              </div>
+            )}
           </Section>
         );
       })()}

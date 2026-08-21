@@ -35,3 +35,54 @@ export function slugify(str) {
     .replace(/_+/g, "_")
     .slice(0, 60);
 }
+
+/**
+ * Cl\u00e9 de rapprochement d'une identit\u00e9 : minuscules, sans accents ni
+ * ponctuation ni espaces. \u00ab Le Goff \u00bb et \u00ab LEGOFF \u00bb donnent la m\u00eame cl\u00e9,
+ * de m\u00eame que \u00ab Jean-Luc \u00bb et \u00ab jean luc \u00bb.
+ */
+export function cleIdentite(nom, prenom) {
+  function norm(s) {
+    return String(s || "")
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .toLowerCase()
+      .replace(/[^a-z0-9]/g, "");
+  }
+  return norm(nom) + "|" + norm(prenom);
+}
+
+/**
+ * Rapproche les \u00e9l\u00e8ves CHECK des identit\u00e9s d'un pack Sycomore.
+ *
+ * students : [{ id, nom, prenom }]  (c\u00f4t\u00e9 CHECK)
+ * pack     : { identities: { "<etudiantId>": { nom, prenom } } }  (c\u00f4t\u00e9 Sycomore)
+ *
+ * Retourne { map, nonApparies, ambigus } :
+ *   map         \u2192 { checkStudentId: etudiantIdServeur }
+ *   nonApparies \u2192 \u00e9l\u00e8ves CHECK sans correspondance
+ *   ambigus     \u2192 \u00e9l\u00e8ves CHECK dont la cl\u00e9 correspond \u00e0 plusieurs identit\u00e9s
+ *                 (jamais rapproch\u00e9s automatiquement : \u00e0 trancher \u00e0 la main)
+ */
+export function apparierIdentites(students, pack) {
+  var identities = (pack && pack.identities) || {};
+  var parCle = {};
+  Object.keys(identities).forEach(function(etudiantId) {
+    var ident = identities[etudiantId] || {};
+    var cle = cleIdentite(ident.nom, ident.prenom);
+    if (!parCle[cle]) parCle[cle] = [];
+    parCle[cle].push(etudiantId);
+  });
+
+  var map = {};
+  var nonApparies = [];
+  var ambigus = [];
+  (students || []).forEach(function(s) {
+    var candidats = parCle[cleIdentite(s.nom, s.prenom)] || [];
+    if (candidats.length === 1) map[s.id] = parseInt(candidats[0], 10);
+    else if (candidats.length > 1) ambigus.push(s);
+    else nonApparies.push(s);
+  });
+
+  return { map: map, nonApparies: nonApparies, ambigus: ambigus };
+}
