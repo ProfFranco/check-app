@@ -26,12 +26,12 @@ import {
   notesParCompetence, competencePct,
   exercisePctAbsolute, exercisePctRelative,
   countMalusRemarks, malusAuto, malusTotal,
-  normaliser, importCSV, downloadFile, treatedKey, validateState
+  normaliser, importCSV, downloadFile, treatedKey, validateState, absentKey, examAbsents
 } from "./utils/calculs";
 import { genererGabarit, genererDocumentComplet, genererDocumentsIndividuels, genererScriptCompilation } from "./utils/latex";
 import { genererHtmlEleve, genererHtmlTous, DEFAULT_HTML_CONFIG, DEFAULT_RAPPORT_CLASSE_CONFIG, genererRapportClasse } from "./utils/html";
 import { renderStarMap, createAnimatedStarMap } from "./utils/starmap";
-import { buildAudioFilename } from "./utils/helpers";
+import { apparierIdentites, buildAudioFilename } from "./utils/helpers";
 import { loadDB, saveDB, loadMeta, saveMeta, initProfiles, profileDBName, openNamedDB } from "./utils/db";
 import { RadarChart, MiniRadarEx, Histo, PBar, ProgressionChart, ProgressionRadar } from "./components/Charts";
 import AudioRecorder from "./components/AudioRecorder";
@@ -39,8 +39,11 @@ import DebugModal from "./components/DebugModal";
 import SettingsModal from "./SettingsModal";
 import ExportTab from "./ExportTab";
 import HelpTab from "./HelpTab";
+import SauvegardeTab from "./SauvegardeTab";
 import OverviewTab from "./OverviewTab";
 import { createSyncAdapter, syncCheck, syncPush, syncPull, getLocalSyncState, maintainSnapshots, listAvailableSnapshots, readSnapshot, contentHash } from "./utils/sync";
+import { collectAllProfiles, restoreReplace, restoreMerge, parseBackup, validateBackup, backupFilename } from "./utils/backup";
+import { isFileLinkSupported, displayName, saveHandle, loadHandle, clearHandle, queryPermission, requestPermission, pickSaveFile, writeToLinkedFile } from "./utils/filelink";
 import SyncIndicator from "./components/SyncIndicator";
 import AccueilTab from "./AccueilTab";
 // ─── Logos (dans public/logos/) ──────────────────────────────────
@@ -66,7 +69,10 @@ const MONO = FONT_MONO;
 // ═══════════════════════════════════════════════════════════════════
 // HOOK — Synchronisation inter-appareils
 // ═══════════════════════════════════════════════════════════════════
-function useSyncStatus({ buildAppState, activeProfileId, githubConfig, restoreState, dbLoaded, dailySnapshot }) {
+// syncConfig porte le backend actif et les identifiants des deux backends.
+// Ses champs sont lus individuellement dans les deps du useMemo ci-dessous :
+// passer l'objet lui-même recréerait l'adapter à chaque rendu.
+function useSyncStatus({ buildAppState, activeProfileId, syncConfig, restoreState, dbLoaded, dailySnapshot }) {
   var _status = useState("checking"); var setStatus = _status[1]; var status = _status[0];
   var _remoteMeta = useState(null); var setRemoteMeta = _remoteMeta[1]; var remoteMeta = _remoteMeta[0];
   var _lastSyncAt = useState(null); var setLastSyncAt = _lastSyncAt[1]; var lastSyncAt = _lastSyncAt[0];
@@ -78,10 +84,21 @@ function useSyncStatus({ buildAppState, activeProfileId, githubConfig, restoreSt
   var autoPullDoneRef = useRef(false);
 
   var adapter = useMemo(function() {
-    if (!githubConfig.pat || !githubConfig.repo) return null;
-    try { return createSyncAdapter({ backend: "github", pat: githubConfig.pat, repo: githubConfig.repo }); }
-    catch(_e) { return null; }
-  }, [githubConfig.pat, githubConfig.repo]);
+    try {
+      if (syncConfig.backend === "sycomore") {
+        if (!syncConfig.token || !syncConfig.passphrase) return null;
+        return createSyncAdapter({
+          backend: "sycomore",
+          apiBase: syncConfig.apiBase,
+          token: syncConfig.token,
+          passphrase: syncConfig.passphrase,
+          deviceName: syncConfig.deviceName,
+        });
+      }
+      if (!syncConfig.pat || !syncConfig.repo) return null;
+      return createSyncAdapter({ backend: "github", pat: syncConfig.pat, repo: syncConfig.repo });
+    } catch(_e) { return null; }
+  }, [syncConfig.backend, syncConfig.pat, syncConfig.repo, syncConfig.apiBase, syncConfig.token, syncConfig.passphrase, syncConfig.deviceName]);
 
   function doPull(options) {
     options = options || {};
@@ -115,7 +132,16 @@ function useSyncStatus({ buildAppState, activeProfileId, githubConfig, restoreSt
 
   function doPush(options) {
     options = options || {};
-    if (inFlightRef.current || !adapter) return Promise.resolve();
+    if (!adapter) return Promise.resolve();
+    if (inFlightRef.current) {
+      // Opération en cours — réessayer dans 600ms (push manuel uniquement, pas l'auto-save)
+      if (options.manual) {
+        return new Promise(function(resolve) {
+          setTimeout(function() { resolve(doPush(options)); }, 600);
+        });
+      }
+      return Promise.resolve();
+    }
     inFlightRef.current = true;
     setStatus("pushing");
     var state = buildAppState();
@@ -210,11 +236,11 @@ function StarMapModal({ exam, student, grades, students, theme, onClose }) {
     var rates = {};
     exam.exercises.forEach(function(ex) {
       ex.questions.forEach(function(q) {
-        var qMax = q.items.reduce(function(s, it) { return s + (parseFloat(it.points) || 0); }, 0);
+        var qMax = q.items.reduce(function(s, it) { return it.negative ? s : s + (parseFloat(it.points) || 0); }, 0);
         var thresh = qMax * 0.5;
         var ok = students.filter(function(st) {
           var earned = q.items.reduce(function(sum, it) {
-            return sum + (grades[gradeKey(st.id, it.id)] ? (parseFloat(it.points) || 0) : 0);
+            return it.negative ? sum : sum + (grades[gradeKey(st.id, it.id)] ? (parseFloat(it.points) || 0) : 0);
           }, 0);
           return earned >= thresh;
         }).length;
@@ -369,7 +395,7 @@ export default function App() {
   var _showDebug = useState(false); var setShowDebug = _showDebug[1]; var showDebug = _showDebug[0];
   var _csvConfig = useState({ sep: ";", dec: ",", cols: { rang: true, nom: true, prenom: true, absent: true, note: true, noteNorm: true, groupe: false, competences: false, malus: false } }); var setCsvConfig = _csvConfig[1]; var csvConfig = _csvConfig[0];
   var _htmlPresets = useState([]); var setHtmlPresets = _htmlPresets[1]; var htmlPresets = _htmlPresets[0];
-  var _htmlConfig = useState({ theme: "light", noteNorm: true, noteBrute: false, rang: true, statsEleve: { justesse: true, efficacite: true, malus: true }, statsClasse: { moy: true, minMax: true, sigma: false }, competences: "grid", commentaire: true, detailExercices: true, bareme: false, histogramme: true, starMap: false }); var setHtmlConfig = _htmlConfig[1]; var htmlConfig = _htmlConfig[0];  var _htmlStudentId = useState(null); var setHtmlStudentId = _htmlStudentId[1]; var htmlStudentId = _htmlStudentId[0];
+  var _htmlConfig = useState({ theme: "light", noteNorm: true, noteBrute: false, rang: true, statsEleve: { justesse: true, efficacite: true, malus: true }, statsClasse: { moy: true, minMax: true, sigma: false }, competences: "grid", commentaire: true, detailExercices: true, bareme: false, histogramme: true, starMap: false, baremeLatex: true, papierLatex: false, papierTextes: null }); var setHtmlConfig = _htmlConfig[1]; var htmlConfig = _htmlConfig[0];  var _htmlStudentId = useState(null); var setHtmlStudentId = _htmlStudentId[1]; var htmlStudentId = _htmlStudentId[0];
   var _commentaireDS = useState({}); var setCommentaireDS = _commentaireDS[1]; var commentaireDS = _commentaireDS[0];
   var _rapportClasseConfig = useState(DEFAULT_RAPPORT_CLASSE_CONFIG); var setRapportClasseConfig = _rapportClasseConfig[1]; var rapportClasseConfig = _rapportClasseConfig[0];
   var _soundLinksEnabled = useState(false); var setSoundLinksEnabled = _soundLinksEnabled[1]; var soundLinksEnabled = _soundLinksEnabled[0];
@@ -410,7 +436,7 @@ export default function App() {
   var _showLayoutModal = useState(false); var setShowLayoutModal = _showLayoutModal[1]; var showLayoutModal = _showLayoutModal[0];
   var _restoreConfirm = useState(null); var setRestoreConfirm = _restoreConfirm[1]; var restoreConfirm = _restoreConfirm[0];
   var _featOpen = useState(true); var setFeatOpen = _featOpen[1]; var featOpen = _featOpen[0];
-  var _exportOpen = useState({ eleves: true, enseignant: true, gabarit: false, rapportClasse: false, synthese: false, github: false, sync: true, sound: false }); var setExportOpen = _exportOpen[1]; var exportOpen = _exportOpen[0];
+  var _exportOpen = useState({ eleves: true, enseignant: true, gabarit: false, rapportClasse: false, synthese: false, github: false, sync: true, sycomore: false, latex: false, sound: false }); var setExportOpen = _exportOpen[1]; var exportOpen = _exportOpen[0];
   var _showApropos = useState(false); var setShowApropos = _showApropos[1]; var showApropos = _showApropos[0];
   var _showChangelog = useState(false); var setShowChangelog = _showChangelog[1]; var showChangelog = _showChangelog[0];
   var _changelogText = useState(""); var setChangelogText = _changelogText[1]; var changelogText = _changelogText[0];
@@ -418,6 +444,19 @@ export default function App() {
   var _githubPat = useState(""); var setGithubPat = _githubPat[1]; var githubPat = _githubPat[0];
   var _githubRepo = useState(""); var setGithubRepo = _githubRepo[1]; var githubRepo = _githubRepo[0];
   var _deviceName = useState("Cet appareil"); var setDeviceName = _deviceName[1]; var deviceName = _deviceName[0];
+  var _syncBackend = useState("github"); var setSyncBackend = _syncBackend[1]; var syncBackend = _syncBackend[0];
+  var _sycomoreUrl = useState(""); var setSycomoreUrl = _sycomoreUrl[1]; var sycomoreUrl = _sycomoreUrl[0];
+  var _sycomoreUser = useState(""); var setSycomoreUser = _sycomoreUser[1]; var sycomoreUser = _sycomoreUser[0];
+  var _sycomoreToken = useState(""); var setSycomoreToken = _sycomoreToken[1]; var sycomoreToken = _sycomoreToken[0];
+  var _sycomorePass = useState(""); var setSycomorePass = _sycomorePass[1]; var sycomorePass = _sycomorePass[0];
+  var _sycomoreBusy = useState(false); var setSycomoreBusy = _sycomoreBusy[1]; var sycomoreBusy = _sycomoreBusy[0];
+  var _sycomoreMsg = useState(null); var setSycomoreMsg = _sycomoreMsg[1]; var sycomoreMsg = _sycomoreMsg[0];
+  var _sycomoreClasses = useState([]); var setSycomoreClasses = _sycomoreClasses[1]; var sycomoreClasses = _sycomoreClasses[0];
+  var _sycomoreClasseId = useState(""); var setSycomoreClasseId = _sycomoreClasseId[1]; var sycomoreClasseId = _sycomoreClasseId[0];
+  var _sycomoreAppariement = useState(null); var setSycomoreAppariement = _sycomoreAppariement[1]; var sycomoreAppariement = _sycomoreAppariement[0];
+  // sycomoreMap : seul état Sycomore persisté en base (données métier du profil).
+  // La config (URL, jeton, phrase secrète) vit en localStorage, comme le PAT GitHub.
+  var _sycomoreMap = useState({}); var setSycomoreMap = _sycomoreMap[1]; var sycomoreMap = _sycomoreMap[0];
   var _profiles = useState([]); var setProfiles = _profiles[1]; var profiles = _profiles[0];
   var _activeProfileId = useState(null); var setActiveProfileId = _activeProfileId[1]; var activeProfileId = _activeProfileId[0];
   var _showProfileMenu = useState(false); var setShowProfileMenu = _showProfileMenu[1]; var showProfileMenu = _showProfileMenu[0];
@@ -429,6 +468,13 @@ export default function App() {
   var _newProfileImport = useState({ students: false, export: false, remarques: false, etablissement: false, calcul: false, evaluation: false }); var setNewProfileImport = _newProfileImport[1]; var newProfileImport = _newProfileImport[0];
   var _synthese = useState([]); var setSynthese = _synthese[1]; var synthese = _synthese[0];
   var _itemHintVisible = useState(null); var itemHintVisible = _itemHintVisible[0]; var setItemHintVisible = _itemHintVisible[1];
+  var _backupBusy = useState(false); var backupBusy = _backupBusy[0]; var setBackupBusy = _backupBusy[1];
+  var _backupRestoreModal = useState(null); var backupRestoreModal = _backupRestoreModal[0]; var setBackupRestoreModal = _backupRestoreModal[1];
+  var _restoreMode = useState("replace"); var restoreMode = _restoreMode[0]; var setRestoreMode = _restoreMode[1];
+  var _linkedFileHandle = useState(null); var linkedFileHandle = _linkedFileHandle[0]; var setLinkedFileHandle = _linkedFileHandle[1];
+  var _linkedFileName = useState(""); var linkedFileName = _linkedFileName[0]; var setLinkedFileName = _linkedFileName[1];
+  var _linkedFilePerm = useState(null); var linkedFilePerm = _linkedFilePerm[0]; var setLinkedFilePerm = _linkedFilePerm[1];
+  var _linkedFileBusy = useState(false); var linkedFileBusy = _linkedFileBusy[0]; var setLinkedFileBusy = _linkedFileBusy[1];
   var _etablissement = useState({
     nom: ETABLISSEMENT.nom,
     classe: ETABLISSEMENT.classe,
@@ -436,8 +482,10 @@ export default function App() {
     promotion: ETABLISSEMENT.promotion,
     anneeScolaire: ETABLISSEMENT.anneeScolaire,
   }); var setEtablissement = _etablissement[1]; var etablissement = _etablissement[0];
+  var _absentsLegacyNotice = useState(false); var absentsLegacyNotice = _absentsLegacyNotice[0]; var setAbsentsLegacyNotice = _absentsLegacyNotice[1];
   var searchInputRef = useRef();
   var fileRef = useRef();
+  var backupFileRef = useRef();
   var csvRef = useRef();
   var touchRef = useRef({ x: 0, y: 0 });  var hintTimerRef = useRef(null);
 
@@ -497,9 +545,31 @@ export default function App() {
       var savedRepo = localStorage.getItem("check_github_repo") || "";
       if (savedPat) setGithubPat(savedPat);
       if (savedRepo) setGithubRepo(savedRepo);
+      // Config Sycomore — même emplacement que la config GitHub (localStorage,
+      // séparé des données métier), donc même modèle de menace que le PAT.
+      var savedBackend = localStorage.getItem("check_sync_backend") || "github";
+      setSyncBackend(savedBackend === "sycomore" ? "sycomore" : "github");
+      setSycomoreUrl(localStorage.getItem("check_sycomore_url") || "");
+      setSycomoreUser(localStorage.getItem("check_sycomore_user") || "");
+      setSycomoreToken(localStorage.getItem("check_sycomore_token") || "");
+      setSycomorePass(localStorage.getItem("check_sycomore_passphrase") || "");
       if (resolvedActiveId) setDeviceName(getLocalSyncState(resolvedActiveId).deviceName);
     });
   }, []);
+
+  // ─── P2-b : rechargement du handle lié au démarrage ─────────────
+  useEffect(function() {
+    if (!dbLoaded) return;
+    if (!isFileLinkSupported()) return;
+    loadHandle().then(function(handle) {
+      if (!handle) return;
+      queryPermission(handle).then(function(perm) {
+        setLinkedFileHandle(handle);
+        setLinkedFileName(displayName(handle));
+        setLinkedFilePerm(perm);
+      });
+    });
+  }, [dbLoaded]); // eslint-disable-line
 
   // ─── Construction de l'objet d'état complet (source unique) ────
   function buildAppState(overrides) {
@@ -520,6 +590,7 @@ export default function App() {
       syncDailySnapshot: syncDailySnapshot,
       notesPrivees: notesPrivees, // notesPrivees et perles : inclus dans backup, exclus de tous les exports élèves
       perles: perles,
+      sycomoreMap: sycomoreMap, // rapprochement élève CHECK → etudiant_id Sycomore ; exclu de tous les exports élèves
     }, overrides || {});
   }
 
@@ -534,7 +605,16 @@ export default function App() {
     if (d.students) setStudents(d.students);
     if (d.grades) setGrades(d.grades);
     if (d.remarks) setRemarks(d.remarks);
-    if (d.absents) setAbsents(d.absents);
+    if (d.absents && typeof d.absents === "object") {
+      var absKeys = Object.keys(d.absents);
+      var isOldFormat = absKeys.length > 0 && absKeys.every(function(k) { return k.indexOf("__") < 0; });
+      if (isOldFormat) {
+        setAbsents({});
+        setAbsentsLegacyNotice(true);
+      } else {
+        setAbsents(d.absents);
+      }
+    }
     if (d.groupes) setGroupes(d.groupes);
     if (d.activeExamId) setActiveExamId(d.activeExamId);
     if (d.nomDS) setNomDS(d.nomDS);
@@ -579,6 +659,8 @@ export default function App() {
         statsClasse: Object.assign({}, DEFAULT_HTML_CONFIG.statsClasse, sc.statsClasse),
         blockLayout: Object.assign({}, DEFAULT_HTML_CONFIG.blockLayout, sc.blockLayout),
         blockOrder:  Array.isArray(sc.blockOrder) && sc.blockOrder.length ? sc.blockOrder : DEFAULT_HTML_CONFIG.blockOrder,
+        papierLatex: sc.papierLatex !== undefined ? sc.papierLatex : DEFAULT_HTML_CONFIG.papierLatex,
+        papierTextes: sc.papierTextes ? sc.papierTextes : DEFAULT_HTML_CONFIG.papierTextes,
       }));
     }
     if (d.commentaireDS) setCommentaireDS(d.commentaireDS);
@@ -593,6 +675,8 @@ export default function App() {
     else setNotesPrivees({});
     if (d.perles !== undefined) setPerles(d.perles);
     else setPerles({});
+    if (d.sycomoreMap !== undefined) setSycomoreMap(d.sycomoreMap);
+    else setSycomoreMap({});
     if (d.etablissement) setEtablissement(Object.assign({}, {
       nom: ETABLISSEMENT.nom, classe: ETABLISSEMENT.classe,
       matricule: ETABLISSEMENT.matricule, promotion: ETABLISSEMENT.promotion,
@@ -604,10 +688,24 @@ export default function App() {
   useEffect(function() {
     if (!dbLoaded) return;
     var timer = setTimeout(function() {
-      saveDB(buildAppState(), activeProfileId);
+      var currentState = buildAppState();
+      saveDB(currentState, activeProfileId);
+      // ─── P2-b : réécriture silencieuse du fichier lié ────────
+      if (linkedFileHandle && linkedFilePerm === "granted") {
+        collectAllProfiles(APP_VERSION, { id: activeProfileId, state: currentState })
+          .then(function(envelope) {
+            return writeToLinkedFile(linkedFileHandle, JSON.stringify(envelope, null, 2));
+          })
+          .then(function(result) {
+            if (result && !result.ok && result.reason === "permission") {
+              setLinkedFilePerm("prompt");
+            }
+          })
+          .catch(function() {});
+      }
     }, 500);
     return function() { clearTimeout(timer); };
-  }, [dbLoaded, exams, students, grades, remarks, absents, groupes, activeExamId, nomDS, dateDS, defaultSeuilsComp, defaultNormMethod, defaultNormParams, defaultSeuilDifficile, defaultSeuilReussite, defaultSeuilPiege, defaultBonusCompletConfig, gabaritTex, defaultMalusPaliers, defaultMalusMode, malusManuel, uiScale, appTheme, groupesDef, mode, commentaires, remarquesActives, remarquesCustom, remarquesOrdre, settingsTab, csvConfig, htmlPresets, htmlConfig, htmlStudentId, synthese, etablissement, soundLinksEnabled, soundBaseUrl, soundAudioExt, commentaireDS, rapportClasseConfig, syncDailySnapshot, notesPrivees, perles]);
+  }, [dbLoaded, exams, students, grades, remarks, absents, groupes, activeExamId, nomDS, dateDS, defaultSeuilsComp, defaultNormMethod, defaultNormParams, defaultSeuilDifficile, defaultSeuilReussite, defaultSeuilPiege, defaultBonusCompletConfig, gabaritTex, defaultMalusPaliers, defaultMalusMode, malusManuel, uiScale, appTheme, groupesDef, mode, commentaires, remarquesActives, remarquesCustom, remarquesOrdre, settingsTab, csvConfig, htmlPresets, htmlConfig, htmlStudentId, synthese, etablissement, soundLinksEnabled, soundBaseUrl, soundAudioExt, commentaireDS, rapportClasseConfig, syncDailySnapshot, notesPrivees, perles, sycomoreMap]);
 
   useEffect(function() { if (showSearch && searchInputRef.current) searchInputRef.current.focus(); }, [showSearch]);
   useEffect(function() {
@@ -626,11 +724,35 @@ export default function App() {
       remarquesOrdre, groupesDef, csvConfig, htmlConfig, soundLinksEnabled,
       soundBaseUrl, soundAudioExt, etablissement]);
 
+  // ─── Config de synchronisation (source unique pour les 4 sites d'appel) ───
+  function syncAdapterConfig() {
+    if (syncBackend === "sycomore") {
+      return {
+        backend: "sycomore",
+        apiBase: sycomoreUrl,
+        token: sycomoreToken,
+        passphrase: sycomorePass,
+        deviceName: deviceName,
+      };
+    }
+    return { backend: "github", pat: githubPat, repo: githubRepo };
+  }
+
+  // Backend configuré et utilisable (garde commune aux boutons de sync)
+  var syncConfigured = syncBackend === "sycomore"
+    ? !!(sycomoreToken && sycomorePass)
+    : !!(githubPat && githubRepo);
+
   // ─── Hook de synchronisation cloud ──────────────────────────────
   var syncHook = useSyncStatus({
     buildAppState: buildAppState,
     activeProfileId: activeProfileId,
-    githubConfig: { pat: githubPat, repo: githubRepo },
+    syncConfig: {
+      backend: syncBackend,
+      pat: githubPat, repo: githubRepo,
+      apiBase: sycomoreUrl, token: sycomoreToken, passphrase: sycomorePass,
+      deviceName: deviceName,
+    },
     restoreState: restoreState,
     dbLoaded: dbLoaded,
     dailySnapshot: syncDailySnapshot,
@@ -641,8 +763,8 @@ export default function App() {
   }, [syncHook.status]); // eslint-disable-line
 
   function downloadRemoteSnapshot() {
-    if (!githubPat || !githubRepo || !activeProfileId) return;
-    var adpt = createSyncAdapter({ backend: "github", pat: githubPat, repo: githubRepo });
+    if (!syncConfigured || !activeProfileId) return;
+    var adpt = createSyncAdapter(syncAdapterConfig());
     syncPull(adpt, activeProfileId).then(function(result) {
       if (!result.ok || !result.snapshot) return;
       var blob = new Blob([JSON.stringify(result.snapshot, null, 2)], { type: "application/json" });
@@ -658,8 +780,8 @@ export default function App() {
   }
 
   function loadSnapshotList() {
-    if (!githubPat || !githubRepo || !activeProfileId) return;
-    var adpt = createSyncAdapter({ backend: "github", pat: githubPat, repo: githubRepo });
+    if (!syncConfigured || !activeProfileId) return;
+    var adpt = createSyncAdapter(syncAdapterConfig());
     setSnapshotLoading(true);
     listAvailableSnapshots(adpt, activeProfileId).then(function(list) {
       setSnapshotList(list);
@@ -669,8 +791,8 @@ export default function App() {
   }
 
   function restoreFromSnapshot(slug) {
-    if (!githubPat || !githubRepo || !activeProfileId) return;
-    var adpt = createSyncAdapter({ backend: "github", pat: githubPat, repo: githubRepo });
+    if (!syncConfigured || !activeProfileId) return;
+    var adpt = createSyncAdapter(syncAdapterConfig());
     readSnapshot(adpt, activeProfileId, slug).then(function(snap) {
       if (!snap) return;
       var clean = Object.assign({}, snap);
@@ -679,6 +801,166 @@ export default function App() {
       setShowRestoreModal(false);
       setRestoreConfirm(null);
     }).catch(function() {});
+  }
+
+  // ═══ Passerelle Sycomore (P-F2) ═══════════════════════════════════
+  //
+  // Deux flux distincts, à ne pas confondre :
+  //   • la sauvegarde complète part CHIFFRÉE (adapter sycomore de sync.js) ;
+  //   • la synthèse de DS part EN CLAIR mais PSEUDONYMISÉE — uniquement des
+  //     etudiant_id serveur, jamais un nom. Le serveur Sycomore ne doit
+  //     recevoir aucune donnée nominative élève, quel que soit le chemin.
+
+  // Vide = même origine que CHECK derrière le nginx qui expose l'API sous /api
+  // (production). Renseigné, pris tel quel comme racine d'API — permet de viser
+  // un uvicorn local (http://localhost:8000) en développement.
+  function sycomoreApi(chemin) {
+    return ((sycomoreUrl || "").replace(/\/+$/, "") || "/api") + chemin;
+  }
+
+  function sycomoreLogin(motDePasse) {
+    if (!sycomoreUser || !motDePasse) {
+      setSycomoreMsg({ type: "error", texte: "Identifiant et mot de passe requis." });
+      return Promise.resolve(false);
+    }
+    setSycomoreBusy(true);
+    setSycomoreMsg(null);
+    var body = new URLSearchParams();
+    body.append("username", sycomoreUser);
+    body.append("password", motDePasse);
+    return fetch(sycomoreApi("/auth/token"), {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: body.toString(),
+    }).then(function(r) {
+      if (!r.ok) throw new Error(r.status === 401 ? "Identifiants refusés" : "Erreur " + r.status);
+      return r.json();
+    }).then(function(data) {
+      setSycomoreToken(data.access_token);
+      localStorage.setItem("check_sycomore_token", data.access_token);
+      localStorage.setItem("check_sycomore_user", sycomoreUser);
+      setSycomoreMsg({ type: "ok", texte: "✓ Connecté à Sycomore." });
+      return true;
+    }).catch(function(e) {
+      setSycomoreMsg({ type: "error", texte: "Connexion impossible : " + (e.message || e) });
+      return false;
+    }).finally(function() {
+      setSycomoreBusy(false);
+    });
+  }
+
+  function sycomoreChargerClasses() {
+    if (!sycomoreToken) return;
+    setSycomoreBusy(true);
+    fetch(sycomoreApi("/classes"), { headers: { "Authorization": "Bearer " + sycomoreToken } })
+      .then(function(r) {
+        if (r.status === 401) throw new Error("Session expirée — reconnectez-vous.");
+        if (!r.ok) throw new Error("Erreur " + r.status);
+        return r.json();
+      })
+      .then(function(list) {
+        setSycomoreClasses(list);
+        if (list.length && !sycomoreClasseId) setSycomoreClasseId(String(list[0].id));
+      })
+      .catch(function(e) { setSycomoreMsg({ type: "error", texte: e.message || String(e) }); })
+      .finally(function() { setSycomoreBusy(false); });
+  }
+
+  // Le pack d'identités ne fait que transiter en mémoire pour le rapprochement :
+  // il n'est ni stocké ni envoyé nulle part. Seuls les etudiant_id en sortent.
+  function sycomoreImporterPack(file) {
+    if (!file) return;
+    setSycomoreMsg(null);
+    var reader = new FileReader();
+    reader.onload = function() {
+      try {
+        var pack = JSON.parse(String(reader.result));
+        var res = apparierIdentites(students, pack);
+        var fusion = Object.assign({}, sycomoreMap, res.map);
+        setSycomoreMap(fusion);
+        setSycomoreAppariement(res);
+        // Sauvegarde immédiate : le mapping doit survivre à un reload sans
+        // dépendre du debounce de 500 ms (cf. anti-pattern saveDB).
+        saveDB(buildAppState({ sycomoreMap: fusion }), activeProfileId);
+        var n = Object.keys(res.map).length;
+        setSycomoreMsg({
+          type: res.nonApparies.length || res.ambigus.length ? "warn" : "ok",
+          texte: n + " élève(s) rapproché(s)"
+            + (res.nonApparies.length ? " · " + res.nonApparies.length + " sans correspondance" : "")
+            + (res.ambigus.length ? " · " + res.ambigus.length + " homonyme(s) à trancher" : ""),
+        });
+      } catch (_e) {
+        setSycomoreMsg({ type: "error", texte: "Fichier illisible : pack d'identités JSON attendu." });
+      }
+    };
+    reader.readAsText(file);
+  }
+
+  function sycomoreDefinirMapping(studentId, etudiantId) {
+    var fusion = Object.assign({}, sycomoreMap);
+    if (etudiantId) fusion[studentId] = parseInt(etudiantId, 10);
+    else delete fusion[studentId];
+    setSycomoreMap(fusion);
+    saveDB(buildAppState({ sycomoreMap: fusion }), activeProfileId);
+  }
+
+  function sycomorePousserSynthese() {
+    if (!exam || !sycomoreToken || !sycomoreClasseId) return;
+
+    // Garde dure : si un seul élève corrigé n'est pas rapproché, on n'envoie
+    // rien du tout. Un envoi partiel silencieux serait pire qu'un refus.
+    var nonMappes = corriges.filter(function(s) { return !sycomoreMap[s.id]; });
+    if (nonMappes.length) {
+      setSycomoreMsg({
+        type: "error",
+        texte: "Envoi bloqué — " + nonMappes.length + " élève(s) non rapproché(s) : "
+          + nonMappes.slice(0, 5).map(function(s) { return (s.prenom || "") + " " + (s.nom || ""); }).join(", ")
+          + (nonMappes.length > 5 ? "…" : ""),
+      });
+      return;
+    }
+
+    var ranked = corriges.slice().sort(function(a, b) { return getNote20(b.id) - getNote20(a.id); });
+    var rangMap = {};
+    ranked.forEach(function(s, i) { rangMap[s.id] = i + 1; });
+
+    var notes = corriges.map(function(s) {
+      var comps = notesParCompetence(grades, s.id, exam, activeExamSettings.seuilsComp);
+      return {
+        etudiant_id: sycomoreMap[s.id],
+        note_brute: Math.round(getBrut20(s.id) * 100) / 100,
+        note_norm: Math.round(getNote20(s.id) * 100) / 100,
+        rang: rangMap[s.id] || null,
+        comp_a: comps["A"] || null,
+        comp_n: comps["N"] || null,
+        comp_r: comps["R"] || null,
+        comp_v: comps["V"] || null,
+      };
+    });
+
+    setSycomoreBusy(true);
+    setSycomoreMsg(null);
+    fetch(sycomoreApi("/classes/" + sycomoreClasseId + "/devoirs-ecrits/" + encodeURIComponent(exam.id)), {
+      method: "PUT",
+      headers: { "Authorization": "Bearer " + sycomoreToken, "Content-Type": "application/json" },
+      body: JSON.stringify({
+        nom: examNomDS || exam.name || "DS",
+        date_ds: examDateDS || new Date().toISOString().slice(0, 10),
+        bareme: examTotal(exam) || null,
+        notes: notes,
+      }),
+    }).then(function(r) {
+      if (r.status === 401) throw new Error("Session expirée — reconnectez-vous.");
+      if (r.status === 422) throw new Error("Élève(s) non inscrit(s) dans cette classe Sycomore.");
+      if (!r.ok) throw new Error("Erreur " + r.status);
+      return r.json();
+    }).then(function() {
+      setSycomoreMsg({ type: "ok", texte: "✓ " + notes.length + " résultat(s) envoyés vers Sycomore." });
+    }).catch(function(e) {
+      setSycomoreMsg({ type: "error", texte: e.message || String(e) });
+    }).finally(function() {
+      setSycomoreBusy(false);
+    });
   }
 
   // ─── Raccourcis clavier (desktop, onglet Correction uniquement) ───
@@ -729,7 +1011,8 @@ export default function App() {
   var examDateDS = exam ? (exam.dateDS !== undefined ? exam.dateDS : dateDS) : dateDS;
   function setExamNomDS(val) { if (exam) updateExam(Object.assign({}, exam, { nomDS: val })); else setNomDS(val); }
   function setExamDateDS(val) { if (exam) updateExam(Object.assign({}, exam, { dateDS: val })); else setDateDS(val); }
-  var presents = useMemo(function() { return students.filter(function(s) { return !absents[s.id]; }); }, [students, absents]);
+  var examAbsentsFlat = useMemo(function() { return activeExamId ? examAbsents(absents, activeExamId) : {}; }, [absents, activeExamId]);
+  var presents = useMemo(function() { return students.filter(function(s) { return !examAbsentsFlat[s.id]; }); }, [students, examAbsentsFlat]);
 
   // ─── Gestion des profils ─────────────────────────────────────────
 
@@ -858,7 +1141,7 @@ export default function App() {
     var etW = examTotalWeighted(exam);
     var raw20 = corriges.map(function(s) {
       // Score pondéré incluant le bonus exercice complet
-      var totalPondere = studentTotalWeighted(grades, s.id, exam, activeExamSettings.bonusCompletConfig);
+      var totalPondere = studentTotalWeighted(grades, s.id, exam, activeExamSettings.bonusCompletConfig, activeExamSettings.clampQuestion);
       var note = etW > 0 ? noteSur20(totalPondere, etW) : 0;
       if ((groupes.tt || []).indexOf(s.id) >= 0) note = clamp(note * TT_COEFF, 0, 20);
       return note;
@@ -884,7 +1167,7 @@ export default function App() {
   var setWinW = _winW[1]; var winW = _winW[0];
   useEffect(function() { var h = function() { setWinW(window.innerWidth); }; window.addEventListener("resize", h); return function() { window.removeEventListener("resize", h); }; }, []);
   
-  var isMobile = winW < 700;  var isTouch = winW < 1024;
+  var isMobile = winW < 700;  var isTablet = winW < 1024 && !isMobile;  var isTouch = winW < 1024;
   var sc = isMobile ? Math.min(uiScale, 1.1) : uiScale;
 
   // JSON save/load
@@ -893,6 +1176,57 @@ export default function App() {
     var slug = (examNomDS || "data").replace(/\s+/g, "_");
     downloadFile(JSON.stringify({ exams: exams, students: students, grades: grades, remarks: remarks, absents: absents, groupes: groupes, nomDS: examNomDS, dateDS: examDateDS, defaultSeuilsComp: defaultSeuilsComp, defaultSeuilDifficile: defaultSeuilDifficile, defaultNormMethod: defaultNormMethod, defaultNormParams: defaultNormParams, uiScale: uiScale, gabaritTex: gabaritTex, defaultMalusPaliers: defaultMalusPaliers, defaultMalusMode: defaultMalusMode, malusManuel: malusManuel, commentaires: commentaires }, null, 2), "check_" + slug + "_" + dd + ".json", "application/json");
   }
+
+  // ─── Sauvegarde complète multi-profils (filet universel P2-a) ──
+  async function saveFullBackup() {
+    if (backupBusy) return;
+    setBackupBusy(true);
+    try {
+      var activeState = buildAppState();
+      if (activeProfileId) await saveDB(activeState, activeProfileId);
+      var envelope = await collectAllProfiles(APP_VERSION, { id: activeProfileId, state: activeState });
+      downloadFile(JSON.stringify(envelope, null, 2), backupFilename(), "application/json");
+    } catch (e) {
+      window.alert("La sauvegarde a échoué : " + (e && e.message ? e.message : e));
+    } finally {
+      setBackupBusy(false);
+    }
+  }
+
+  // ─── P2-b : lier un fichier ──────────────────────────────────────
+  async function linkFile() {
+    if (linkedFileBusy) return;
+    setLinkedFileBusy(true);
+    try {
+      var handle = await pickSaveFile();
+      if (!handle) return;                    // annulé par l'utilisateur
+      var perm = await requestPermission(handle);
+      await saveHandle(handle);
+      setLinkedFileHandle(handle);
+      setLinkedFileName(displayName(handle));
+      setLinkedFilePerm(perm);
+    } catch (e) {
+      window.alert("Impossible de lier le fichier : " + (e && e.message ? e.message : e));
+    } finally {
+      setLinkedFileBusy(false);
+    }
+  }
+
+  // ─── P2-b : délier le fichier ────────────────────────────────────
+  async function unlinkFile() {
+    await clearHandle();
+    setLinkedFileHandle(null);
+    setLinkedFileName("");
+    setLinkedFilePerm(null);
+  }
+
+  // ─── P2-b : réautoriser (user gesture requis) ────────────────────
+  async function reauthorizeLinkedFile() {
+    if (!linkedFileHandle) return;
+    var perm = await requestPermission(linkedFileHandle);
+    setLinkedFilePerm(perm);
+  }
+
   function exportCSV() {
     if (!exam) return;
     var sep = csvConfig.sep;
@@ -923,7 +1257,7 @@ export default function App() {
     function fmt(n) { return n.toFixed(2).replace(".", dec); }
 
     var rows = liste.map(function(s) {
-      var isAbsent = !!absents[s.id];
+      var isAbsent = !!examAbsentsFlat[s.id];
       var note20 = isAbsent ? null : getNote20(s.id);
       var brut20 = isAbsent ? null : getBrut20(s.id);
       var compNotes = isAbsent ? {} : notesParCompetence(grades, s.id, exam, activeExamSettings.seuilsComp);
@@ -1050,6 +1384,59 @@ function retirerDsSynthese(examId) {
     r.readAsText(f); e.target.value = "";
   }
 
+  // ─── Ouverture d'un fichier de backup complet (ouvre la modale) ──
+  function loadBackupFile(e) {
+    var f = e.target.files[0]; if (!f) return;
+    var r = new FileReader();
+    r.onload = function(ev) {
+      try {
+        var raw = JSON.parse(ev.target.result);
+        var parsed = parseBackup(raw);
+        var actuelVide = exams.length === 0 && students.length === 0;
+        var validation = validateBackup(parsed, actuelVide);
+        if (!validation.valid) {
+          window.alert("Import impossible :\n" + validation.errors.join("\n"));
+          return;
+        }
+        if (parsed.kind === "mono") {
+          if (validation.warnings.length > 0 && !actuelVide) {
+            setConfirmImportVide(function() { return function() { restoreState(parsed.state); }; });
+          } else {
+            restoreState(parsed.state);
+          }
+          return;
+        }
+        setRestoreMode("replace");
+        setBackupRestoreModal({ parsed: parsed, validation: validation });
+      } catch (err) {
+        window.alert("Le fichier n'est pas un JSON valide.");
+        console.error("Import backup error:", err);
+      }
+    };
+    r.readAsText(f); e.target.value = "";
+  }
+
+  // ─── Confirmation de restauration multi-profils ─────────────────
+  async function confirmRestore() {
+    if (!backupRestoreModal) return;
+    var parsed = backupRestoreModal.parsed;
+    setBackupRestoreModal(null);
+    try {
+      var newMeta = (restoreMode === "merge")
+        ? await restoreMerge(parsed)
+        : await restoreReplace(parsed);
+      setProfiles(newMeta.profiles);
+      setActiveProfileId(newMeta.activeId);
+      if (newMeta.activeId) {
+        var saved = await loadDB(newMeta.activeId);
+        if (saved) restoreState(saved);
+      }
+      window.alert("Restauration terminée : " + newMeta.profiles.length + " profil(s).");
+    } catch (e) {
+      window.alert("La restauration a échoué : " + (e && e.message ? e.message : e));
+    }
+  }
+
   // ─── Exam CRUD ───
   function createExam() {
     var id = uid();
@@ -1159,7 +1546,7 @@ function retirerDsSynthese(examId) {
   var cpVals = exam ? competencePct(grades, s.id, exam) : {};
   var cnVals = exam ? notesParCompetence(grades, s.id, exam, activeExamSettings.seuilsComp) : {};
   var eAbsVals = exam ? exercisePctAbsolute(grades, s.id, exam) : [];
-  var eRelVals = exam ? exercisePctRelative(grades, s.id, exam, students, absents) : [];
+  var eRelVals = exam ? exercisePctRelative(grades, s.id, exam, students, examAbsentsFlat) : [];
   var curNote = getNote20(s.id);
   var curBrut = getBrut20(s.id);
 
@@ -1171,12 +1558,12 @@ function retirerDsSynthese(examId) {
   var gradedCount = corriges.length;
 
   // Malus for current student
-  var remCount = exam && !absents[s.id] ? countMalusRemarks(remarks, s.id, exam, allRemarquesBase) : 0;
-  var autoMalusVal = exam && !absents[s.id] ? malusAuto(remarks, s.id, exam, activeExamSettings.malusPaliers, allRemarquesBase) : 0;
+  var remCount = exam && !examAbsentsFlat[s.id] ? countMalusRemarks(remarks, s.id, exam, allRemarquesBase) : 0;
+  var autoMalusVal = exam && !examAbsentsFlat[s.id] ? malusAuto(remarks, s.id, exam, activeExamSettings.malusPaliers, allRemarquesBase) : 0;
   var manMalus = malusManuel[s.id] || 0;
-  var totalMalusVal = exam && !absents[s.id] ? malusTotal(remarks, s.id, exam, activeExamSettings.malusPaliers, malusManuel, allRemarquesBase) : 0;
+  var totalMalusVal = exam && !examAbsentsFlat[s.id] ? malusTotal(remarks, s.id, exam, activeExamSettings.malusPaliers, malusManuel, allRemarquesBase) : 0;
   var hasMalus = totalMalusVal > 0;
-  var showMalusBar = !absents[s.id] && (remCount > 0 || manMalus > 0);
+  var showMalusBar = !examAbsentsFlat[s.id] && (remCount > 0 || manMalus > 0);
 
   // Toutes les remarques disponibles (fixes + custom), triées selon remarquesOrdre, filtrées par actives
   var allRemarquesSorted = remarquesOrdre.length
@@ -1229,7 +1616,7 @@ function retirerDsSynthese(examId) {
       exam: exam,
       students: students,
       grades: grades,
-      absents: absents,
+      absents: examAbsentsFlat,
       seuils: activeExamSettings.seuilsComp,
       seuilDifficile: activeExamSettings.seuilDifficile,
       seuilReussite: activeExamSettings.seuilReussite,
@@ -1247,7 +1634,7 @@ function retirerDsSynthese(examId) {
   var htmlSrc = useMemo(function() {
     if (!exam || !htmlStudentForPreview) return "";
     return genererHtmlEleve({
-      student: htmlStudentForPreview, exam: exam, grades: grades, remarks: remarks, absents: absents,
+      student: htmlStudentForPreview, exam: exam, grades: grades, remarks: remarks, absents: examAbsentsFlat,
       allStudents: students, nomDS: examNomDS, dateDS: examDateDS, seuils: activeExamSettings.seuilsComp,
       seuilDifficile: activeExamSettings.seuilDifficile, seuilReussite: activeExamSettings.seuilReussite, seuilPiege: activeExamSettings.seuilPiege,
       getNote20: getNote20, getBrut20: getBrut20,
@@ -1257,13 +1644,14 @@ function retirerDsSynthese(examId) {
       htmlConfig: htmlConfig,
       soundLinksEnabled: soundLinksEnabled, soundBaseUrl: soundBaseUrl, soundAudioExt: soundAudioExt,
       bonusCompletConfig: activeExamSettings.bonusCompletConfig,
+      clampQuestion: activeExamSettings.clampQuestion,
       features: ft,
     });
   }, [htmlStudentForPreview, htmlRankMapForPreview, exam, grades, remarks, absents, students,
       examNomDS, examDateDS, activeExamSettings, malusManuel,
       commentaires, allRemarques, htmlConfig, soundLinksEnabled, soundBaseUrl, soundAudioExt, ft]);
 
-  var navItems = [{ id: "prep", l: "Préparation", ic: "\u2699\uFE0F" }, { id: "correct", l: "Correction", ic: "\u270F\uFE0F" }, { id: "resultats", l: "Résultats", ic: "\uD83D\uDC64" }, { id: "overview", l: "Vue d\u2019ensemble", ic: "\uD83D\uDCCB" }, { id: "stats", l: "Stats", ic: "\uD83D\uDCCA" }, { id: "export", l: "Export", ic: "\uD83D\uDCC4" }, { id: "aide", l: "Aide", ic: "\u2139\uFE0F" }];  // ═══════════════════════════════════════════════════════════════
+  var navItems = [{ id: "prep", l: "Préparation", ic: "\u2699\uFE0F" }, { id: "correct", l: "Correction", ic: "\u270F\uFE0F" }, { id: "resultats", l: "Résultats", ic: "\uD83D\uDC64" }, { id: "overview", l: "Vue d\u2019ensemble", ic: "\uD83D\uDCCB" }, { id: "stats", l: "Stats", ic: "\uD83D\uDCCA" }, { id: "export", l: "Export", ic: "\uD83D\uDCC4" }, { id: "sauvegarde", l: "Sauvegarde", ic: "\u2601\uFE0F" }];  // ═══════════════════════════════════════════════════════════════
   // RENDER
   // ═══════════════════════════════════════════════════════════════
 
@@ -1317,14 +1705,14 @@ function retirerDsSynthese(examId) {
 
       {/* HEADER — escamotable au scroll, taille agrandie */}
       <header style={{ background: th.card, borderBottom: "2px solid " + th.headerBorder, padding: isMobile ? "8px 10px" : "10px 14px", display: "flex", alignItems: "center", gap: isMobile ? 6 : 8, position: "sticky", top: 0, zIndex: 100, boxShadow: th.shadow, flexShrink: 0 }}>
-        <img src={appTheme === "dark" ? LOGO_DARK : appTheme === "young" ? LOGO_YOUNG : LOGO_LIGHT} alt="C.H.E.C.K." onClick={function() { setMode("accueil"); }} style={{ height: isMobile ? 32 : 42, objectFit: "contain", cursor: "pointer" }} />
+        <img src={appTheme === "dark" ? LOGO_DARK : appTheme === "young" ? LOGO_YOUNG : LOGO_LIGHT} alt="C.H.E.C.K." onClick={function() { setMode("accueil"); }} style={{ height: (isMobile || isTablet) ? 32 : 42, objectFit: "contain", cursor: "pointer" }} />
         {/* Sélecteur de profil — toujours visible */}
         <div style={{ position: "relative" }}>
           <button onClick={function() { setShowProfileMenu(!showProfileMenu); setEditingProfileId(null); setNewProfileName(""); }}
             style={{ display: "flex", alignItems: "center", gap: 4, padding: "4px 8px", borderRadius: th.radiusSm, cursor: "pointer", fontFamily: FONT_B, fontSize: isMobile ? 11 : 12, fontWeight: 600, background: showProfileMenu ? th.accentBg : "transparent", border: "1px solid " + (showProfileMenu ? th.accent + "40" : th.border), color: th.textMuted }}
             title="Changer de profil">
             {"\uD83D\uDC64"}
-            {!isMobile && <span style={{ maxWidth: 90, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{(profiles.find(function(p) { return p.id === activeProfileId; }) || {}).name || ""}</span>}
+            {!isMobile && !isTablet && <span style={{ maxWidth: 90, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{(profiles.find(function(p) { return p.id === activeProfileId; }) || {}).name || ""}</span>}
             <span style={{ fontSize: 9, opacity: 0.6 }}>{"▾"}</span>
           </button>
           {showProfileMenu && <div style={{ position: "absolute", left: 0, top: "100%", marginTop: 4, background: th.card, border: "1px solid " + th.border, borderRadius: th.radiusSm, boxShadow: "0 4px 16px rgba(0,0,0,0.18)", zIndex: 120, minWidth: 210, overflow: "hidden" }} onClick={function(e) { e.stopPropagation(); }}>
@@ -1369,13 +1757,13 @@ function retirerDsSynthese(examId) {
           lastSyncAt={syncHook.lastSyncAt}
           error={syncHook.error}
           toast={syncHook.toast}
-          onPush={syncHook.push}
+          onPush={function() { syncHook.push({ manual: true }); }}
           onPull={syncHook.pull}
           onCheck={syncHook.checkNow}
           onResolveConflict={function() { setShowConflictModal(true); }}
           th={th} FONT_B={FONT_B} MONO={MONO}
         />
-        {!isMobile && examNomDS && (function() {
+        {!isMobile && !isTablet && examNomDS && (function() {
           if (exams.length <= 1) {
             return <span style={{ fontSize: 13, color: th.textMuted, fontFamily: FONT, fontStyle: "italic" }}>{"\u2014 " + examNomDS + (examDateDS ? " \u00B7 " + examDateDS : "")}</span>;
           }
@@ -1409,18 +1797,18 @@ function retirerDsSynthese(examId) {
         })()}
         {exam && mode === "correct" && <span style={{ fontSize: isMobile ? 10 : 11, color: th.accent, fontWeight: 600, fontFamily: MONO, background: th.accentBg, padding: "3px 8px", borderRadius: 10, border: "1px solid " + th.accent + "25" }}>{gradedCount + "/" + presents.length}</span>}
         <div style={{ flex: 1 }} />
-        {!isMobile && <div style={{ display: "flex", gap: 2 }}>
+        {!isMobile && !isTablet && <div style={{ display: "flex", gap: 2 }}>
           {navItems.map(function(nn) { return (
             <button key={nn.id} onClick={function() { setMode(nn.id); }} style={{ display: "flex", alignItems: "center", gap: 3, padding: "6px 10px", borderRadius: th.radiusSm, cursor: "pointer", fontFamily: FONT_B, fontSize: 12, fontWeight: 600, border: "1px solid " + (mode === nn.id ? th.accent + "40" : "transparent"), background: mode === nn.id ? th.accent + "12" : "transparent", color: mode === nn.id ? th.accent : th.textMuted }}>
               {nn.ic} {nn.l}
             </button>
           ); })}
         </div>}
-        {!isMobile && <div style={{ flex: 1 }} />}
+        {!isMobile && !isTablet && <div style={{ flex: 1 }} />}
         
         <button onClick={function() { setShowSettings(true); }} style={{ ...inp, cursor: "pointer", fontSize: 14, padding: "5px 9px" }}>{"\u2699\uFE0F"}</button>
-        {!isMobile && <button onClick={saveJSON} style={{ ...inp, cursor: "pointer", fontSize: 12, padding: "5px 8px" }}>{"\uD83D\uDCBE"}</button>}
-        {!isMobile && <button onClick={function() { fileRef.current && fileRef.current.click(); }} style={{ ...inp, cursor: "pointer", fontSize: 12, padding: "5px 8px" }}>{"\uD83D\uDCC2"}</button>}
+        {!isMobile && !isTablet && <button onClick={saveJSON} style={{ ...inp, cursor: "pointer", fontSize: 12, padding: "5px 8px" }}>{"\uD83D\uDCBE"}</button>}
+        {!isMobile && !isTablet && <button onClick={function() { fileRef.current && fileRef.current.click(); }} style={{ ...inp, cursor: "pointer", fontSize: 12, padding: "5px 8px" }}>{"\uD83D\uDCC2"}</button>}
         {/* Menu ⋯ — toujours à droite, contient zoom + thème + À propos */}
         <div style={{ position: "relative" }}>
           <button onClick={function() { setShowMore(function(v) { return !v; }); }}
@@ -1428,6 +1816,34 @@ function retirerDsSynthese(examId) {
             title="Plus d'options">{"⋯"}</button>
           {showMore && <div style={{ position: "absolute", right: 0, top: "100%", marginTop: 4, background: th.card, border: "1px solid " + th.border, borderRadius: th.radiusSm, boxShadow: "0 4px 16px rgba(0,0,0,0.18)", zIndex: 120, minWidth: 190, overflow: "hidden", padding: "6px 0" }} onClick={function(e) { e.stopPropagation(); }}>
             
+            {/* Navigation onglets — visible en mode mobile (complète la nav bas) */}
+            {isMobile && <div style={{ borderBottom: "1px solid " + th.border, padding: "4px 0" }}>
+              {[{ id: "prep", l: "Préparation", ic: "⚙️" }, { id: "resultats", l: "Résultats", ic: "👤" }, { id: "overview", l: "Vue d’ensemble", ic: "📋" }, { id: "export", l: "Export", ic: "📄" }, { id: "sauvegarde", l: "Sauvegarde", ic: "☁️" }].map(function(nn) { return (
+                <button key={nn.id} onClick={function() { setMode(nn.id); setShowMore(false); }}
+                  style={{ display: "flex", alignItems: "center", gap: 8, width: "100%", padding: "9px 14px", background: mode === nn.id ? th.accentBg : "transparent", border: "none", cursor: "pointer", fontFamily: FONT_B, fontSize: 13, color: mode === nn.id ? th.accent : th.text, textAlign: "left", fontWeight: mode === nn.id ? 700 : 400 }}>
+                  {nn.ic} {nn.l}
+                </button>
+              ); })}
+            </div>}
+            {/* Sauvegarde JSON — visible en mode mobile */}
+            {isMobile && <div style={{ display: "flex", borderBottom: "1px solid " + th.border }}>
+              <button onClick={function() { saveJSON(); setShowMore(false); }} style={{ flex: 1, display: "flex", alignItems: "center", gap: 8, padding: "9px 14px", background: "transparent", border: "none", borderRight: "1px solid " + th.border, cursor: "pointer", fontFamily: FONT_B, fontSize: 13, color: th.text, textAlign: "left" }}>{"💾"} Sauver</button>
+              <button onClick={function() { fileRef.current && fileRef.current.click(); setShowMore(false); }} style={{ flex: 1, display: "flex", alignItems: "center", gap: 8, padding: "9px 14px", background: "transparent", border: "none", cursor: "pointer", fontFamily: FONT_B, fontSize: 13, color: th.text, textAlign: "left" }}>{"📂"} Charger</button>
+            </div>}
+            {/* Navigation onglets — visible uniquement en mode tablette */}
+            {isTablet && <div style={{ borderBottom: "1px solid " + th.border, padding: "4px 0" }}>
+              {navItems.map(function(nn) { return (
+                <button key={nn.id} onClick={function() { setMode(nn.id); setShowMore(false); }}
+                  style={{ display: "flex", alignItems: "center", gap: 8, width: "100%", padding: "9px 14px", background: mode === nn.id ? th.accentBg : "transparent", border: "none", cursor: "pointer", fontFamily: FONT_B, fontSize: 13, color: mode === nn.id ? th.accent : th.text, textAlign: "left", fontWeight: mode === nn.id ? 700 : 400 }}>
+                  {nn.ic} {nn.l}
+                </button>
+              ); })}
+            </div>}
+            {/* Sauvegarde JSON — visible uniquement en mode tablette */}
+            {isTablet && <div style={{ display: "flex", borderBottom: "1px solid " + th.border }}>
+              <button onClick={function() { saveJSON(); setShowMore(false); }} style={{ flex: 1, display: "flex", alignItems: "center", gap: 8, padding: "9px 14px", background: "transparent", border: "none", borderRight: "1px solid " + th.border, cursor: "pointer", fontFamily: FONT_B, fontSize: 13, color: th.text, textAlign: "left" }}>{"💾"} Sauver</button>
+              <button onClick={function() { fileRef.current && fileRef.current.click(); setShowMore(false); }} style={{ flex: 1, display: "flex", alignItems: "center", gap: 8, padding: "9px 14px", background: "transparent", border: "none", cursor: "pointer", fontFamily: FONT_B, fontSize: 13, color: th.text, textAlign: "left" }}>{"📂"} Charger</button>
+            </div>}
             {/* Zoom */}
             <div style={{ display: "flex", alignItems: "center", padding: "6px 12px", borderBottom: "1px solid " + th.border }}>
               <span style={{ fontSize: 11, color: th.textMuted, fontFamily: FONT_B, flex: 1 }}>{"Zoom"}</span>
@@ -1445,6 +1861,11 @@ function retirerDsSynthese(examId) {
                   title={t.v}>{t.ic}</button>;
               })}
             </div>
+            {/* Aide */}
+            <button onClick={function() { setMode("aide"); setShowMore(false); }}
+              style={{ width: "100%", display: "flex", alignItems: "center", gap: 8, padding: "9px 14px", background: mode === "aide" ? th.accentBg : "transparent", border: "none", cursor: "pointer", fontFamily: FONT_B, fontSize: 12, color: mode === "aide" ? th.accent : th.textMuted, textAlign: "left" }}>
+              {"ℹ️"} <span>{"Aide"}</span>
+            </button>
             {/* À propos */}
             <button onClick={function() { setShowApropos(true); setShowMore(false); }}
               style={{ width: "100%", display: "flex", alignItems: "center", gap: 8, padding: "9px 14px", background: "transparent", border: "none", cursor: "pointer", fontFamily: FONT_B, fontSize: 12, color: th.textMuted, textAlign: "left" }}>
@@ -1453,17 +1874,8 @@ function retirerDsSynthese(examId) {
 
           </div>}
         </div>
-        {isMobile && <div style={{ position: "relative" }}>
-          <button onClick={function() { setShowMore(!showMore); }} style={{ ...inp, cursor: "pointer", fontSize: 14, padding: "5px 9px" }}>{"\u22EF"}</button>
-          {showMore && <div style={{ position: "absolute", right: 0, top: "100%", marginTop: 4, background: th.card, border: "1px solid " + th.border, borderRadius: th.radiusSm, boxShadow: "0 4px 16px rgba(0,0,0,0.2)", zIndex: 110, minWidth: 160, overflow: "hidden" }}>
-            {[{ id: "prep", l: "Preparation", ic: "\u2699\uFE0F" }, { id: "export", l: "Export LaTeX", ic: "\uD83D\uDCC4" }].map(function(nn) { return (
-              <button key={nn.id} onClick={function() { setMode(nn.id); setShowMore(false); }} style={{ display: "flex", alignItems: "center", gap: 6, width: "100%", padding: "10px 14px", cursor: "pointer", fontFamily: FONT_B, fontSize: 13, background: "transparent", border: "none", borderBottom: "1px solid " + th.border, color: th.text, textAlign: "left" }}>{nn.ic} {nn.l}</button>
-            ); })}
-            <button onClick={function() { saveJSON(); setShowMore(false); }} style={{ display: "flex", alignItems: "center", gap: 6, width: "100%", padding: "10px 14px", cursor: "pointer", fontFamily: FONT_B, fontSize: 13, background: "transparent", border: "none", borderBottom: "1px solid " + th.border, color: th.text, textAlign: "left" }}>{"\uD83D\uDCBE"} Sauver</button>
-            <button onClick={function() { fileRef.current && fileRef.current.click(); setShowMore(false); }} style={{ display: "flex", alignItems: "center", gap: 6, width: "100%", padding: "10px 14px", cursor: "pointer", fontFamily: FONT_B, fontSize: 13, background: "transparent", border: "none", color: th.text, textAlign: "left" }}>{"\uD83D\uDCC2"} Charger</button>
-          </div>}
-        </div>}
         <input ref={fileRef} type="file" accept=".json" onChange={loadJSONFile} style={{ display: "none" }} />
+        <input ref={backupFileRef} type="file" accept=".json" onChange={loadBackupFile} style={{ display: "none" }} />
       </header>
       {/* Barre de progression — correction uniquement */}
       {mode === "correct" && exam && presents.length > 0 && (
@@ -1472,11 +1884,18 @@ function retirerDsSynthese(examId) {
         </div>
       )}
 
+      {/* Banner migration absents */}
+      {absentsLegacyNotice && (
+        <div style={{ background: th.warningBg, borderBottom: "1px solid " + th.warning + "55", padding: "8px 14px", display: "flex", alignItems: "center", gap: 10, flexShrink: 0 }}>
+          <span style={{ fontSize: 12, fontFamily: FONT_B, color: th.warning, flex: 1, lineHeight: 1.5 }}>{"ℹ️ Les absences sont désormais enregistrées par devoir. Vos absences précédentes ont été réinitialisées — pensez à les re-saisir dans chaque DS concerné."}</span>
+          <button onClick={function() { setAbsentsLegacyNotice(false); }} style={{ background: "none", border: "none", color: th.warning, cursor: "pointer", fontSize: 16, padding: "0 4px", fontFamily: FONT_B, flexShrink: 0 }}>{"✕"}</button>
+        </div>
+      )}
       {/* MAIN — zoomé via la propriété CSS zoom (scroll natif, pas de compensation) */}
       <div ref={mainScrollRef} style={{ flex: 1, overflowY: mode === "resultats" ? "hidden" : "auto", position: "relative" }}>
-        <div style={{ zoom: isMobile ? 1 : sc }}>
+        <div style={{ zoom: isMobile ? 1 : sc, height: mode === "resultats" ? "100%" : "auto" }}>
         {/* ═══ RESULTATS — panneau persistant, jamais démonté au changement d'onglet ═══ */}
-        <div style={{ display: mode === "resultats" ? "flex" : "none", flexDirection: "column", height: "calc(100vh - 52px)" }}>
+        <div style={{ display: mode === "resultats" ? "flex" : "none", flexDirection: "column", height: "100%" }}>
           {!exam ? (
             <div style={{ textAlign: "center", padding: 40, color: th.textMuted }}>{"Créez d'abord un devoir dans l'onglet Préparation."}</div>
           ) : !corriges.length ? (
@@ -1665,7 +2084,7 @@ function retirerDsSynthese(examId) {
                 );
               })()}
               {exam.exercises.map(function(ex, exIdx) {
-                var exPts = ex.questions.reduce(function(s2, q) { return s2 + q.items.reduce(function(si2, it) { return si2 + (+it.points || 0); }, 0); }, 0);
+                var exPts = ex.questions.reduce(function(s2, q) { return s2 + q.items.reduce(function(si2, it) { return it.negative ? si2 : si2 + (+it.points || 0); }, 0); }, 0);
                 var isCol = collapsed[ex.id];
                 return (
                   <div key={ex.id} style={{ marginBottom: 8, background: th.surface, borderRadius: th.radiusSm, border: "1px solid " + th.border, overflow: "hidden" }}>
@@ -1693,7 +2112,7 @@ function retirerDsSynthese(examId) {
                               </div>}
                               {ft.questionBonus && <button onClick={function() { var n = deepClone(exam); n.exercises[exIdx].questions[qIdx].bonus = !q.bonus; updateExam(n); }} title="Question bonus (points hors maximum)" style={{ padding: "1px 5px", fontSize: 11, borderRadius: 3, cursor: "pointer", border: "1px solid " + (q.bonus ? th.warning + "55" : th.border), background: q.bonus ? th.warningBg : "transparent", color: q.bonus ? th.warning : th.textDim }}>{"\uD83C\uDF81"}</button>}
                               <div style={{ flex: 1 }} />
-                              <span style={{ fontFamily: MONO, fontSize: 9, color: th.textMuted }}>{q.items.reduce(function(s2, it) { return s2 + (+it.points || 0); }, 0) + "pts"}</span>
+                              <span style={{ fontFamily: MONO, fontSize: 9, color: th.textMuted }}>{q.items.reduce(function(s2, it) { return it.negative ? s2 : s2 + (+it.points || 0); }, 0) + "pts"}</span>
                               <button onClick={function() { moveQuestion(exIdx, qIdx, -1); }} disabled={qIdx === 0} style={{ background: "none", border: "none", color: qIdx === 0 ? th.textDim : th.textMuted, cursor: qIdx === 0 ? "default" : "pointer", fontSize: 9, padding: "0 1px" }} title="Monter">{"▲"}</button>
                               <button onClick={function() { moveQuestion(exIdx, qIdx, 1); }} disabled={qIdx === ex.questions.length - 1} style={{ background: "none", border: "none", color: qIdx === ex.questions.length - 1 ? th.textDim : th.textMuted, cursor: qIdx === ex.questions.length - 1 ? "default" : "pointer", fontSize: 9, padding: "0 1px" }} title="Descendre">{"▼"}</button>
                               <button onClick={function() { askConfirm("la question \u00AB\u00A0Q.\u00A0" + q.label + "\u00A0\u00BB", function() { delAt(exIdx, qIdx); }); }} style={{ background: "none", border: "none", color: th.textDim, cursor: "pointer", fontSize: 10 }}>{"\u2715"}</button>
@@ -1704,7 +2123,8 @@ function retirerDsSynthese(examId) {
                                   <span style={{ color: th.textDim, fontSize: 8 }}>{"\u2022"}</span>
                                   <input value={it.label} onChange={function(e) { updateExam(updPath(exam, ["exercises", exIdx, "questions", qIdx, "items", iIdx, "label"], e.target.value)); }} style={{ ...inp, flex: 1, fontSize: 11, padding: "2px 6px" }} placeholder="Description..." />
                                   <input value={it.hint || ""} onChange={function(e) { updateExam(updPath(exam, ["exercises", exIdx, "questions", qIdx, "items", iIdx, "hint"], e.target.value)); }} style={{ ...inp, flex: 1, fontSize: 10, padding: "2px 6px", color: th.textMuted, fontStyle: "italic" }} placeholder={"Indice de correction\u2026"} />
-                                  <input type="number" step="0.5" min="0" value={it.points} onChange={function(e) { updateExam(updPath(exam, ["exercises", exIdx, "questions", qIdx, "items", iIdx, "points"], parseFloat(e.target.value) || 0)); }} style={{ ...inp, width: 44, fontSize: 11, fontFamily: MONO, textAlign: "center", color: th.accent, padding: "2px 3px" }} />
+                                  <input type="number" step="0.5" min={it.negative ? undefined : 0} max={it.negative ? 0 : undefined} value={it.points} onChange={function(e) { var v = parseFloat(e.target.value) || 0; if (it.negative && v > 0) v = -v; if (!it.negative && v < 0) v = 0; updateExam(updPath(exam, ["exercises", exIdx, "questions", qIdx, "items", iIdx, "points"], v)); }} style={{ ...inp, width: 44, fontSize: 11, fontFamily: MONO, textAlign: "center", color: it.negative ? th.negText : th.accent, padding: "2px 3px" }} />
+                                  <button onClick={function() { var n = deepClone(exam); n.exercises[exIdx].questions[qIdx].items[iIdx].negative = !it.negative; if (!it.negative && (parseFloat(it.points) || 0) > 0) n.exercises[exIdx].questions[qIdx].items[iIdx].points = -(parseFloat(it.points) || 0); if (it.negative && (parseFloat(it.points) || 0) < 0) n.exercises[exIdx].questions[qIdx].items[iIdx].points = -(parseFloat(it.points) || 0); updateExam(n); }} title={it.negative ? "Item n\u00E9gatif (cliquer pour rendre positif)" : "Rendre n\u00E9gatif"} style={{ background: it.negative ? th.negBg : "none", border: "1px solid " + (it.negative ? th.negBorder : th.border), borderRadius: 3, color: it.negative ? th.negText : th.textDim, cursor: "pointer", fontSize: 9, padding: "1px 5px", fontWeight: 700 }}>{"\u2212"}</button>
                                   <button onClick={function() { askConfirm("l\u2019item \u00AB\u00A0" + (it.label || "sans nom") + "\u00A0\u00BB", function() { delAt(exIdx, qIdx, iIdx); }); }} style={{ background: "none", border: "none", color: th.textDim, cursor: "pointer", fontSize: 9 }}>{"\u2715"}</button>
                                 </div>
                               ); })}
@@ -1762,7 +2182,7 @@ function retirerDsSynthese(examId) {
                 <button key={o.st.id} onClick={function() { setSi(o.idx); setEi(0); setShowSearch(false); setSearchTerm(""); }}
                   style={{ display: "flex", alignItems: "center", gap: 8, width: "100%", padding: "10px 12px", marginBottom: 2, borderRadius: th.radiusSm, cursor: "pointer", fontFamily: FONT_B, fontSize: 14, textAlign: "left", background: o.idx === si ? th.accentBg : "transparent", border: "1px solid " + (o.idx === si ? th.accent + "30" : th.border), color: th.text }}>
                   <span style={{ fontWeight: 600 }}>{o.st.prenom}</span> <span style={{ fontVariant: "small-caps" }}>{o.st.nom}</span>
-                  {absents[o.st.id] && <span style={{ fontSize: 10, color: th.danger, marginLeft: "auto" }}>absent</span>}
+                  {examAbsentsFlat[o.st.id] && <span style={{ fontSize: 10, color: th.danger, marginLeft: "auto" }}>absent</span>}
                 </button>); })}
               {searchTerm.trim().length > 0 && searchResults.length === 0 && <div style={{ padding: 10, textAlign: "center", color: th.textDim, fontSize: 13 }}>Aucun r\u00E9sultat</div>}
             </div>
@@ -1797,8 +2217,8 @@ function retirerDsSynthese(examId) {
                 <div style={{ fontSize: 9, color: th.textMuted, textTransform: "uppercase", letterSpacing: "0.5px", fontFamily: FONT_B }}>{c.label}</div>
                 <div style={{ fontSize: 20, fontWeight: 800, color: compColor(c, dark), fontFamily: MONO }}>{cnVals[c.id]}</div>
               </div>); })}
-            <button onClick={function() { setAbsents(function(p) { var n = {}; for (var k in p) n[k] = p[k]; n[s.id] = !p[s.id]; return n; }); }} style={{ padding: "4px 10px", borderRadius: th.radiusSm, cursor: "pointer", fontFamily: FONT_B, fontSize: 10, fontWeight: 600, background: absents[s.id] ? th.dangerBg : th.surface, border: "1px solid " + (absents[s.id] ? th.danger + "40" : th.border), color: absents[s.id] ? th.danger : th.textMuted }}>
-              {absents[s.id] ? "\u2717 Abs." : "Abs.?"}
+            <button onClick={function() { setAbsents(function(p) { var n = {}; for (var k in p) n[k] = p[k]; var ak = absentKey(exam.id, s.id); if (p[ak]) { delete n[ak]; } else { n[ak] = true; } return n; }); }} style={{ padding: "4px 10px", borderRadius: th.radiusSm, cursor: "pointer", fontFamily: FONT_B, fontSize: 10, fontWeight: 600, background: examAbsentsFlat[s.id] ? th.dangerBg : th.surface, border: "1px solid " + (examAbsentsFlat[s.id] ? th.danger + "40" : th.border), color: examAbsentsFlat[s.id] ? th.danger : th.textMuted }}>
+              {examAbsentsFlat[s.id] ? "\u2717 Abs." : "Abs.?"}
             </button>
           </div>}
 
@@ -1818,7 +2238,7 @@ function retirerDsSynthese(examId) {
           </div>}
 
           {/* TOGGLE COMMENTAIRES */}
-          {!absents[s.id] && (function() {
+          {!examAbsentsFlat[s.id] && (function() {
             var hasComment = !!(commentaires[s.id] && commentaires[s.id].trim());
             var hasNote = !!(notesPrivees[s.id] && notesPrivees[s.id].trim());
             var perleCount = (perles[s.id] || []).length;
@@ -1845,7 +2265,7 @@ function retirerDsSynthese(examId) {
           })()}
 
           {/* Commentaire libre */}
-          {!absents[s.id] && showComments && <div style={{ marginBottom: 8 }}>
+          {!examAbsentsFlat[s.id] && showComments && <div style={{ marginBottom: 8 }}>
             <textarea
               value={commentaires[s.id] || ""}
               onChange={function(e) {
@@ -1859,7 +2279,7 @@ function retirerDsSynthese(examId) {
           </div>}
 
           {/* NOTE PRIVÉE */}
-          {!absents[s.id] && showComments && <div style={{
+          {!examAbsentsFlat[s.id] && showComments && <div style={{
             marginTop: 0, marginBottom: 8,
             borderLeft: "3px solid #b45309",
             background: th.surface,
@@ -1893,7 +2313,7 @@ function retirerDsSynthese(examId) {
           </div>}
 
           {/* PERLES */}
-          {!absents[s.id] && showComments && <div style={{
+          {!examAbsentsFlat[s.id] && showComments && <div style={{
             marginBottom: 8,
             borderLeft: "3px solid #7c3aed",
             background: th.surface,
@@ -2000,8 +2420,8 @@ function retirerDsSynthese(examId) {
           {/* Exercise tabs */}
           <div style={{ display: "flex", gap: 3, marginBottom: 8 }}>
             {exam.exercises.map(function(x, i) {
-              var sc = exerciseScore(grades, s.id, x, defaultBonusCompletConfig);
-              var xt = x.questions.reduce(function(ss, q) { return ss + q.items.reduce(function(si2, it) { return si2 + (+it.points || 0); }, 0); }, 0);
+              var sc = exerciseScore(grades, s.id, x, defaultBonusCompletConfig, activeExamSettings.clampQuestion);
+              var xt = x.questions.reduce(function(ss, q) { return ss + q.items.reduce(function(si2, it) { return it.negative ? si2 : si2 + (+it.points || 0); }, 0); }, 0);
               return (
                 <button key={x.id} onClick={function() { setEi(i); }} style={{ flex: 1, padding: "6px 3px", borderRadius: th.radiusSm, cursor: "pointer", fontFamily: FONT_B, fontSize: 10, fontWeight: 600, background: i === ei ? th.accent + "15" : "transparent", border: "1.5px solid " + (i === ei ? th.accent + "50" : th.border), color: i === ei ? th.accent : th.textMuted }}>
                   <div>{x.title.length > 20 ? x.title.slice(0, 18) + "\u2026" : x.title}</div>
@@ -2010,8 +2430,8 @@ function retirerDsSynthese(examId) {
           </div>
 
           {/* Questions */}
-          {!absents[s.id] && exCur && exCur.questions.map(function(q) {
-            var sc = questionScore(grades, s.id, q);
+          {!examAbsentsFlat[s.id] && exCur && exCur.questions.map(function(q) {
+            var sc = questionScore(grades, s.id, q, activeExamSettings.clampQuestion);
             var qr = remarks[remarkKey(s.id, q.id)] || [];
             return (
               <div key={q.id} style={{ background: th.card, borderRadius: th.radius, border: "1px solid " + th.border, marginBottom: 6, overflow: "hidden", boxShadow: th.shadow }}>
@@ -2034,9 +2454,10 @@ function retirerDsSynthese(examId) {
                 <div style={{ padding: 6 }}>
                   {q.items.map(function(it) {
                     var ch = !!grades[gradeKey(s.id, it.id)];
+                    var isNeg = !!it.negative;
                     return (
-                      <button key={it.id} onClick={function() { setGrades(function(p) { var n = {}; for (var k in p) n[k] = p[k]; n[gradeKey(s.id, it.id)] = !p[gradeKey(s.id, it.id)]; return n; }); }} style={{ display: "flex", alignItems: "center", gap: isMobile ? 10 : 8, width: "100%", padding: isMobile ? "14px 12px" : "11px 10px", marginBottom: 2, borderRadius: th.radiusSm, cursor: "pointer", fontFamily: FONT_B, fontSize: isMobile ? 15 : 13, textAlign: "left", background: ch ? th.success + "0a" : "transparent", border: "1.5px solid " + (ch ? th.success + "35" : th.border), color: ch ? th.text : th.textMuted, WebkitTapHighlightColor: "transparent" }} onMouseEnter={!isTouch ? function() { hintTimerRef.current = setTimeout(function() { if (it.hint) setItemHintVisible(it.id); }, 200); } : undefined} onMouseLeave={!isTouch ? function() { clearTimeout(hintTimerRef.current); setItemHintVisible(null); } : undefined}>
-                        <div style={{ width: isMobile ? 28 : 22, height: isMobile ? 28 : 22, borderRadius: 4, display: "flex", alignItems: "center", justifyContent: "center", fontSize: isMobile ? 16 : 13, fontWeight: 800, background: ch ? th.success : "transparent", border: "2px solid " + (ch ? th.success : th.textDim), color: ch ? (dark ? "#1a1814" : "#fff") : "transparent", flexShrink: 0 }}>{"\u2713"}</div>
+                      <button key={it.id} onClick={function() { setGrades(function(p) { var n = {}; for (var k in p) n[k] = p[k]; n[gradeKey(s.id, it.id)] = !p[gradeKey(s.id, it.id)]; return n; }); }} style={{ display: "flex", alignItems: "center", gap: isMobile ? 10 : 8, width: "100%", padding: isMobile ? "14px 12px" : "11px 10px", marginBottom: 2, borderRadius: th.radiusSm, cursor: "pointer", fontFamily: FONT_B, fontSize: isMobile ? 15 : 13, textAlign: "left", background: isNeg ? (ch ? th.negBg : "transparent") : (ch ? th.success + "0a" : "transparent"), border: "1.5px solid " + (isNeg ? th.negBorder : (ch ? th.success + "35" : th.border)), color: isNeg ? th.negText : (ch ? th.text : th.textMuted), WebkitTapHighlightColor: "transparent" }} onMouseEnter={!isTouch ? function() { hintTimerRef.current = setTimeout(function() { if (it.hint) setItemHintVisible(it.id); }, 200); } : undefined} onMouseLeave={!isTouch ? function() { clearTimeout(hintTimerRef.current); setItemHintVisible(null); } : undefined}>
+                        <div style={{ width: isMobile ? 28 : 22, height: isMobile ? 28 : 22, borderRadius: 4, display: "flex", alignItems: "center", justifyContent: "center", fontSize: isMobile ? 16 : 13, fontWeight: 800, background: isNeg ? (ch ? th.negCheckBg : "transparent") : (ch ? th.success : "transparent"), border: "2px solid " + (isNeg ? th.negBorder : (ch ? th.success : th.textDim)), color: isNeg ? (ch ? th.negText : th.negBorder) : (ch ? (dark ? "#1a1814" : "#fff") : "transparent"), flexShrink: 0 }}>{isNeg ? (ch ? "\u2713" : "\u2212") : "\u2713"}</div>
                         <span style={{ flex: 1, fontWeight: 500 }}>{it.label}</span>
                         {it.hint && (
                           <span
@@ -2050,9 +2471,9 @@ function retirerDsSynthese(examId) {
                             )}
                           </span>
                         )}
-                        <span style={{ fontFamily: MONO, fontSize: 11, fontWeight: 700, color: ch ? th.success : th.textDim }}>{it.points}</span>
+                        <span style={{ fontFamily: MONO, fontSize: 11, fontWeight: 700, color: isNeg ? th.negText : (ch ? th.success : th.textDim) }}>{it.points}</span>
                       </button>); })}
-                  <div style={{ display: "flex", flexWrap: "wrap", gap: 3, marginTop: 4 }}>
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: 3, marginTop: 4, marginBottom: isTouch ? 8 : 4 }}>
                     {allRemarques.map(function(rem) {
                       var act = qr.indexOf(rem.id) >= 0;
                       return <button key={rem.id} onClick={function() { setRemarks(function(p) { var k = remarkKey(s.id, q.id); var c = p[k] || []; var n = {}; for (var kk in p) n[kk] = p[kk]; n[k] = c.indexOf(rem.id) >= 0 ? c.filter(function(r) { return r !== rem.id; }) : c.concat([rem.id]); return n; }); }} style={{ padding: isMobile ? "8px 12px" : "5px 9px", borderRadius: 14, cursor: "pointer", fontFamily: FONT_B, fontSize: isMobile ? 12 : 10, fontWeight: 600, background: act ? th.warningBg : "transparent", border: "1px solid " + (act ? th.warning + "40" : th.border), color: act ? th.warning : th.textMuted }}>{rem.icon + " " + rem.label}</button>; })}
@@ -2060,14 +2481,15 @@ function retirerDsSynthese(examId) {
                   {/* Case "traitée" — visible seulement si aucun item n'est coché */}
                   <div style={{ display: "flex", gap: 4, alignItems: "center", marginTop: 4 }}>
                   {q.items.length >= 2 && (function() {
-                    var allChecked = q.items.every(function(it) { return !!grades[gradeKey(s.id, it.id)]; });
+                    var positiveItems = q.items.filter(function(it) { return !it.negative; });
+                    var allChecked = positiveItems.length > 0 && positiveItems.every(function(it) { return !!grades[gradeKey(s.id, it.id)]; });
                     return (
                       <button
                         onClick={function(e) {
                           e.stopPropagation();
                           setGrades(function(p) {
                             var ng = {}; for (var k in p) ng[k] = p[k];
-                            q.items.forEach(function(it) { ng[gradeKey(s.id, it.id)] = !allChecked; });
+                            positiveItems.forEach(function(it) { ng[gradeKey(s.id, it.id)] = !allChecked; });
                             return ng;
                           });
                         }}
@@ -2177,7 +2599,7 @@ function retirerDsSynthese(examId) {
               <div style={{ fontSize: 12, fontWeight: 700, marginBottom: 6, fontFamily: FONT }}>{"Comp\u00E9tences"}</div>
               {COMPETENCES.map(function(c) {
                 var tp = 0, ep = 0;
-                exam.exercises.forEach(function(ex) { ex.questions.forEach(function(q) { if (q.competences.indexOf(c.id) < 0) return; q.items.forEach(function(it) { var pts = +it.points || 0; tp += pts * filteredCorriges.length; filteredCorriges.forEach(function(ss) { if (grades[ss.id + "__" + it.id]) ep += pts; }); }); }); });
+                exam.exercises.forEach(function(ex) { ex.questions.forEach(function(q) { if (q.competences.indexOf(c.id) < 0) return; q.items.forEach(function(it) { if (it.negative) return; var pts = +it.points || 0; tp += pts * filteredCorriges.length; filteredCorriges.forEach(function(ss) { if (grades[ss.id + "__" + it.id]) ep += pts; }); }); }); });
                 var pct = tp > 0 ? (ep / tp) * 100 : 0;
                 return (
                   <div key={c.id} style={{ marginBottom: 6 }}>
@@ -2191,7 +2613,7 @@ function retirerDsSynthese(examId) {
           </div>}
           {tab === "exercices" && exam.exercises.map((exx, i) => {
             const exT = exx.questions.reduce((s, q) =>
-              s + (q.items || []).reduce((si2, it) => si2 + (parseFloat(it.points) || 0), 0), 0);
+              s + (q.items || []).reduce((si2, it) => it.negative ? si2 : si2 + (parseFloat(it.points) || 0), 0), 0);
             const enotes = filteredCorriges
               .map(s => exerciseScore(grades, s.id, exx).earned)
               .sort((a, b) => a - b);
@@ -2208,7 +2630,7 @@ function retirerDsSynthese(examId) {
               bins[Math.min(bins.length - 1, Math.floor(sc))].count++;
             });
             const qStats = exx.questions.map(q => {
-              const tot = (q.items || []).reduce((s, it) => s + (parseFloat(it.points) || 0), 0);
+              const tot = (q.items || []).reduce((s, it) => it.negative ? s : s + (parseFloat(it.points) || 0), 0);
               let nb = 0, obt = 0;
               for (const ss of filteredCorriges) {
                 const qTraitee = !!grades[treatedKey(ss.id, q.id)]
@@ -2216,7 +2638,7 @@ function retirerDsSynthese(examId) {
                 if (qTraitee) {
                   nb++;
                   for (const it of (q.items || []))
-                    if (grades[gradeKey(ss.id, it.id)]) obt += parseFloat(it.points) || 0;
+                    if (!it.negative && grades[gradeKey(ss.id, it.id)]) obt += parseFloat(it.points) || 0;
                 }
               }
               const n = filteredCorriges.length;
@@ -2396,7 +2818,7 @@ function retirerDsSynthese(examId) {
               exam={exam}
               students={students}
               grades={grades}
-              absents={absents}
+              absents={examAbsentsFlat}
               th={th}
               FONT={FONT}
               FONT_B={FONT_B}
@@ -2408,6 +2830,52 @@ function retirerDsSynthese(examId) {
 
         {/* ═══ AIDE ═══ */}
         {mode === "aide" && <HelpTab th={th} FONT={FONT} FONT_B={FONT_B} MONO={MONO} />}
+
+        {/* ═══ SAUVEGARDE ═══ */}
+        {mode === "sauvegarde" && <SauvegardeTab
+          th={th} FONT={FONT} FONT_B={FONT_B}
+          exportOpen={exportOpen} setExportOpen={setExportOpen}
+          githubPat={githubPat} githubRepo={githubRepo}
+          githubSave={syncHook.push} githubLoad={syncHook.pull}
+          syncLoading={syncHook.status === "pushing" || syncHook.status === "pulling"}
+          syncStatus={
+            syncHook.status === "error" ? "❌ " + syncHook.error :
+            syncHook.status === "synced" && syncHook.lastSyncAt ? "✅ Synchronisé à " + syncHook.lastSyncAt.toLocaleTimeString("fr-FR") :
+            ""
+          }
+          syncDate={syncHook.lastSyncAt ? syncHook.lastSyncAt.toLocaleString("fr-FR") : ""}
+          syncDailySnapshot={syncDailySnapshot} setSyncDailySnapshot={setSyncDailySnapshot}
+          loadSnapshotList={loadSnapshotList} snapshotLoading={snapshotLoading}
+          onFullBackup={saveFullBackup}
+          onOpenRestore={function() { backupFileRef.current && backupFileRef.current.click(); }}
+          backupBusy={backupBusy}
+          linkedFileSupported={isFileLinkSupported()}
+          linkedFileName={linkedFileName}
+          linkedFilePerm={linkedFilePerm}
+          linkedFileBusy={linkedFileBusy}
+          onLinkFile={linkFile}
+          onUnlinkFile={unlinkFile}
+          onReauthorize={reauthorizeLinkedFile}
+          syncBackend={syncBackend}
+          syncConfigured={syncConfigured}
+          sycomore={{
+            sycomoreUrl: sycomoreUrl, setSycomoreUrl: setSycomoreUrl,
+            sycomoreUser: sycomoreUser, setSycomoreUser: setSycomoreUser,
+            sycomoreToken: sycomoreToken,
+            sycomorePass: sycomorePass, setSycomorePass: setSycomorePass,
+            sycomoreLogin: sycomoreLogin,
+            sycomoreBusy: sycomoreBusy, sycomoreMsg: sycomoreMsg,
+            sycomoreClasses: sycomoreClasses, sycomoreChargerClasses: sycomoreChargerClasses,
+            sycomoreClasseId: sycomoreClasseId, setSycomoreClasseId: setSycomoreClasseId,
+            sycomoreImporterPack: sycomoreImporterPack,
+            sycomoreAppariement: sycomoreAppariement,
+            sycomoreMap: sycomoreMap,
+            sycomoreDefinirMapping: sycomoreDefinirMapping,
+            sycomorePousserSynthese: sycomorePousserSynthese,
+            students: students,
+            examNomDS: examNomDS,
+          }}
+        />}
        
 
         {/* ═══ EXPORT ═══ */}
@@ -2416,12 +2884,12 @@ function retirerDsSynthese(examId) {
           exam={exam} et={et}
           examNomDS={examNomDS} examDateDS={examDateDS}
           presents={presents} corriges={corriges}
-          students={students} grades={grades} remarks={remarks} absents={absents}
-          seuils={activeExamSettings.seuilsComp} seuilDifficile={activeExamSettings.seuilDifficile} seuilReussite={activeExamSettings.seuilReussite} seuilPiege={activeExamSettings.seuilPiege} bonusCompletConfig={activeExamSettings.bonusCompletConfig}
+          students={students} grades={grades} remarks={remarks} absents={examAbsentsFlat}
+          seuils={activeExamSettings.seuilsComp} seuilDifficile={activeExamSettings.seuilDifficile} seuilReussite={activeExamSettings.seuilReussite} seuilPiege={activeExamSettings.seuilPiege} bonusCompletConfig={activeExamSettings.bonusCompletConfig} clampQuestion={activeExamSettings.clampQuestion}
           features={ft}
           malusPaliers={activeExamSettings.malusPaliers} malusManuel={malusManuel}
           commentaires={commentaires} allRemarques={allRemarques}
-          htmlConfig={htmlConfig} htmlStudentId={htmlStudentId}
+          htmlConfig={htmlConfig} setHtmlConfig={setHtmlConfig} htmlStudentId={htmlStudentId}
           soundLinksEnabled={soundLinksEnabled} soundBaseUrl={soundBaseUrl} soundAudioExt={soundAudioExt}
           gabaritTex={gabaritTex} setGabaritTex={setGabaritTex}
           etablissement={etablissement}
@@ -2447,6 +2915,9 @@ function retirerDsSynthese(examId) {
           exporterVersSynthese={exporterVersSynthese}
           retirerDsSynthese={retirerDsSynthese}
           telechargerSynthese={telechargerSynthese}
+          onFullBackup={saveFullBackup}
+          onOpenRestore={function() { backupFileRef.current && backupFileRef.current.click(); }}
+          backupBusy={backupBusy}
         />}
         {mode === "export" && !exam && <div style={{ textAlign: "center", padding: 40, color: th.textMuted }}>{"Créez d'abord un devoir dans l'onglet Préparation."}</div>}
         {mode === "accueil" && (
@@ -2471,6 +2942,15 @@ function retirerDsSynthese(examId) {
               setShowApropos(true);
               setShowChangelog(true);
             }}
+            onFullBackup={saveFullBackup}
+            onOpenRestore={function() { backupFileRef.current && backupFileRef.current.click(); }}
+            backupBusy={backupBusy}
+            linkedFileSupported={isFileLinkSupported()}
+            linkedFileName={linkedFileName}
+            linkedFilePerm={linkedFilePerm}
+            onLinkFile={linkFile}
+            onUnlinkFile={unlinkFile}
+            onReauthorize={reauthorizeLinkedFile}
           />
         )}
 
@@ -2480,6 +2960,36 @@ function retirerDsSynthese(examId) {
       </div>
 
       {showMore && <div style={{ position: "fixed", inset: 0, zIndex: 99 }} onClick={function() { setShowMore(false); }} />}
+
+{/* MODAL RESTAURATION BACKUP COMPLET (multi-profils) */}
+{backupRestoreModal && <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", zIndex: 240, display: "flex", alignItems: "center", justifyContent: "center" }} onClick={function() { setBackupRestoreModal(null); }}>
+  <div style={{ background: th.card, borderRadius: 12, border: "1px solid " + th.border, padding: "24px 28px", width: 420, maxWidth: "95vw", boxShadow: "0 8px 32px rgba(0,0,0,0.25)", fontFamily: FONT_B }} onClick={function(e) { e.stopPropagation(); }}>
+    <div style={{ fontSize: 16, fontWeight: 700, color: th.text, marginBottom: 8 }}>{"💾 Restaurer une sauvegarde"}</div>
+    <div style={{ fontSize: 12, color: th.textMuted, marginBottom: 8 }}>{backupRestoreModal.validation.summary.profileCount + " profil(s) dans le fichier."}</div>
+    <ul style={{ fontSize: 12, margin: "6px 0 10px", paddingLeft: 18, color: th.text }}>
+      {backupRestoreModal.validation.summary.profiles.map(function(p, i) {
+        return <li key={i}>{p.name + " "}{p.empty ? "(vide)" : "(" + p.dsCount + " DS)"}</li>;
+      })}
+    </ul>
+    {backupRestoreModal.validation.warnings.length > 0 && (
+      <div style={{ fontSize: 11, color: th.warning, background: th.warningBg, padding: "6px 10px", borderRadius: th.radiusSm, border: "1px solid " + th.warning + "33", marginBottom: 10 }}>
+        {"⚠ " + backupRestoreModal.validation.warnings.join(" ")}
+      </div>
+    )}
+    <label style={{ display: "flex", alignItems: "flex-start", gap: 8, fontSize: 12, color: th.text, margin: "8px 0", cursor: "pointer" }}>
+      <input type="radio" name="restoreMode" checked={restoreMode === "replace"} onChange={function() { setRestoreMode("replace"); }} style={{ marginTop: 2 }} />
+      <span><strong>{"Remplacer tout"}</strong>{" — efface les profils actuels."}</span>
+    </label>
+    <label style={{ display: "flex", alignItems: "flex-start", gap: 8, fontSize: 12, color: th.text, margin: "8px 0", cursor: "pointer" }}>
+      <input type="radio" name="restoreMode" checked={restoreMode === "merge"} onChange={function() { setRestoreMode("merge"); }} style={{ marginTop: 2 }} />
+      <span><strong>{"Fusionner"}</strong>{" — le fichier écrase les profils de même identifiant ; les profils locaux absents du fichier sont conservés."}</span>
+    </label>
+    <div style={{ display: "flex", gap: 8, marginTop: 14, justifyContent: "flex-end" }}>
+      <button onClick={function() { setBackupRestoreModal(null); }} style={{ padding: "7px 14px", borderRadius: th.radiusSm, cursor: "pointer", fontFamily: FONT_B, fontSize: 12, background: "transparent", border: "1px solid " + th.border, color: th.textMuted }}>{"Annuler"}</button>
+      <button onClick={confirmRestore} style={{ padding: "7px 14px", borderRadius: th.radiusSm, cursor: "pointer", fontFamily: FONT_B, fontSize: 12, fontWeight: 700, background: th.accent, border: "none", color: "#fff" }}>{"Restaurer"}</button>
+    </div>
+  </div>
+</div>}
 
 {/* MODAL RESTAURATION SNAPSHOT */}
 {showRestoreModal && <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", zIndex: 240, display: "flex", alignItems: "center", justifyContent: "center" }} onClick={function() { setShowRestoreModal(false); setRestoreConfirm(null); }}>
@@ -2512,18 +3022,12 @@ function retirerDsSynthese(examId) {
 
 {showLayoutModal && (function() {
   var BLOC_LABELS = {
-    stats:       "Stats élève / classe",
-    competences: "Compétences",
-    commentaire: "Commentaire",
-    histogramme: "Histogramme",
-    starMap:     "✦ Carte Stellaire",
+    stats:   "Stats élève / classe",
+    starMap: "✦ Carte Stellaire",
   };
   var BLOC_ACTIF = {
-    stats:       true,
-    competences: htmlConfig.competences !== "none" && ft.competences,
-    commentaire: !!htmlConfig.commentaire,
-    histogramme: !!htmlConfig.histogramme,
-    starMap:     !!htmlConfig.starMap,
+    stats:   true,
+    starMap: !!htmlConfig.starMap,
   };
   var order  = (htmlConfig.blockOrder  && htmlConfig.blockOrder.length)  ? htmlConfig.blockOrder  : DEFAULT_HTML_CONFIG.blockOrder;
   var layout = htmlConfig.blockLayout || DEFAULT_HTML_CONFIG.blockLayout;
@@ -2573,6 +3077,9 @@ function retirerDsSynthese(examId) {
             </div>
           );
         })}
+        <div style={{ fontSize: 10, color: th.textDim, fontFamily: FONT_B, marginTop: 12, lineHeight: 1.5 }}>
+          {"Les autres blocs (Compétences, Commentaire, Histogramme, Exercices) s'affichent dans un ordre fixe sous ces deux blocs."}
+        </div>
         <div style={{ marginTop: 16, display: "flex", gap: 8 }}>
           <button
             onClick={function() { setShowLayoutModal(false); setSettingsTab("export"); setShowSettings(true); }}
@@ -2790,6 +3297,7 @@ function retirerDsSynthese(examId) {
         soundAudioExt={soundAudioExt} setSoundAudioExt={setSoundAudioExt}
         githubPat={githubPat} setGithubPat={setGithubPat}
         githubRepo={githubRepo} setGithubRepo={setGithubRepo}
+        syncBackend={syncBackend} setSyncBackend={setSyncBackend}
         deviceName={deviceName} setDeviceNameLocal={setDeviceName} activeProfileId={activeProfileId}
         onSave={settingsSaveSignal}
         onClose={function() { setShowSettings(false); }}

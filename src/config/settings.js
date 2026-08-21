@@ -161,4 +161,5 @@ export var DEFAULT_EXAM_SETTINGS = {
   malusMode: DEFAULT_MALUS_MODE,
   seuilsComp: DEFAULT_SEUILS,
   bonusCompletConfig: DEFAULT_BONUS_COMPLET,
+  clampQuestion: true,
 };

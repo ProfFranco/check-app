@@ -16,6 +16,7 @@ Je suis un "iArchitecte" : je conçois, arbitre et valide — je construis par i
 - **Export** : fichiers `.tex` compilables avec `xelatex` ; fichiers `.html` autonomes ; `.csv`, `.zip`
 - **PWA** : installable sur tablette, fonctionne hors ligne
 - **Environnement** : macOS, Node.js, `npm start` pour développer
+- **Conversion PDF en ligne de commande (η)** : `weasyprint` (Python, installé dans le miniconda de Samuel) convertit les `.html` exportés en `.pdf` via les scripts `convertir_en_pdf.sh`/`.py` du ZIP. Dépendances système (Pango/Cairo/GObject) installées via Homebrew (`brew install pango`) — absentes par défaut sur macOS, weasyprint plante sinon avec `OSError: cannot load library 'libgobject-2.0-0'`. `eval "$(/opt/homebrew/bin/brew shellenv)"` + `export DYLD_LIBRARY_PATH="/opt/homebrew/lib:$DYLD_LIBRARY_PATH"` dans `~/.zshenv` (lu par tout shell zsh, contrairement à `~/.zprofile` qui ne couvre que les shells de connexion).
 
 ---
 
@@ -35,11 +36,12 @@ check-app/
 │       └── logo-young.png
 └── src/
     ├── index.js
-    ├── App.jsx                ← Composant principal (~2775 lignes, dont hook useSyncStatus, StarMapModal, showLayoutModal)
+    ├── App.jsx                ← Composant principal (~2950 lignes, dont hook useSyncStatus, StarMapModal, showLayoutModal)
     ├── AccueilTab.jsx         ← Tableau de bord (accueil au clic logo, carte Perle du moment)
-    ├── SettingsModal.jsx      ← Modale Réglages (5 onglets, ~723 lignes)
-    ├── ExportTab.jsx          ← Onglet Export (sync GitHub, exports, synthèse, rapport classe)
-    ├── HelpTab.jsx            ← Onglet Aide (tutoriel + référence)
+    ├── SettingsModal.jsx      ← Modale Réglages (6 onglets)
+    ├── ExportTab.jsx          ← Onglet Export (exports élèves/enseignant, synthèse, rapport classe)
+    ├── SauvegardeTab.jsx      ← Onglet Sauvegarde (synchronisation GitHub + sauvegarde locale multi-profils)
+    ├── HelpTab.jsx            ← Onglet Aide (tutoriel + référence, accessible via menu ⋯)
     ├── OverviewTab.jsx        ← Onglet Vue d'ensemble (tableau croisé)
     ├── components/
     │   ├── Charts.jsx         ← RadarChart, MiniRadar, MiniRadarEx, Histo, PBar, ProgressionChart, ProgressionRadar
@@ -58,7 +60,11 @@ check-app/
         ├── html.js            ← Générateur de rapports HTML autonomes + rapport classe
         ├── starmap.js         ← Visualisation canvas carte stellaire (renderStarMap, createAnimatedStarMap)
         ├── sync.js            ← Synchronisation inter-appareils (adapter GitHub, hash, push/pull, snapshots)
-        └── sync.test.js       ← Tests unitaires sync (13 tests, node:test / Jest)
+        ├── sync.test.js       ← Tests unitaires sync (13 tests, node:test / Jest)
+        ├── backup.js          ← Sauvegarde/restauration multi-profils : wrapBackup, parseBackup, validateBackup, collectAllProfiles, restoreReplace, restoreMerge
+        ├── backup.test.js     ← Tests unitaires backup (15 tests, node:test)
+        ├── filelink.js        ← Fichier lié auto-réécrit (P2-b) : isFileLinkSupported, displayName, saveHandle, loadHandle, clearHandle, queryPermission, requestPermission, pickSaveFile, writeToLinkedFile
+        └── filelink.test.js   ← Tests unitaires filelink (8 tests, node:test — fonctions pures uniquement)
 ```
 
 > **Note :** `src/useAppState.js` est présent dans le dépôt mais n'est pas utilisé — artefact d'une piste explorée et abandonnée.
@@ -67,23 +73,24 @@ check-app/
 
 ## Fonctionnalités actuelles
 
-- **Onglet Préparation** : nom et date du DS éditables directement dans le header du DS actif (inputs inline, label "Date :" affiché avant le champ date) ; créer exercices/questions/items avec points, assigner compétences (A/N/R/V), importer élèves CSV, gérer groupes (tiers-temps fixe + groupes pédagogiques éditables), coefficient par exercice (champ `×`), question bonus 🎁, toggle bonus exercice complet 🏆 (seuil configurable), confirmation avant toute suppression (exercice, question, item, DS, élève), réordonnancement exercices/questions via boutons ↑/↓. Chaque item possède un champ optionnel `hint` (indice de correction) : input texte en italique atténué affiché entre le label et le champ points, persisté dans `exam.exercises`, non exporté. **Bloc "Fonctionnalités du devoir"** : sélecteur de preset (Simple ♙ / Standard ♜ / Complet ♔ / Personnalisé ♞) avec chips récapitulatives ou toggles avec infobulles, collapsable, conditionne l'affichage de toute l'UI.
-- **Onglet Correction** : navigation élève par élève (swipe sur tablette), cochage des items, badge 🎁 sur les questions bonus, remarques de présentation configurables (activer/désactiver, créer, réordonner ↑/↓, participation au malus), case "traitée (0 pt)", malus automatique et manuel, radar de compétences, commentaire libre par élève, bouton 🎙️ par question (commentaire audio). **Infobulle hint ⓘ** : si `it.hint` est renseigné, une icône ⓘ apparaît à droite du label. Sur desktop (`winW ≥ 1024`) : survol de l'item avec délai 200 ms (`hintTimerRef` + `setTimeout`) affiche la bulle ; `onMouseLeave` annule le timer et ferme. Sur mobile/tablette (`winW < 1024`, `isTouch`) : tap sur ⓘ (avec `stopPropagation`) toggle la bulle. `itemHintVisible` (useState null) contient l'id de l'item ouvert. La bulle est `position:absolute`, `pointerEvents:none`, s'affiche au-dessus de l'item (`bottom: calc(100% + 6px)`). **Bouton "☐→✓" / "✓✓" (cocher tout / décocher tout)** : affiché sous les items de chaque question ayant ≥ 2 items, dans la même ligne flex que le bouton "marquer traitée" ; bascule entre tout cocher et tout décocher. **Bouton "marquer traitée"** : liseré `2px solid th.warning` dans les deux états (opacité 88% inactif, plein actif), `fontWeight: 700`. **Bandeau toggle `▾/▸ Commentaires & notes`** : masque/révèle en un clic les trois blocs de commentaires (commentaire élève, note privée, perles) ; quand replié, badge discret indique le contenu présent (💬 🔒 💎N). **🔒 Note privée** : zone texte enseignant persistée, non exportée (badge orange, `notesPrivees[studentId]`). **💎 Perles** : liste de citations sauvegardées par élève (`perles[studentId]`), chacune avec texte + contexte optionnel ; formulaire d'ajout inline, suppression directe ; non exportées.
-- **Onglet Résultats individuels** (🧑) : sélecteur enrichi avec option **"📊 Toute la classe"** en tête (affiche le rapport de classe dans l'iframe) + séparateur + liste élèves triée alphabétiquement. Quand mode classe actif : panel de checkboxes de configuration visible sous le sélecteur. Quand un élève est sélectionné : note et rang affichés. Aperçu live via `<iframe key="preview-iframe" srcdoc=...>` (clé fixe pour éviter rechargement au changement d'onglet). `htmlSrc` et `htmlClasseSrc` mémoïsés via `useMemo`. L'élève sélectionné est persisté en IndexedDB (`htmlStudentId`, valeur `"__classe__"` valide). **Bouton "⊞ Mise en page"** (mode individuel uniquement) : ouvre `showLayoutModal` — réordonnancement ▲▼ et toggle Plein/Demi par bloc. Bouton "⚙ Réglages export" dans le modal → ouvre SettingsModal sur l'onglet export.
+- **Onglet Préparation** : nom et date du DS éditables directement dans le header du DS actif (inputs inline, label "Date :" affiché avant le champ date) ; créer exercices/questions/items avec points, assigner compétences (A/N/R/V), importer élèves CSV, gérer groupes (tiers-temps fixe + groupes pédagogiques éditables), coefficient par exercice (champ `×`), question bonus 🎁, toggle bonus exercice complet 🏆 (seuil configurable), confirmation avant toute suppression (exercice, question, item, DS, élève), réordonnancement exercices/questions via boutons ↑/↓. Chaque item possède un champ optionnel `hint` (indice de correction) : input texte en italique atténué affiché entre le label et le champ points, persisté dans `exam.exercises`, non exporté. **Items négatifs** : bouton `−` par item en Préparation → toggle `negative: true/false` (inverse automatiquement le signe des points). Champ points contraint : `min=0` pour items positifs, `max=0` pour items négatifs (+ clamp dans `onChange`). Points affichés en `negText`. Le total affiché (barème de la question/exercice) exclut les items négatifs. **Bloc "Fonctionnalités du devoir"** : sélecteur de preset (Simple ♙ / Standard ♜ / Complet ♔ / Personnalisé ♞) avec chips récapitulatives ou toggles avec infobulles, collapsable, conditionne l'affichage de toute l'UI.
+- **Onglet Correction** : navigation élève par élève (swipe sur tablette), cochage des items, badge 🎁 sur les questions bonus, remarques de présentation configurables (activer/désactiver, créer, réordonner ↑/↓, participation au malus), case "traitée (0 pt)", malus automatique et manuel, radar de compétences, commentaire libre par élève, bouton 🎙️ par question (commentaire audio). **Infobulle hint ⓘ** : si `it.hint` est renseigné, une icône ⓘ apparaît à droite du label. Sur desktop (`winW ≥ 1024`) : survol de l'item avec délai 200 ms (`hintTimerRef` + `setTimeout`) affiche la bulle ; `onMouseLeave` annule le timer et ferme. Sur mobile/tablette (`winW < 1024`, `isTouch`) : tap sur ⓘ (avec `stopPropagation`) toggle la bulle. `itemHintVisible` (useState null) contient l'id de l'item ouvert. La bulle est `position:absolute`, `pointerEvents:none`, s'affiche au-dessus de l'item (`bottom: calc(100% + 6px)`). **Items négatifs** : item avec `negative: true` affiché avec bordure `negBorder`, fond `negBg`, checkbox `negCheckBg`, points en `negText`. **Bouton "☐→✓" / "✓✓" (cocher tout / décocher tout)** : affiché sous les items de chaque question ayant ≥ 2 items positifs ; le "tout cocher" ne coche que les items positifs (`positiveItems = q.items.filter(it => !it.negative)`). **Bouton "marquer traitée"** : liseré `2px solid th.warning` dans les deux états (opacité 88% inactif, plein actif), `fontWeight: 700`. **Bandeau toggle `▾/▸ Commentaires & notes`** : masque/révèle en un clic les trois blocs de commentaires (commentaire élève, note privée, perles) ; quand replié, badge discret indique le contenu présent (💬 🔒 💎N). **🔒 Note privée** : zone texte enseignant persistée, non exportée (badge orange, `notesPrivees[studentId]`). **💎 Perles** : liste de citations sauvegardées par élève (`perles[studentId]`), chacune avec texte + contexte optionnel ; formulaire d'ajout inline, suppression directe ; non exportées.
+- **Onglet Résultats individuels** (🧑) : sélecteur enrichi avec option **"📊 Toute la classe"** en tête (affiche le rapport de classe dans l'iframe) + séparateur + liste élèves triée alphabétiquement. Quand mode classe actif : panel de checkboxes de configuration visible sous le sélecteur. Quand un élève est sélectionné : note et rang affichés. Aperçu live via `<iframe key="preview-iframe" srcdoc=...>` (clé fixe pour éviter rechargement au changement d'onglet). `htmlSrc` et `htmlClasseSrc` mémoïsés via `useMemo`. L'élève sélectionné est persisté en IndexedDB (`htmlStudentId`, valeur `"__classe__"` valide). Panneau Résultats en `height: "100%"` (plus de `calc(100vh - 52px)` hardcodé) — l'iframe remplit toute la hauteur disponible quel que soient les barres conditionnelles au-dessus (η). **Bouton "⊞ Mise en page"** (mode individuel uniquement) : ouvre `showLayoutModal` — réordonnancement ▲▼ et toggle Plein/Demi, **2 blocs seulement** : Stats élève/classe et ✦ Carte Stellaire (les 3 "blocs fantômes" Compétences/Commentaire/Histogramme — jamais câblés dans `BLOC_RENDERERS` de `html.js` — ont été retirés de la modale en η ; ces blocs s'affichent toujours, dans un ordre fixe, sous la zone réordonnable). Note explicative sous la liste. Bouton "⚙ Réglages export" dans le modal → ouvre SettingsModal sur l'onglet export.
 - **Onglet Vue d'ensemble** (📋) : tableau croisé élèves × questions (toggle items), en-tête 2 niveaux (exercice fusionné + question), colonnes Nom et Total sticky, code couleur ratio pts/max (≥75% vert / ≥50% orange / <50% rouge), tri par clic, bulles de navigation par exercice, clic sur cellule → bascule vers Correction positionné sur l'élève et l'exercice. **Toggle "✓ Corrigés seulement"** : bouton dans la barre de contrôles, `hideUncorrected` (useState false) ; quand actif, filtre `presents` via `isStudentCorrected(studentId)` (vérifie clé `treated_` ou `studentId__itemId` dans `grades`) → `filteredPresents` appliqué avant le tri ; label affiche `(N/Total)` quand actif.
 - **Onglet Stats** : distribution /20 (traits moy/médiane), compétences, stats par exercice et par question (taux de réussite, questions difficiles en rouge, questions pièges en orange ⚠️), classement avec radar exercices (vert), tri par rang ou alphabétique. **Sous-onglet Progression** : courbe note élève (trait plein) + moyenne classe (pointillés) par DS, ou radar multi-DS ; toggle brut/normalisé ; bascule automatique vers courbe si n > 8 DS.
-- **Onglet Export** — sections déroulables (animation `max-height`), dans cet ordre : ☁️ **Synchronisation** (sauvegarde/restauration JSON via API GitHub REST, bouton 🔓 Dissocier) · 📄 **Pour les élèves** (HTML individuel, ZIP HTML, `.tex` individuel, ZIP `.tex` + script) · 🗂️ **Pour l'enseignant** (`.tex` complet, CSV récapitulatif, gabarit LaTeX, sous-accordéon **📊 Rapport de classe** : textarea commentaire DS + checkboxes blocs + bouton HTML) · 📊 **Synthèse multi-DS** (CSV cumulatif).
-- **Persistance** : IndexedDB multi-profils, sauvegarde/chargement JSON, PWA hors ligne.
+- **Onglet Export** — sections déroulables (animation `max-height`), dans cet ordre : 📄 **Pour les élèves** (HTML individuel, ZIP HTML, `.tex` individuel, ZIP `.tex` + script) · 🗂️ **Pour l'enseignant** (`.tex` complet, CSV récapitulatif, gabarit LaTeX, sous-accordéon **📊 Rapport de classe** : textarea commentaire DS + checkboxes blocs + bouton HTML) · 📊 **Synthèse multi-DS** (CSV cumulatif). **ZIP HTML enrichi (η)** : en plus des rapports individuels, contient `IMPRIMER_TOUT.html` (document unique pour impression groupée, `genererHtmlTousPrintable`) + `convertir_en_pdf.sh` / `convertir_en_pdf.py` (scripts weasyprint, `genererScriptsConversionPdf`).
+- **Onglet Sauvegarde** (☁️, onglet dédié dans la nav principale) — sections déroulables : ☁️ **Synchronisation** (sauvegarde/restauration JSON via API GitHub REST, boutons Sauvegarder/Charger, statut/date dernier sync, toggle snapshots quotidiens + bouton "Voir les snapshots disponibles") · 💾 **Sauvegarde & restauration** (filet local multi-profils, indépendant de GitHub : bouton "Sauvegarde complète" + bouton "Restaurer une sauvegarde") · 🔗 **Fichier lié (sauvegarde automatique)** (Chrome/Edge uniquement via `showSaveFilePicker` ; sur Safari/Firefox : section absente, dégradation silencieuse).
+- **Persistance** : IndexedDB multi-profils, sauvegarde/chargement JSON, PWA hors ligne. **Filet universel (P2-a)** : bouton "Sauvegarde complète" dans AccueilTab et SauvegardeTab (section "Sauvegarde & restauration") → télécharge un `.json` horodaté couvrant **tous les profils** (`_checkBackup` + tableau `profiles`). Restauration via bouton "Restaurer une sauvegarde" : modale de choix Remplacer (efface tout) / Fusionner (last-write-wins par id). Rétrocompatible avec l'ancien format mono-profil (délégation vers `restoreState` + garde-fou vide). Module `backup.js` : fonctions pures (`wrapBackup`, `parseBackup`, `validateBackup`, `backupFilename`, `genProfileId`) + agrégation (`collectAllProfiles`, `restoreReplace`, `restoreMerge`). État `backupRestoreModal` (≠ `showRestoreModal` qui est pour les snapshots sync). **Fichier lié (P2-b)** : handle `FileSystemFileHandle` persisté dans une IDB dédiée `"check-app-filelink"` (séparée de `db.js`). Disponible uniquement sur Chrome/Edge desktop (`showSaveFilePicker`). 4 états UI transitoires : `linkedFileHandle`, `linkedFileName`, `linkedFilePerm`, `linkedFileBusy` — **exclus de `buildAppState` et des deps du useEffect de save**. Écriture silencieuse branchée dans le setTimeout du debounce de save (après `saveDB`), uniquement si `linkedFilePerm === "granted"`. Rechargement du handle au démarrage via `useEffect([dbLoaded])` + `queryPermission` (sans user gesture). Indicateur discret dans AccueilTab, section accordéon complète dans SauvegardeTab.
 - **Normalisation** : aucune / proportionnelle (moy) / proportionnelle (max) / affine (moy+σ) / affine (max+σ) / gaussienne — avec infobulles contextuelles.
 - **Zoom interface** : boutons `−/+` dans la nav, propriété CSS `zoom` sur `<main>` (la nav reste fixe), valeur persistée en IndexedDB.
 - **Thème** : trois thèmes — ☀️ Clair / 🌙 Sombre / 🌈 Jeune. Sélecteur dans le menu ⋯. `youngTheme` dans `theme.js` (lavande, Nunito, radius 14px).
-- **Réglages** : panneau modal (540 px) avec 5 onglets : 🏫 Établissement · 🎓 Évaluation · 📊 Notes · ✏️ Correction · 📤 Export. Flash **"✓ Sauvegardé"** après toute modification (prop `onSave`, état local `savedFlash` 1500ms, footer du modal). Onglet Correction : deux accordéons (Remarques ouvert, Groupes fermé). **Onglets Évaluation et Notes** : deux accordéons chacun — "DS actif" (ouvert par défaut, modifie `exam.settings` via `onExamSetting`, bouton ↺ Réinitialiser) et "Valeurs par défaut (nouveaux DS)" (fermé par défaut, modifie les états `defaultX` du profil). L'onglet Évaluation couvre seuils compétences, seuil difficulté, seuil réussite, seuil piège, bonus exercice complet. L'onglet Notes couvre normalisation, paliers malus, application du malus (avant/après normalisation).
-- **Navigation correction** : boutons bas → exercice préc./suiv. avec wrap ; clic ramène automatiquement en haut de page (`mainScrollRef.current.scrollTop = 0`) ; raccourcis clavier `←/→` (exercices), `1–9` (saut direct exercice), `S` (ouvre/ferme la Carte Stellaire de l'élève courant).
+- **Réglages** : panneau modal (540 px) avec 6 onglets : 🏫 Établissement · 🎓 Évaluation · 📊 Notes · ✏️ Correction · 📤 Export · ☁️ Sauvegarde. Flash **"✓ Sauvegardé"** après toute modification (prop `onSave`, état local `savedFlash` 1500ms, footer du modal). Onglet Correction : deux accordéons (Remarques ouvert, Groupes fermé). **Onglets Évaluation et Notes** : deux accordéons chacun — "DS actif" (ouvert par défaut, modifie `exam.settings` via `onExamSetting`, bouton ↺ Réinitialiser) et "Valeurs par défaut (nouveaux DS)" (fermé par défaut, modifie les états `defaultX` du profil). L'onglet Évaluation couvre seuils compétences, seuil difficulté, seuil réussite, seuil piège, bonus exercice complet. L'onglet Notes couvre normalisation, paliers malus, application du malus (avant/après normalisation) ; **accordéon "DS actif" inclut aussi** le toggle "Score question clampé à 0" (`clampQuestion`) — si décoché, le score d'une question peut être négatif (le score d'exercice reste toujours clampé à 0). **Onglet ☁️ Sauvegarde** : PAT GitHub (champ mot de passe, avertissement token fine-grained), dépôt privé (champ texte), nom d'appareil (champ texte, bouton 🔓 Dissocier) ; stockés en `localStorage` (`check_github_pat`, `check_github_repo`).
+- **Navigation correction** : boutons bas → exercice préc./suiv. avec wrap ; clic ramène automatiquement en haut de page (`mainScrollRef.current.scrollTop = 0`) ; raccourcis clavier `←/→` (exercices), `1–9` (saut direct exercice), `S` (ouvre/ferme la Carte Stellaire de l'élève courant). Boutons de remarques : `marginBottom: isTouch ? 8 : 4` pour éviter le tap accidentel sur "tout cocher" sur tablette/mobile.
 - **Carte Stellaire** (`StarMapModal`) : popup canvas 660×460 px animé via `requestAnimationFrame`. Chaque étoile = une question (luminosité = score élève, taille = difficulté classe, couleur = compétence(s)). Constellations = MST Kruskal par exercice. Survol → tooltip détaillé. Raccourci `S`, `Escape` pour fermer. Disponible uniquement en onglet Correction si des élèves sont chargés. Peut aussi être incluse dans le rapport HTML individuel via `htmlConfig.starMap` (rendu statique PNG via canvas offscreen, `max-width:660px;width:100%;margin:0 auto` — taille cohérente en mode plein et demi-largeur).
 - **Barre de progression** sous le header (correction uniquement).
 - **Copies non corrigées** exclues des stats et de la normalisation.
 - **Mode debug** 🔬 : modal depuis les Réglages, sections repliables (toutes les clés de `buildAppState()`, ~40 entrées), bouton "Tout copier".
-- **Menu ⋯** : zoom −/%/+ · sélecteur thème · ❓ À propos.
+- **Menu ⋯** : zoom −/%/+ · sélecteur thème · ℹ️ Aide · ❓ À propos. En mode **tablette** (700–1023 px) : contient aussi tous les onglets de nav + 💾 Sauver / 📂 Charger (la nav horizontale est masquée). En mode **mobile** (<700 px) : même menu unifié (l'ancien ⋯ mobile séparé a été supprimé) ; affiche Préparation / Résultats / Vue d'ensemble / Export / Sauvegarde + 💾/📂 en tête du dropdown. L'onglet Aide n'est plus dans la nav principale — uniquement accessible via le menu ⋯ (bouton "ℹ️ Aide" avant la section À propos).
 - **Onglet Aide** : guide complet par section + référence en accordéons.
 - **Tableau de bord** (`AccueilTab`) : accessible au clic sur le logo. Header avec pill-profil et dropdown inline (switchProfile + "Gérer les profils…"). 4 cartes de stats : DS archivés, élèves suivis, moyenne générale (tous DS), taux de correction (DS courant). Deux colonnes : dernier DS (mini-stats, barres A/N/R/V, 3 boutons) + historique 5 DS précédents (date, élèves, moyenne, pastille complet/incomplet). **Boutons "Correction →", "Résultats", "Export"** : appellent `setActiveExamId(lastExam.id)` avant `setMode(...)` — garantit que le dernier DS est actif même si un autre DS était sélectionné. **Carte 💎 Perle du moment** : tirée aléatoirement depuis toutes les perles du profil, affichée juste avant le pied de page ; bouton 🔀 pour passer à une autre perle (état local `perleIdx`). Pied de page : version + établissement à gauche, lien CHANGELOG (ouvre la modale À propos) à droite. Couleur d'accent dérivée de `PROFILE_COLORS[profileIndex]` — palette de 5 couleurs indexées sur le profil actif.
 
@@ -96,15 +103,15 @@ exams        : [{ id, name, nomDS, dateDS,
                features: { preset: "simple"|"standard"|"complet"|"custom",
                  competences, coefficients, questionBonus, bonusComplet, malusAuto, questionPiege },
                settings: { normMethod, normParams, seuilDifficile, seuilPiege, seuilReussite,
-                 malusPaliers, malusMode, seuilsComp, bonusCompletConfig },
+                 malusPaliers, malusMode, seuilsComp, bonusCompletConfig, clampQuestion: bool },
                exercises: [{ id, title, coeff: number,
                bonusComplet: bool,
                questions: [{ id, label, bonus: bool,
-               competences: [...], items: [{ id, label, points, hint?: string }] }] }] }]
+               competences: [...], items: [{ id, label, points, hint?: string, negative?: bool }] }] }] }]
 students     : [{ id, nom, prenom }]
 grades       : { "studentId__itemId": true }
 remarks      : { "studentId__questionId": ["r","h"…] }
-absents      : { "studentId": true }
+absents      : { "examId__studentId": true }   ← absences par devoir (clé composée depuis AL)
 groupes      : { "nsi": [studentId…], "tt": [studentId…] }
 malusManuel  : { "studentId": number }
 commentaires : { "studentId": string }
@@ -136,8 +143,8 @@ htmlConfig          : { theme, noteNorm, noteBrute, rang,
                         competences,        ← "grid" | "none"
                         commentaire, detailExercices, bareme, histogramme,
                         starMap,            ← bool, rendu PNG offscreen via starmap.js
-                        blockOrder: ["stats","competences","commentaire","histogramme","starMap"],
-                        blockLayout: { stats, competences, commentaire, histogramme, starMap }
+                        blockOrder: ["stats","starMap"],   ← seuls blocs réordonnables (η)
+                        blockLayout: { stats, starMap }
                         }                   ← "full" | "half" par bloc
 htmlPresets         : [{ name, config }]
 htmlStudentId       : string | null         ← "__classe__" pour rapport de classe
@@ -215,7 +222,7 @@ Tous les calculs (normalisation, malus, seuils) utilisent `activeExamSettings.X`
 
 ```other
 { eleves: true, enseignant: true, gabarit: false, synthese: false,
-  github: false, sync: true, sound: false, rapportClasse: false }
+  github: false, sync: true, latex: false, sound: false, rapportClasse: false }
 ```
 
 ### Champs de compatibilité ascendante
@@ -226,6 +233,7 @@ Tous les calculs (normalisation, malus, seuils) utilisent `activeExamSettings.X`
 - `exam.features` : merge défensif avec `DEFAULT_FEATURES` au chargement
 - `exam.settings` : merge défensif avec `DEFAULT_EXAM_SETTINGS` au chargement
 - Clés IndexedDB anciennes (`normMethod`, `malusMode`…) → lues avec fallback `else if` vers les nouveaux `defaultX`
+- `absents` ancien format (clés sans `__`) → détecté dans `restoreState` : réinitialisation + banner jaune `absentsLegacyNotice` (useState, non persisté)
 
 ---
 
@@ -340,18 +348,21 @@ Chaque `exam` possède `exam.nomDS` et `exam.dateDS`. Dans `App()`, `examNomDS`/
 
 ### calculs.js — fonctions clés
 
-- `studentTotal` / `studentTotalWeighted` → points bruts / pondérés
-- `examTotal` / `examTotalWeighted` → total hors bonus
-- `exerciseScore(grades, studentId, exercise, bonusConfig?)` → `{ earned, total, bonus }`
-- `bonusCompletPoints(grades, studentId, exercise, config)` → 0 si non déclenché
-- `notesParCompetence` → `{ A, N, R, V }` lettres
+- `studentTotal` / `studentTotalWeighted(grades, studentId, exam, bonusConfig, clampQuestion)` → points bruts / pondérés
+- `examTotal` / `examTotalWeighted` → total hors bonus, **items négatifs exclus du barème**
+- `questionScore(grades, studentId, question, clampQuestion)` → `{ earned, total, treated }` — `total` exclut les items négatifs ; `earned` clampé à 0 si `clampQuestion !== false`
+- `exerciseScore(grades, studentId, exercise, bonusConfig, clampQuestion)` → `{ earned, total, bonus }` — exercise earned toujours clampé à 0 quel que soit `clampQuestion`
+- `bonusCompletPoints(grades, studentId, exercise, config)` → 0 si non déclenché ; exclut les items négatifs du total de référence
+- `notesParCompetence` → `{ A, N, R, V }` lettres ; items négatifs exclus des points de compétences
 - `ratioJustesse` / `ratioEfficacite` → métriques qualité (utilisées dans `html.js`)
 - `malusTotal(remarks, studentId, exam, paliers, malusManuel, allRemarques)` → % malus
 - `normaliser(notes, method, params)` → tableau normalisé (6 méthodes)
 - `validateState(d)` → `{ valid, data, warnings, errors }` — validation imports JSON/GitHub
 - `treatedKey(studentId, questionId)` → clé pour case "traitée 0pt"
+- `absentKey(examId, studentId)` → clé composée `"examId__studentId"` pour le store `absents`
+- `examAbsents(absents, examId)` → `{ studentId: true }` filtré sur le DS — variable `examAbsentsFlat` dans App.jsx via `useMemo`
 
-`studentTotalWeighted(grades, studentId, exam, bonusConfig)` : accepte `bonusConfig` depuis Ω2 — score correct si bonus exercice complet activé.
+**Items négatifs** : toutes les fonctions qui calculent un total (`examTotal`, `examTotalWeighted`, `bonusCompletPoints`, `notesParCompetence`, `competencePct`, `pointsTraites`) filtrent via `if (!it.negative) total += pts`. `calculs.js` est **inconditionnel** — aucune lecture de `exam.features`. `clampQuestion` : paramètre optionnel (défaut `true`), contrôle si `questionScore.earned` peut être négatif ; le score d'exercice est toujours clampé à 0 indépendamment.
 
 ### html.js — exports et fonctions SVG
 
@@ -361,6 +372,8 @@ Chaque `exam` possède `exam.nomDS` et `exam.dateDS`. Dans `App()`, `examNomDS`/
 - `DEFAULT_RAPPORT_CLASSE_CONFIG` — `{ commentaire, statsGlobales, distribution, parCompetence, parExercice }` tous `true`
 - `genererHtmlEleve(opts)` — rapport individuel HTML autonome
 - `genererHtmlTous(opts)` — ZIP tous élèves
+- `genererHtmlTousPrintable(opts)` — document HTML unique, tous les rapports élèves concaténés, séparés par `page-break-after` (classe `.page-eleve`) ; un seul bouton 🖨️ global (les boutons individuels sont retirés du body extrait par regex) ; sert à imprimer toute la classe en une seule opération navigateur (η)
+- `genererScriptsConversionPdf(nomDS)` — retourne `{ sh, py }` : scripts bash/Python qui appellent `weasyprint` sur tous les `CR_<slug>_*.html` du dossier dézippé (η)
 - `genererRapportClasse(opts)` — rapport de classe HTML (projection paysage A4)
 
 **Fonctions SVG internes :**
@@ -373,7 +386,17 @@ Chaque `exam` possède `exam.nomDS` et `exam.dateDS`. Dans `App()`, `examNomDS`/
 
 **Structure `genererRapportClasse`** : format paysage A4, grille bento CSS (`repeat(auto-fit, minmax(280px, 1fr))`). Tous les blocs sont `bento-full`. Blocs conditionnels selon `rapportClasseConfig` : commentaire · stats KPI cards · distribution · compétences (barres horizontales colorées) · exercices (un bloc par exercice, `svgHistoExercice`). Stats globales (moy/med/min/max) calculées sur `corriges` (copies non vides) pour éviter min=0. Bouton 🖨️ masqué dans l'iframe (`window.self !== window.top`).
 
-**Thèmes** : `"light"` (Cahier, Lora), `"dark"` (Ardoise, Lora), `"young"` (Lavande, Nunito). Chaque palette expose : `bg, card, border, surface, text, textMuted, textDim, accent, success, warning, danger, violet, ruled, ruledLine, radius, radiusSm, headerFont, bodyFont, compColors { A, N, R, V }`. **`ruledLine` obligatoire** — son absence casse tout le CSS. **`violet` et `radiusSm`** ont été ajoutés aux trois palettes `paletteTheme()` pour `starmap.js` (`exColor` utilise `violet`, `StarMapModal` utilise `radiusSm`).
+**Bouton 🖨️ Imprimer (η)** : réduit à l'icône seule (sans texte ni paragraphe flottant de consignes) dans `genererHtmlEleve`, `genererRapportClasse` et `genererHtmlTousPrintable` — `title="..."` porte les consignes (marges/échelle/arrière-plans) en tooltip au survol.
+
+**Cartes exercice (η)** : `break-inside:avoid` sur le conteneur de chaque exercice dans `blocDetailExercices` — empêche une coupure en plein milieu d'une carte à l'impression/PDF.
+
+**Compatibilité weasyprint (η)** : les rapports HTML s'impriment correctement au navigateur, mais weasyprint (utilisé pour la conversion HTML→PDF en ligne de commande, cf. `genererScriptsConversionPdf`) est plus strict sur le CSS :
+- `buildCSS(p)` ajoute `@page { size: A4; margin: 0; }` + `.page { padding: 10mm 8mm; ... }` en `@media print` — sans cette règle, weasyprint applique ses propres marges de page par défaut alors que `.page` est forcé à `width: 210mm`, ce qui fait déborder le contenu (le navigateur n'a pas ce problème car l'utilisateur choisit "marges: aucune" dans sa boîte de dialogue d'impression).
+- `svgRingGauge` (anneau de progression autour de la note /20) : la rotation -90° est appliquée nativement en SVG via `<g transform="rotate(-90 74 74)">` plutôt qu'en CSS (`transform:rotate()` sur un `<svg>` mal supporté par weasyprint) ; le raccourci CSS `inset:0` est remplacé par `top/left/right/bottom:0` (syntaxe longue, plus largement supportée).
+- Le texte "cliquer pour basculer" sous le bloc compétences (radar/barres) est en classe `no-print` — visible à l'écran (interaction réelle), masqué à l'impression/PDF (non pertinent sur un document statique).
+- `@media (max-width: 500px)` corrigé en `@media screen and (max-width: 500px)` — weasyprint exige un type de média explicite.
+
+**Thèmes** : `"light"` (Cahier, Lora), `"dark"` (Ardoise, Lora), `"young"` (Lavande, Nunito). Chaque palette expose : `bg, card, border, surface, text, textMuted, textDim, accent, success, warning, danger, violet, ruled, ruledLine, radius, radiusSm, headerFont, bodyFont, compColors { A, N, R, V }, negBg, negBorder, negText, negCheckBg`. **`ruledLine` obligatoire** — son absence casse tout le CSS. **`violet` et `radiusSm`** ont été ajoutés aux trois palettes `paletteTheme()` pour `starmap.js` (`exColor` utilise `violet`, `StarMapModal` utilise `radiusSm`). **`negBg/negBorder/negText/negCheckBg`** : couleurs pour les items négatifs dans les rapports HTML (chantier δ).
 
 ~~`blocParExercice`~~ — supprimée (N2, Ω1). Seule `blocsParExercice` subsiste.
 
@@ -423,6 +446,7 @@ createAnimatedStarMap(canvas, exam, gradesForStudent, classRates, theme, options
 - Stats min/max/moy dans le PDF : points bruts (`studentTotal`), pas normalisés
 - Question piège : `\color{orange}\bfseries` + marqueur ⚠️
 - Si `features.competences = false` : tableau 2 colonnes (Note + Rang)
+- **Items négatifs** : items avec `negative: true` filtrés dans `tousItems` (seul l'item cochable apparaît) ; rendu longtable avec `\textcolor{red!60!black}{$-$\ [...]}` ; `clampQuestion` propagé depuis `genererDocumentComplet`/`genererDocumentsIndividuels` → `genererRapportEleve` → `questionScore`.
 
 ### Synchronisation inter-appareils (depuis Z1, étendu en Z2)
 
@@ -443,7 +467,7 @@ check_sync_{profileId}_lastKnownVersion    ← SHA du dernier pull/push connu
 check_sync_{profileId}_lastKnownPushedAt   ← ISO date
 check_sync_{profileId}_lastPushedHash      ← contentHash au dernier push
 check_sync_{profileId}_deviceId            ← généré au premier accès, permanent
-check_sync_{profileId}_deviceName          ← "Appareil XXXX", éditable dans Réglages → Export
+check_sync_{profileId}_deviceName          ← "Appareil XXXX", éditable dans Réglages → ☁️ Sauvegarde
 ```
 
 **`_syncMeta`** injecté dans le snapshot poussé, retiré avant `restoreState` :
@@ -465,11 +489,13 @@ check_sync_{profileId}_deviceName          ← "Appareil XXXX", éditable dans R
 - Auto-save si `status === "local-ahead"` : délai de grâce 2 min après montage, puis 30s
 - Après push réussi : si `dailySnapshot` actif, appelle `maintainSnapshots(adapter, profileId, state)` (best-effort, silencieux)
 - Mutex `inFlightRef` — libéré dans `finally` systématiquement
+- `doPush({ manual: true })` : si `inFlightRef` est pris, réessaie après 600 ms (file d'attente courte pour les pushs manuels) — l'auto-save abandonne silencieusement si le mutex est pris.
+- `onPush` dans `SyncIndicator` passe `{ manual: true }` pour activer ce comportement.
 - Retourne : `{ status, remoteMeta, lastSyncAt, error, toast, push, pull, forceLocal, forceRemote, checkNow }`
 
 **Statuts** : `unconfigured` · `checking` · `synced` · `local-ahead` · `remote-ahead` · `conflict` · `error` · `pushing` · `pulling`
 
-**PAT + repo** : `localStorage` `check_github_pat` / `check_github_repo`. **Nom d'appareil** : champ texte dans Réglages → Export → Synchronisation GitHub (appelle `setDeviceName(profileId, val)` de sync.js + `setDeviceName` React). Chargé au montage et à chaque `switchProfile` via `getLocalSyncState(profileId).deviceName`.
+**PAT + repo** : `localStorage` `check_github_pat` / `check_github_repo`. **Nom d'appareil** : champ texte dans Réglages → ☁️ Sauvegarde (appelle `setDeviceName(profileId, val)` de sync.js + `setDeviceName` React). Chargé au montage et à chaque `switchProfile` via `getLocalSyncState(profileId).deviceName`.
 
 **Modale résolution de conflit** (Z2) : overlay non-closable `zIndex: 250`, s'ouvre automatiquement via `useEffect` quand `syncHook.status === "conflict"`, ou via bouton "🔀 Résoudre le conflit" dans le popover SyncIndicator. Affiche version locale (nom d'appareil) vs distante (pushedByName + date). Trois actions :
 - `⬇ Télécharger la version distante (JSON)` : appelle `downloadRemoteSnapshot()` qui fait `syncPull` + déclenche un téléchargement de fichier
@@ -607,6 +633,15 @@ Les données élèves ne transitent par GitHub que dans le dépôt **privé** de
 | **AI** ✅    | App.jsx                                                                                           | Bouton "☐→✓" / "✓✓" (cocher/décocher tout) dans l'onglet Correction : affiché pour les questions ≥ 2 items, placé dans la même ligne flex que "marquer traitée" (sous les items). Bouton "marquer traitée" mis en évidence : bordure `2px solid th.warning` (opacité 88% inactif, pleine active), `fontWeight: 700`. Hauteur unifiée (`padding: "2px 8px"` sur les deux boutons). |
 | **AJ** ✅    | App.jsx                                                                                           | Scroll auto vers le haut au clic sur "Ex. préc." / "Ex. suiv." : `mainScrollRef` (useRef) sur le div scrollable principal, `scrollTop = 0` dans les deux handlers de navigation. |
 | **AK** ✅    | App.jsx, OverviewTab.jsx                                                                          | Infobulles hint sur les items : champ `hint` optionnel (`it.hint`) dans l'éditeur Préparation (input italique entre label et points) + icône ⓘ en Correction (survol desktop 200ms via `hintTimerRef`/`isTouch`, tap mobile/tablette). Filtre "✓ Corrigés seulement" dans Vue d'ensemble : `hideUncorrected` + `isStudentCorrected` + `filteredPresents`, compteur `(N/Total)` quand actif. |
+| **P2-a** ✅  | backup.js (nouveau), backup.test.js (nouveau), App.jsx, ExportTab.jsx, AccueilTab.jsx             | Filet de sauvegarde universel multi-profils (palier 2-a, indépendant de la sync). `backup.js` : fonctions pures (`wrapBackup`/`parseBackup`/`validateBackup`/`backupFilename`/`genProfileId`) + agrégation async (`collectAllProfiles`/`restoreReplace`/`restoreMerge`). 3 nouveaux états UI : `backupBusy`, `backupRestoreModal`, `restoreMode`. Ref `backupFileRef`. Handlers `saveFullBackup` / `loadBackupFile` / `confirmRestore`. Modale inline styles (calquée sur `showRestoreModal`). Section "Sauvegarde & restauration" dans ExportTab. Bouton "Sauvegarder mes données" dans AccueilTab. 15/15 tests purs. |
+| **P2-b** ✅  | filelink.js (nouveau), App.jsx, SauvegardeTab.jsx, AccueilTab.jsx                                | Fichier lié auto-réécrit (palier 2-b, Chrome/Edge uniquement). `filelink.js` : base IDB dédiée `"check-app-filelink"`, fonctions pures testables en Node (`isFileLinkSupported`, `displayName`) + IDB (`saveHandle`/`loadHandle`/`clearHandle`) + permissions (`queryPermission`/`requestPermission`) + fichier (`pickSaveFile`/`writeToLinkedFile`). 4 états UI transitoires (`linkedFileHandle`, `linkedFileName`, `linkedFilePerm`, `linkedFileBusy`) exclus de `buildAppState` et des deps de save. `useEffect([dbLoaded])` recharge le handle depuis IDB + `queryPermission` au démarrage. Écriture silencieuse dans le debounce de save (après `saveDB`). Handlers `linkFile` / `unlinkFile` / `reauthorizeLinkedFile`. Section accordéon complète dans SauvegardeTab (4 états visuels : non lié / granted / prompt / denied). Indicateur discret dans AccueilTab. Dégradation silencieuse sur Safari/Firefox. 8/8 tests purs. |
+| **AL** ✅    | calculs.js, App.jsx                                                                               | Absences par devoir : format `absents` migré de `{ studentId: true }` vers `{ examId__studentId: true }`. `absentKey` + `examAbsents` dans calculs.js. `examAbsentsFlat` via `useMemo` dans App.jsx. Migration automatique à `restoreState` (détection ancien format sans `__`) + banner jaune `absentsLegacyNotice` (non persisté). Toggle absent écrit la clé composée. Tous les guards (malus, commentaires, notes privées, perles, liste questions, badge recherche) + tous les exports (htmlClasseSrc, htmlSrc, CSV isAbsent, OverviewTab, ExportTab) branchés sur `examAbsentsFlat`. |
+| **α** ✅     | App.jsx, SyncIndicator.jsx                                                                        | **Responsive tablette** : `isTablet = winW < 1024 && !isMobile` — header compact (logo 32px, nom profil/DS/nav/💾📂 masqués) ; menu ⋯ enrichi avec nav complète + 💾/📂 quand `isTablet`. **Mobile unifié** : suppression du ⋯ mobile séparé (doublon + conflit `showMore`) → contenu intégré dans le ⋯ desktop unique (`isMobile` gate). **Espacement remarques** : `marginBottom: isTouch ? 8 : 4` sur la div remarques (anti-tap-accidentel "tout cocher"). **Sync push manuel** : `doPush({ manual: true })` réessaie après 600 ms si mutex pris (auto-save abandonne silencieusement) ; `onPush` câblé avec `{ manual: true }` ; message SyncIndicator mis à jour ("Auto-save dans ~2 min — ou forcer ci-dessous"). |
+| **γ** ✅     | SettingsModal.jsx, ExportTab.jsx, SauvegardeTab.jsx (nouveau), App.jsx                            | **Onglet ☁️ Sauvegarde** : nouvel onglet de nav principale (remplace Aide). `SauvegardeTab.jsx` créé avec les sections Synchronisation et Sauvegarde & restauration déplacées depuis ExportTab. **Onglet ☁️ Sauvegarde dans Réglages** : 6ème onglet SettingsModal (PAT GitHub, dépôt privé, nom d'appareil) — remplace l'accordéon "Synchronisation GitHub" supprimé de l'onglet Export. **Aide dans ⋯** : bouton ℹ️ Aide ajouté dans le menu ⋯ avant À propos ; mobile nav remplace Aide par Sauvegarde. |
+| **δ** ✅     | SyncIndicator.jsx                                                                                 | **Feedback toast au déclenchement manuel de la synchro** : état `localToast` (pré-transpilé) + `localToastTimerRef` dans `SyncIndicator`. Fonction `showFeedback(msg)` : set toast + clear auto après 1,5s. Chaque bouton d'action appelle `showFeedback` avant `setOpen(false)` : "Vérification lancée…" (synced + error) · "Envoi en cours…" (local-ahead) · "Récupération en cours…" (remote-ahead) · "Nouvelle tentative…" (error). Toast rendu en bas à droite, couleur `th.accent`, distinct du toast vert de l'auto-pull ; remonte à `bottom: 64` si les deux coexistent. |
+| **ε** ✅     | calculs.js, App.jsx, SettingsModal.jsx, ExportTab.jsx, html.js, latex.js, theme.js, settings.js  | **Items négatifs** : `negative: bool` sur les items — soustrait des points quand coché, exclu du barème total de la question/exercice/exam. Bouton `−` en Préparation (toggle polarity, inverse signe des points auto). Champ points contraint `min=0`/`max=0` + clamp `onChange`. UI Correction : bordure/fond rouge (`negBg/negBorder/negCheckBg/negText` dans les 3 thèmes). "Tout cocher" n'active que les items positifs. Exports HTML/LaTeX : items négatifs filtrés/colorés. `clampQuestion: bool` dans `exam.settings` (défaut `true`) : toggle dans SettingsModal → Notes → DS actif. `questionScore`/`exerciseScore`/`studentTotalWeighted` mis à jour avec paramètre `clampQuestion`. Palettes `paletteTheme()` : ajout `negBg/negBorder/negText/negCheckBg` dans les 3 thèmes + `ruledLine` corrigé pour dark et light. |
+| **ζ** ✅     | ExportTab.jsx, SettingsModal.jsx, App.jsx                                                         | **Déplacement checkbox barème LaTeX** : la checkbox "Inclure le barème détaillé par items (dernière page LaTeX)" retirée de l'onglet Export (ExportTab) et déplacée dans Réglages → Export → nouvel accordéon "📄 Export LaTeX" (entre HTML et Liens audio). Même état `htmlConfig.baremeLatex`, aucun changement de persistance (déjà dans `buildAppState`/deps). `exportOpen.latex: false` ajouté à l'état initial (accordéon fermé par défaut, comme `sound`). |
+| **η** ✅     | App.jsx, html.js, ExportTab.jsx                                                                   | **Impression / PDF** : scroll Résultats corrigé (`height:"100%"` au lieu de `calc(100vh - 52px)` hardcodé) · modale "Mise en page" nettoyée (3 blocs fantômes jamais câblés retirés, ne reste que Stats + Carte Stellaire, note explicative) · boutons 🖨️ réduits à l'icône seule (tooltip consignes) sur les 3 générateurs HTML · `break-inside:avoid` sur les cartes exercice · nouvelle fonction `genererHtmlTousPrintable` (document unique, page-break par élève) · nouvelle fonction `genererScriptsConversionPdf` (scripts bash/Python weasyprint) · ZIP HTML enrichi (`IMPRIMER_TOUT.html` + scripts) · compatibilité weasyprint : `@page{size:A4;margin:0}` (sinon contenu 210mm déborde des marges par défaut), anneau de progression `svgRingGauge` réécrit en rotation SVG native (le `transform:rotate()` CSS et `inset:0` étaient mal supportés), texte "cliquer pour basculer" passé en `no-print`. Setup environnement Samuel : Homebrew + Pango installés, `DYLD_LIBRARY_PATH` dans `~/.zshenv` pour que `weasyprint` fonctionne en CLI. |
 
 ---
 
@@ -618,4 +653,4 @@ Les données élèves ne transitent par GitHub que dans le dépôt **privé** de
 - Fournis des patches chirurgicaux (blocs AVANT / APRÈS) plutôt que le fichier complet, sauf si les modifications sont trop nombreuses.
 - **Les snippets de code doivent inclure l'indentation réelle** telle qu'elle apparaîtra dans le fichier.
 - Je valide les changements en remplaçant le fichier et en observant le résultat dans le navigateur (`npm start` tourne en permanence).
-- **Priorité du moment : aucune urgence.** Sessions AA–AE + B3 + AF–AK terminées. Prochaine session probable : révision UI Mise en page (drag-and-drop ☰), F2-b (rapport classe LaTeX) ou session PWA (B5/F11/F12).
+- **Priorité du moment :** η livré (impression/PDF, weasyprint opérationnel). Prochaine session probable : révision UI Mise en page (drag-and-drop ☰), F2-b (rapport classe LaTeX) ou session PWA (B5/F11/F12).

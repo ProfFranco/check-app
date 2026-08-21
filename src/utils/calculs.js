@@ -26,6 +26,19 @@ export function treatedKey(studentId, questionId) {
 }
 
 
+export const absentKey = (examId, studentId) => examId + "__" + studentId;
+
+export function examAbsents(absents, examId) {
+  var result = {};
+  var prefix = examId + "__";
+  for (var k in absents) {
+    if (k.indexOf(prefix) === 0 && absents[k]) {
+      result[k.slice(prefix.length)] = true;
+    }
+  }
+  return result;
+}
+
 /** Borne une valeur entre min et max */
 export const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
 
@@ -35,15 +48,14 @@ export const compColor = (comp, isDark) => isDark ? comp.colorDark : comp.color;
 // ─── Scores ──────────────────────────────────────────────────────
 
 /** Score d'un élève sur une question : { earned, total } */
-export function questionScore(grades, studentId, question) {
+export function questionScore(grades, studentId, question, clampQuestion) {
   let earned = 0, total = 0;
   for (const item of question.items) {
     const pts = parseFloat(item.points) || 0;
-    total += pts;
+    if (!item.negative) total += pts;
     if (grades[gradeKey(studentId, item.id)]) earned += pts;
   }
-   // La question est "traitée" si au moins un item est coché
-  // OU si la case "traitée" est explicitement cochée
+  if (clampQuestion !== false) earned = Math.max(0, earned);
   const wasTreated = earned > 0
     || !!grades[treatedKey(studentId, question.id)];
   return { earned, total, treated: wasTreated };
@@ -72,7 +84,7 @@ export function bonusCompletPoints(grades, studentId, exercise, bonusConfig) {
     if (!treated) return 0; // question non traitée → pas de bonus
     for (const it of (q.items || [])) {
       const pts = parseFloat(it.points) || 0;
-      total += pts;
+      if (!it.negative) total += pts;
       if (grades[gradeKey(studentId, it.id)]) earned += pts;
     }
   }
@@ -93,15 +105,16 @@ export function bonusCompletPoints(grades, studentId, exercise, bonusConfig) {
  *  total exclut les questions bonus (conformément au principe :
  *  les bonus s'ajoutent au score mais pas au maximum).
  *  Si bonusConfig est fourni, le bonus exercice complet est inclus dans earned. */
-export function exerciseScore(grades, studentId, exercise, bonusConfig) {
+export function exerciseScore(grades, studentId, exercise, bonusConfig, clampQuestion) {
   let earned = 0, total = 0;
   for (const q of exercise.questions) {
-    const s = questionScore(grades, studentId, q);
+    const s = questionScore(grades, studentId, q, clampQuestion);
     earned += s.earned;
     if (!q.bonus) total += s.total;
   }
   const bonus = bonusConfig ? bonusCompletPoints(grades, studentId, exercise, bonusConfig) : 0;
-  return { earned: earned + bonus, total, bonus };
+  earned = Math.max(0, earned + bonus);
+  return { earned, total, bonus };
 }
 
 /** Score total d'un élève sur l'examen (points bruts, sans coefficients) */
@@ -109,27 +122,27 @@ export function studentTotal(grades, studentId, exam) {
   return exam.exercises.reduce((sum, ex) => sum + exerciseScore(grades, studentId, ex).earned, 0);
 }
 
-/** Total des points de l'examen (hors bonus, sans coefficients) */
+/** Total des points de l'examen (hors bonus, sans coefficients, hors items négatifs) */
 export function examTotal(exam) {
   return exam.exercises.reduce((s, ex) =>
     s + ex.questions.reduce((sq, q) =>
-      q.bonus ? sq : sq + q.items.reduce((si, it) => si + (parseFloat(it.points) || 0), 0), 0), 0);
+      q.bonus ? sq : sq + q.items.reduce((si, it) => it.negative ? si : si + (parseFloat(it.points) || 0), 0), 0), 0);
 }
 
 /** Score pondéré d'un élève (coefficients appliqués, bonus exercice complet inclus si bonusConfig fourni) */
-export function studentTotalWeighted(grades, studentId, exam, bonusConfig) {
+export function studentTotalWeighted(grades, studentId, exam, bonusConfig, clampQuestion) {
   return exam.exercises.reduce((sum, ex) => {
     const coeff = ex.coeff !== undefined ? ex.coeff : 1;
-    return sum + exerciseScore(grades, studentId, ex, bonusConfig).earned * coeff;
+    return sum + exerciseScore(grades, studentId, ex, bonusConfig, clampQuestion).earned * coeff;
   }, 0);
 }
 
-/** Maximum pondéré de l'examen (hors bonus — les points bonus s'ajoutent à earned mais pas au maximum) */
+/** Maximum pondéré de l'examen (hors bonus, hors items négatifs) */
 export function examTotalWeighted(exam) {
   return exam.exercises.reduce((s, ex) => {
     const coeff = ex.coeff !== undefined ? ex.coeff : 1;
     return s + ex.questions.reduce((sq, q) =>
-      q.bonus ? sq : sq + q.items.reduce((si, it) => si + (parseFloat(it.points) || 0), 0) * coeff, 0);
+      q.bonus ? sq : sq + q.items.reduce((si, it) => it.negative ? si : si + (parseFloat(it.points) || 0), 0) * coeff, 0);
   }, 0);
 }
 
@@ -150,7 +163,7 @@ export function pointsTraites(grades, studentId, exam) {
       const qTraitee = grades[treatedKey(studentId, q.id)]
         || (q.items || []).some(it => grades[gradeKey(studentId, it.id)]);
       if (qTraitee) {
-        traites += (q.items || []).reduce((s, it) => s + (parseFloat(it.points) || 0), 0);
+        traites += (q.items || []).reduce((s, it) => it.negative ? s : s + (parseFloat(it.points) || 0), 0);
       }
     }
   }
@@ -183,7 +196,7 @@ export function notesParCompetence(grades, studentId, exam, seuils) {
     for (const ex of exam.exercises) {
       for (const q of ex.questions) {
         if (!q.competences.includes(comp.id)) continue;
-        const pts = (q.items || []).reduce((s, it) => s + (parseFloat(it.points) || 0), 0);
+        const pts = (q.items || []).reduce((s, it) => it.negative ? s : s + (parseFloat(it.points) || 0), 0);
         totalComp += pts;
         // ← MODIFICATION : case "traitée" OU au moins un item coché
         const qTraitee = grades[treatedKey(studentId, q.id)]
@@ -220,7 +233,7 @@ export function competencePct(grades, studentId, exam) {
         const qTraitee = grades[treatedKey(studentId, q.id)]
           || (q.items || []).some(it => grades[gradeKey(studentId, it.id)]);
         if (qTraitee) {
-          maxTraite += (q.items || []).reduce((s, it) => s + (parseFloat(it.points) || 0), 0);
+          maxTraite += (q.items || []).reduce((s, it) => it.negative ? s : s + (parseFloat(it.points) || 0), 0);
           for (const it of (q.items || [])) {
             if (grades[gradeKey(studentId, it.id)]) obtenu += parseFloat(it.points) || 0;
           }

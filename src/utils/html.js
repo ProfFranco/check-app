@@ -19,6 +19,7 @@ import { COMPETENCES, ETABLISSEMENT } from "../config/settings";
 import {
   gradeKey, treatedKey,
   questionScore, exerciseScore, bonusCompletPoints,
+  studentTotal, examTotal,
   notesParCompetence, malusTotal,
   ratioJustesse, ratioEfficacite,
 } from "./calculs";
@@ -38,14 +39,14 @@ export const DEFAULT_HTML_CONFIG = {
   commentaire: true,
   detailExercices: true,
   bareme: false,
+  baremeLatex: true,
+  papierLatex: false,
+  papierTextes: null,
   histogramme: true,
   starMap: false,
-  blockOrder: ["stats", "competences", "commentaire", "histogramme", "starMap"],
+  blockOrder: ["stats", "starMap"],
   blockLayout: {
     stats:       "full",
-    competences: "full",
-    commentaire: "full",
-    histogramme: "full",
     starMap:     "half",
   },
 };
@@ -75,11 +76,13 @@ function paletteTheme(theme) {
       bg: "#1a1814", card: "#2a261e", border: "#3a3428", surface: "#242018",
       text: "#e8e4dc", textMuted: "#9e9a90", textDim: "#6b675f",
       accent: "#5b9bd5", success: "#7bc67e", warning: "#e8a838",
-      danger: "#d06050", violet: "#a882c8", ruled: 0.15, radius: 8,
+      danger: "#d06050", violet: "#a882c8", ruled: 0.15, ruledLine: "#3a3428", radius: 8,
       radiusSm: 5,
-      headerFont: "'Lora', Georgia, serif",
-      bodyFont: "'Segoe UI', system-ui, sans-serif",
+      headerFont: "'Newsreader', Georgia, serif",
+      bodyFont: "'Hanken Grotesk', system-ui, sans-serif",
+      labelFont: "'JetBrains Mono', monospace",
       compColors: { A: "#5b9bd5", N: "#a882c8", R: "#7bc67e", V: "#e8a838" },
+      negBg: "#3d1f1f", negBorder: "#c0504f", negText: "#f09595", negCheckBg: "#5a2525",
     };
   }
   if (theme === "young") {
@@ -91,7 +94,9 @@ function paletteTheme(theme) {
       radiusSm: 8,
       headerFont: "'Nunito', 'Quicksand', system-ui, sans-serif",
       bodyFont: "'Nunito', 'Quicksand', system-ui, sans-serif",
+      labelFont: "'JetBrains Mono', monospace",
       compColors: { A: "#e05a9e", N: "#8b5cf6", R: "#10b981", V: "#f59e0b" },
+      negBg: "#fff0ee", negBorder: "#c8882a", negText: "#633806", negCheckBg: "#fac775",
     };
   }
   // light (défaut)
@@ -99,21 +104,24 @@ function paletteTheme(theme) {
     bg: "#faf7f2", card: "#ffffff", border: "#e0d8cc", surface: "#f2ede4",
     text: "#2c2416", textMuted: "#7a7060", textDim: "#b0a898",
     accent: "#2855a0", success: "#2a7a3a", warning: "#c07a10",
-    danger: "#b83030", violet: "#6a3a9a", ruled: 0.45, radius: 8,
+    danger: "#b83030", violet: "#6a3a9a", ruled: 0.45, ruledLine: "#e0d8cc", radius: 8,
     radiusSm: 5,
-    headerFont: "'Lora', Georgia, serif",
-    bodyFont: "'Segoe UI', system-ui, sans-serif",
+    headerFont: "'Newsreader', Georgia, serif",
+    bodyFont: "'Hanken Grotesk', system-ui, sans-serif",
+    labelFont: "'JetBrains Mono', monospace",
     compColors: { A: "#2855a0", N: "#6a3a9a", R: "#2a7a3a", V: "#c07a10" },
+    negBg: "#fcebeb", negBorder: "#e24b4a", negText: "#791f1f", negCheckBg: "#f7c1c1",
   };
 }
 
 // ─── Google Fonts à injecter selon le thème ───────────────────────
 
 function googleFontsUrl(theme) {
+  var base = "https://fonts.googleapis.com/css2?family=Newsreader:opsz,wght@6..72,400;6..72,500;6..72,600&family=Hanken+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600";
   if (theme === "young") {
-    return "https://fonts.googleapis.com/css2?family=Nunito:wght@400;600;700;800;900&family=Quicksand:wght@600;700&display=swap";
+    return base + "&family=Nunito:wght@400;600;700;800;900&display=swap";
   }
-  return "https://fonts.googleapis.com/css2?family=Lora:ital,wght@0,400;0,700;1,700&display=swap";
+  return base + "&display=swap";
 }
 
 // ─── Utilitaires ─────────────────────────────────────────────────
@@ -128,17 +136,7 @@ function esc(str) {
 function fmt1(n) { return (Math.round(n * 10) / 10).toFixed(1); }
 function fmt0(n) { return Math.round(n).toString(); }
 function fmtPct(r) { return Math.round(r * 100) + " %"; }
-
-function couleurNote(note, p) {
-  if (note >= 14) return p.success;
-  if (note >= 10) return p.warning;
-  return p.danger;
-}
-
-function couleurRang(rang, effectif, p) {
-  var ratio = rang / effectif;
-  return couleurNote(ratio <= 0.25 ? 15 : ratio <= 0.5 ? 11 : 8, p);
-}
+function fmtFr(n) { return fmt1(n).replace('.', ','); }
 
 // ─── SVG Radar ───────────────────────────────────────────────────
 // Taille fixe : 100px (+ padding interne pour les labels)
@@ -177,25 +175,25 @@ function svgRadar(compPcts, p) {
     var col = p.compColors[c.id] || p.accent;
     return '<circle cx="' + xy[0].toFixed(1) + '" cy="' + xy[1].toFixed(1) + '" r="3" fill="' + col + '"/>' +
       '<text x="' + lxy[0].toFixed(1) + '" y="' + lxy[1].toFixed(1) + '" text-anchor="middle" dominant-baseline="middle" ' +
-      'font-size="9" font-weight="700" fill="' + col + '" font-family="system-ui,sans-serif">' + esc(c.id) + '</text>';
+      'font-size="9" font-weight="700" fill="' + col + '" font-family="JetBrains Mono, monospace">' + esc(c.id) + '</text>';
   }).join("");
 
-  return '<svg width="' + total + '" height="' + total + '" viewBox="0 0 ' + total + ' ' + total + '" ' +
-    'xmlns="http://www.w3.org/2000/svg" style="display:block;flex-shrink:0;">' +
+  return '<svg viewBox="0 0 ' + total + ' ' + total + '" ' +
+    'xmlns="http://www.w3.org/2000/svg" style="display:block;width:100%;height:100%;max-width:200px;max-height:200px;">' +
     grids + surf + dotsAndLabels + '</svg>';
 }
 
 // ─── SVG Histogramme ─────────────────────────────────────────────
 
-function svgHisto(allNotes, studentNote, p) {
-  var width = 340, height = 110;
+function svgHisto(allNotes, studentNote, p, compact) {
+  var width = 340, height = compact ? 76 : 110;
   var nbBins = 21;
   var bins = [];
   for (var i = 0; i < nbBins; i++) bins.push(0);
   allNotes.forEach(function(n) { bins[Math.min(20, Math.max(0, Math.round(n)))]++; });
   var maxCount = Math.max.apply(null, bins.concat([1]));
 
-  var padL = 24, padR = 8, padT = 8, padB = 20;
+  var padL = 24, padR = 8, padT = compact ? 5 : 8, padB = compact ? 14 : 20;
   var innerW = width - padL - padR;
   var innerH = height - padT - padB;
   var barW = innerW / nbBins;
@@ -207,7 +205,7 @@ function svgHisto(allNotes, studentNote, p) {
     var y = padT + innerH - bh;
     var fill = i === Math.round(studentNote) ? p.accent : p.accent + "55";
     return '<rect x="' + (x + 0.5).toFixed(1) + '" y="' + y.toFixed(1) + '" width="' + (barW - 1).toFixed(1) + '" height="' + bh.toFixed(1) + '" fill="' + fill + '" rx="2"/>' +
-      '<text x="' + (x + barW / 2).toFixed(1) + '" y="' + (y - 2).toFixed(1) + '" text-anchor="middle" font-size="7" fill="' + p.textMuted + '" font-family="monospace">' + count + '</text>';
+      (compact ? '' : '<text x="' + (x + barW / 2).toFixed(1) + '" y="' + (y - 2).toFixed(1) + '" text-anchor="middle" font-size="7" fill="' + p.textMuted + '" font-family="monospace">' + count + '</text>');
   }).join("");
 
   var xEleve = padL + studentNote * (innerW / 20);
@@ -263,256 +261,405 @@ function svgHistoClasse(allNotes, moyenneNote, p) {
     axis + bars + traitMoy + ticks + '</svg>';
 }
 
+// ─── SVG Ring gauge (note /20) ────────────────────────────────────
+
+function svgRingGauge(noteNorm, p) {
+  var rr = 60;
+  var circ = 2 * Math.PI * rr;
+  var frac = Math.min(1, Math.max(0, noteNorm / 20));
+  var dash = (circ * frac).toFixed(2) + ' ' + circ.toFixed(2);
+  return '<div style="position:relative;width:148px;height:148px;flex:none;">' +
+    '<svg viewBox="0 0 148 148" style="position:absolute;top:0;left:0;right:0;bottom:0;width:148px;height:148px;" xmlns="http://www.w3.org/2000/svg">' +
+      '<g transform="rotate(-90 74 74)">' +
+      '<circle cx="74" cy="74" r="' + rr + '" fill="none" stroke="' + p.border + '" stroke-width="11"/>' +
+      '<circle cx="74" cy="74" r="' + rr + '" fill="none" stroke="' + p.accent + '" stroke-width="11" stroke-linecap="round" stroke-dasharray="' + dash + '"/>' +
+      '</g>' +
+    '</svg>' +
+    '<div style="position:absolute;top:0;left:0;right:0;bottom:0;display:flex;flex-direction:column;align-items:center;justify-content:center;pointer-events:none;">' +
+      '<div style="font-family:' + p.headerFont + ';font-size:40px;font-weight:600;line-height:1;color:' + p.text + ';">' + fmtFr(noteNorm) + '</div>' +
+      '<div style="font-family:' + p.labelFont + ';font-size:10px;color:' + p.textMuted + ';margin-top:3px;letter-spacing:.05em;">SUR 20</div>' +
+    '</div>' +
+    '</div>';
+}
+
+// ─── SVG barre KPI (position élève vs. moyenne classe) ────────────
+
+function svgKpiBar(you, avg, p) {
+  var clamp = function(v) { return Math.min(1, Math.max(0, v)); };
+  var X = function(v) { return (5 + clamp(v) * 186).toFixed(1); };
+  return '<svg viewBox="0 0 196 18" style="width:100%;height:18px;display:block" xmlns="http://www.w3.org/2000/svg">' +
+    '<line x1="5" y1="9" x2="191" y2="9" stroke="' + p.border + '" stroke-width="6" stroke-linecap="round"/>' +
+    '<line x1="5" y1="9" x2="' + X(you) + '" y2="9" stroke="' + p.accent + '" stroke-width="6" stroke-linecap="round"/>' +
+    '<line x1="' + X(avg) + '" y1="3" x2="' + X(avg) + '" y2="15" stroke="' + p.textDim + '" stroke-width="1.5"/>' +
+    '<circle cx="' + X(you) + '" cy="9" r="4.5" fill="' + p.accent + '" stroke="' + p.card + '" stroke-width="1.5"/>' +
+    '</svg>';
+}
+
+// ─── SVG Classement classe (notes triées décroissantes, staircase) ──
+
+function svgRankChart(presents, getNote20, studentId, p) {
+  var sorted = presents.map(function(s) {
+    return { id: s.id, note: getNote20(s.id) };
+  }).sort(function(a, b) { return b.note - a.note; });
+
+  var n = sorted.length;
+  if (n === 0) return '';
+
+  var moy = sorted.reduce(function(acc, s) { return acc + s.note; }, 0) / n;
+
+  var youIdx = -1;
+  for (var i = 0; i < sorted.length; i++) {
+    if (sorted[i].id === studentId) { youIdx = i; break; }
+  }
+  var youNote = youIdx >= 0 ? sorted[youIdx].note : 0;
+
+  var W = 360, H = 140, pl = 10, pr = 10, pt = 14, pb = 22;
+  var topV = Math.max(sorted[0].note, 1);
+  var rx = function(idx) { return pl + (n > 1 ? idx / (n - 1) : 0) * (W - pl - pr); };
+  var ry = function(v)   { return (H - pb) - (v / topV) * (H - pb - pt); };
+
+  var pts = sorted.map(function(s, idx) {
+    return rx(idx).toFixed(1) + ' ' + ry(s.note).toFixed(1);
+  });
+  var linePath  = 'M ' + pts.join(' L ');
+  var areaPath  = linePath +
+    ' L ' + rx(n - 1).toFixed(1) + ' ' + ry(0).toFixed(1) +
+    ' L ' + rx(0).toFixed(1)     + ' ' + ry(0).toFixed(1) + ' Z';
+
+  var parts = [
+    '<path d="' + areaPath + '" fill="' + p.accent + '1a"/>',
+    '<path d="' + linePath + '" fill="none" stroke="' + p.accent + '" stroke-width="1.6"/>',
+    '<line x1="' + pl + '" y1="' + ry(0).toFixed(1) + '" x2="' + (W - pr) + '" y2="' + ry(0).toFixed(1) + '" stroke="' + p.border + '" stroke-width="1"/>',
+    '<line x1="' + pl + '" y1="' + ry(moy).toFixed(1) + '" x2="' + (W - pr) + '" y2="' + ry(moy).toFixed(1) + '" stroke="' + p.warning + '" stroke-width="1" stroke-dasharray="4 3"/>',
+    '<text x="' + (W - pr) + '" y="' + (ry(moy) - 4).toFixed(1) + '" text-anchor="end" font-family="monospace" font-size="9" fill="' + p.warning + '">moy. ' + fmtFr(moy) + '</text>',
+  ];
+
+  if (youIdx >= 0) {
+    var youX = rx(youIdx), youY = ry(youNote);
+    // Décaler le label vers la gauche si l'élève est dans le dernier tiers
+    var lblAnchor = youIdx > n * 0.67 ? 'end' : 'start';
+    var lblOffset = youIdx > n * 0.67 ? -7 : 7;
+    parts.push(
+      '<line x1="' + youX.toFixed(1) + '" y1="' + youY.toFixed(1) + '" x2="' + youX.toFixed(1) + '" y2="' + ry(0).toFixed(1) + '" stroke="' + p.accent + '" stroke-width="1" stroke-dasharray="3 2"/>',
+      '<circle cx="' + youX.toFixed(1) + '" cy="' + youY.toFixed(1) + '" r="4.2" fill="' + p.accent + '" stroke="' + p.card + '" stroke-width="1.5"/>',
+      '<text x="' + (youX + lblOffset).toFixed(1) + '" y="' + (youY - 6).toFixed(1) + '" text-anchor="' + lblAnchor + '" font-family="monospace" font-size="9.5" font-weight="700" fill="' + p.accent + '">Vous·' + fmtFr(youNote) + '</text>'
+    );
+  }
+
+  parts.push(
+    '<text x="' + pl + '" y="' + (H - 7) + '" font-family="monospace" font-size="9" fill="' + p.textMuted + '">1er</text>',
+    '<text x="' + (W - pr) + '" y="' + (H - 7) + '" text-anchor="end" font-family="monospace" font-size="9" fill="' + p.textMuted + '">' + n + 'e</text>'
+  );
+
+  return '<svg viewBox="0 0 ' + W + ' ' + H + '" style="width:100%;height:auto;display:block" xmlns="http://www.w3.org/2000/svg">' +
+    parts.join('') + '</svg>';
+}
+
 // ─── Blocs HTML ───────────────────────────────────────────────────
 
-// Titre du DS (au-dessus du header card)
-function blocTitreDS(nomDS, dateDS, p) {
-  var date = dateDS ? '<span style="font-weight:400;font-size:16px;color:' + p.textMuted + ';margin-left:8px;">· ' + esc(dateDS) + '</span>' : "";
-  return '<div style="font-family:' + p.headerFont + ';font-size:22px;font-weight:700;color:' + p.text + ';margin-bottom:10px;">' +
-    esc(nomDS || "Devoir surveillé") + date + '</div>';
-}
+// Header page : masthead + héros + ring gauge
+function blocHeader(student, noteNorm, noteBrute, rang, effectif, cfg, p, nomDS, dateDS) {
+  var etab = esc(ETABLISSEMENT.nom) + ' · ' + esc(ETABLISSEMENT.classe) +
+    (ETABLISSEMENT.matricule ? ' · ' + esc(ETABLISSEMENT.matricule) : '');
+  var dsStr = esc(nomDS || '') + (dateDS ? ' · ' + esc(dateDS) : '');
 
-// Header card : nom élève + boîtes note/rang
-function blocHeader(student, noteNorm, noteBrute, rang, effectif, cfg, p) {
-  var br = p.radius + "px";
-  var hp = 18; // padding header
-
-  // Fond teinté (accent du bandeau)
-  var accentBg = 'background:' + p.accent + '0c;';
-
-  // Boîte note
-  var noteVal = cfg.noteNorm ? noteNorm : noteBrute;
-  var noteCol = couleurNote(noteVal, p);
-  var noteBruteHtml = (cfg.noteNorm && cfg.noteBrute)
-    ? '<div style="font-size:10px;color:' + p.textMuted + ';margin-top:2px;">brute ' + fmt1(noteBrute) + '</div>'
-    : "";
-  var boxHeight = Math.round(32 * 2.4); // taille note px * 2.4
-  var nboxStyle = 'display:flex;flex-direction:column;align-items:center;justify-content:center;' +
-    'border:2px solid ' + noteCol + '55;border-radius:' + br + ';background:' + noteCol + '14;' +
-    'padding:0 14px;min-width:' + (32 + 28) + 'px;flex:1;height:' + boxHeight + 'px;';
-  var noteBox = '<div style="' + nboxStyle + '">' +
-    '<span style="font-weight:800;font-family:monospace;font-size:32px;color:' + noteCol + ';line-height:1;">' + fmt1(noteVal) + '</span>' +
-    '<span style="font-size:11px;font-weight:600;color:' + noteCol + ';opacity:.75;">/20</span>' +
-    noteBruteHtml + '</div>';
-
-  // Boîte rang
-  var rangHtml = "";
-  if (cfg.rang) {
-    var rangCol = couleurRang(rang, effectif, p);
-    var rboxStyle = 'display:flex;flex-direction:column;align-items:center;justify-content:center;' +
-      'border:2px solid ' + rangCol + '55;border-radius:' + br + ';background:' + rangCol + '14;' +
-      'padding:0 14px;min-width:' + (32 + 28) + 'px;flex:1;height:' + boxHeight + 'px;';
-    rangHtml = '<div style="' + rboxStyle + '">' +
-      '<span style="font-weight:800;font-family:monospace;font-size:32px;color:' + rangCol + ';line-height:1;">' + fmt0(rang) + '</span>' +
-      '<span style="font-size:11px;font-weight:600;color:' + rangCol + ';opacity:.75;">/' + effectif + '</span>' +
-      '</div>';
-  }
-
-  var etab = ETABLISSEMENT.nom + ' · ' + ETABLISSEMENT.classe + ' · ' + ETABLISSEMENT.matricule;
-  var inner = '<div style="display:flex;align-items:center;gap:14px;padding:' + hp + 'px ' + (hp + 4) + 'px;' + accentBg + '">' +
-    '<div style="flex:1;min-width:0;">' +
-      '<div style="font-family:' + p.headerFont + ';font-size:22px;font-weight:700;color:' + p.text + ';line-height:1.15;">' +
-        esc(student.prenom) + ' <em>' + esc(student.nom) + '</em>' +
-      '</div>' +
-      '<div style="font-size:10px;color:' + p.textDim + ';margin-top:4px;">' + esc(etab) + '</div>' +
-    '</div>' +
-    '<div style="display:flex;gap:8px;align-items:stretch;flex-shrink:0;">' + noteBox + rangHtml + '</div>' +
+  // Masthead
+  var masthead = '<div style="display:flex;justify-content:space-between;align-items:flex-end;' +
+    'border-bottom:1.5px solid ' + p.text + ';padding-bottom:11px;margin-bottom:28px;">' +
+    '<div style="font-family:' + p.labelFont + ';font-size:11px;letter-spacing:.13em;color:' + p.textMuted + ';text-transform:uppercase;">' + etab + '</div>' +
+    '<div style="font-family:' + p.labelFont + ';font-size:11px;letter-spacing:.13em;color:' + p.textMuted + ';text-transform:uppercase;">' + dsStr + '</div>' +
     '</div>';
 
-  return '<div style="background:' + p.card + ';border:1px solid ' + p.border + ';border-radius:' + br + ';overflow:hidden;margin-bottom:10px;">' +
-    inner + '</div>';
+  // Pill rang
+  var rangPill = cfg.rang
+    ? '<div style="display:inline-flex;align-items:center;gap:8px;margin-top:16px;background:' + p.card + ';border:1px solid ' + p.border + ';border-radius:99px;padding:6px 14px;">' +
+        '<span style="font-family:' + p.labelFont + ';font-size:10px;color:' + p.textMuted + ';text-transform:uppercase;letter-spacing:.08em;">Rang</span>' +
+        '<span style="font-family:' + p.headerFont + ';font-size:18px;font-weight:600;color:' + p.text + ';">' + rang + '<sup style="font-size:.6em;vertical-align:super;">e</sup></span>' +
+        '<span style="font-size:12px;color:' + p.textMuted + ';">/ ' + effectif + '</span>' +
+      '</div>'
+    : '';
+
+  // Héros
+  var hero = '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:28px;">' +
+    '<div>' +
+      '<div style="font-family:' + p.labelFont + ';font-size:11px;letter-spacing:.16em;color:' + p.accent + ';text-transform:uppercase;margin-bottom:12px;">Compte rendu de devoir surveillé</div>' +
+      '<div style="font-family:' + p.headerFont + ';font-size:46px;line-height:1.02;color:' + p.text + ';font-weight:500;">' + esc(student.prenom) + '</div>' +
+      '<div style="font-family:' + p.headerFont + ';font-size:46px;line-height:1.02;color:' + p.text + ';font-weight:600;letter-spacing:.02em;">' + esc(student.nom).toUpperCase() + '</div>' +
+      rangPill +
+    '</div>' +
+    svgRingGauge(noteNorm, p) +
+    '</div>';
+
+  return masthead + hero;
 }
 
-// Bande stats : deux colonnes Élève / Classe
-function blocStats(student, presents, getNote20, ratioJ, ratioE, stuMalus, cfg, p) {
+// Band KPI : Justesse / Efficacité / Total brut (3 cartes avec barre positionnée)
+function blocStats(student, presents, getNote20, ratioJ, ratioE, stuMalus, cfg, p, scoreBrut, examTot, tjMoy, teMoy, brutMoy) {
   var se = cfg.statsEleve || {};
-  var sc = cfg.statsClasse || {};
-  var hp = 18;
+  if (!se.justesse && !se.efficacite) return "";
+
   var br = p.radius + "px";
 
-  var hasEleve = se.justesse || se.efficacite || se.malus;
-  var hasClasse = sc.moy || sc.minMax || sc.sigma;
-  if (!hasEleve && !hasClasse) return "";
-
-  var notes = presents.map(function(s) { return getNote20(s.id); });
-  var moy = notes.length ? notes.reduce(function(a, b) { return a + b; }, 0) / notes.length : 0;
-  var sorted = notes.slice().sort(function(a, b) { return a - b; });
-  var sigma = Math.sqrt(notes.reduce(function(s, n) { return s + (n - moy) * (n - moy); }, 0) / (notes.length || 1));
-
-  var bothPresent = hasEleve && hasClasse;
-  var colAlign = bothPresent ? 'flex:1;align-items:center;text-align:center;' : 'align-items:flex-start;text-align:left;';
-
-  function statLine(label, val, color) {
-    return '<div style="font-size:11px;font-family:monospace;color:' + p.textMuted + ';">' +
-      label + ' <strong style="color:' + (color || p.text) + ';">' + val + '</strong></div>';
+  function deltaStr(val, ref) {
+    var d = Math.round((val - ref) * 10) / 10;
+    return (d >= 0 ? '+' : '') + fmtFr(d);
+  }
+  function deltaColor(val, ref) {
+    return val >= ref ? p.success : p.danger;
   }
 
-  var eleveCol = "";
-  if (hasEleve) {
-    eleveCol = '<div style="display:flex;flex-direction:column;gap:2px;' + colAlign + '">' +
-      '<div style="font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.6px;color:' + p.textDim + ';margin-bottom:3px;">Élève</div>' +
-      (se.justesse ? statLine("Justesse", fmtPct(ratioJ)) : "") +
-      (se.efficacite ? statLine("Efficacité", fmtPct(ratioE)) : "") +
-      (se.malus && stuMalus > 0 ? statLine("Malus", "−" + stuMalus + " %", p.danger) : "") +
-      (se.malus && stuMalus === 0 ? statLine("Malus", "aucun") : "") +
-      '</div>';
+  function kpiCard(labelTxt, valueTxt, barYou, barAvg, avgTxt, deltaTxt, dColor, malusLine) {
+    return '<div style="border:1px solid ' + p.border + ';border-radius:' + br + ';padding:15px 17px;background:' + p.card + ';">' +
+      '<div style="display:flex;justify-content:space-between;align-items:baseline;">' +
+        '<div style="font-family:' + p.labelFont + ';font-size:10px;letter-spacing:.08em;text-transform:uppercase;color:' + p.textMuted + ';">' + labelTxt + '</div>' +
+        '<div style="font-family:' + p.labelFont + ';font-size:10px;font-weight:600;color:' + dColor + ';">' + deltaTxt + '</div>' +
+      '</div>' +
+      '<div style="font-family:' + p.headerFont + ';font-size:28px;font-weight:600;color:' + p.text + ';margin:7px 0 11px;line-height:1;">' + valueTxt + '</div>' +
+      svgKpiBar(barYou, barAvg, p) +
+      '<div style="font-family:' + p.labelFont + ';font-size:10px;color:' + p.textMuted + ';margin-top:8px;">' + avgTxt + '</div>' +
+      (malusLine || '') +
+    '</div>';
   }
 
-  var sep = bothPresent
-    ? '<div style="width:1px;background:' + p.border + ';margin:0 16px;align-self:stretch;"></div>'
-    : "";
+  var ratioBrutYou = examTot > 0 ? scoreBrut / examTot : 0;
+  var ratioBrutAvg = examTot > 0 ? brutMoy / examTot : 0;
 
-  var classeCol = "";
-  if (hasClasse) {
-    classeCol = '<div style="display:flex;flex-direction:column;gap:2px;' + colAlign + '">' +
-      '<div style="font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.6px;color:' + p.textDim + ';margin-bottom:3px;">Classe</div>' +
-      (sc.moy ? statLine("Moyenne", fmt1(moy)) : "") +
-      (sc.moy ? statLine("Médiane", fmt1(sorted.length % 2 === 0 ? (sorted[sorted.length / 2 - 1] + sorted[sorted.length / 2]) / 2 : sorted[Math.floor(sorted.length / 2)])) : "") +
-      (sc.minMax ? statLine("Minimum", fmt1(sorted[0] || 0)) : "") +
-      (sc.minMax ? statLine("Maximum", fmt1(sorted[sorted.length - 1] || 0)) : "") +
-      (sc.sigma ? statLine("Écart-type", fmt1(sigma)) : "") +
-      '</div>';
-  }
+  var deltaJStr = deltaStr(ratioJ * 100, tjMoy * 100) + ' pts';
+  var deltaEStr = deltaStr(ratioE * 100, teMoy * 100) + ' pts';
+  var deltaBStr = deltaStr(scoreBrut, brutMoy) + ' pts';
 
-  return '<div style="background:' + p.surface + ';border:1px solid ' + p.border + ';border-radius:' + br + ';padding:' + Math.round(hp * 0.65) + 'px ' + (hp + 4) + 'px;margin-bottom:10px;display:flex;justify-content:space-between;gap:0;">' +
-    eleveCol + sep + classeCol + '</div>';
+  var malusLine = (se.malus && stuMalus > 0)
+    ? '<div style="font-family:' + p.labelFont + ';font-size:10px;color:' + p.danger + ';margin-top:3px;">Malus −' + stuMalus + ' %</div>'
+    : '';
+
+  return '<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:14px;margin-bottom:14px;">' +
+    (se.justesse ? kpiCard(
+      'Justesse',
+      fmtFr(ratioJ * 100) + ' %',
+      ratioJ, tjMoy,
+      'moy. classe ' + fmtFr(tjMoy * 100) + ' %',
+      deltaJStr, deltaColor(ratioJ, tjMoy),
+      ''
+    ) : '<div></div>') +
+    (se.efficacite ? kpiCard(
+      'Efficacité',
+      fmtFr(ratioE * 100) + ' %',
+      ratioE, teMoy,
+      'moy. classe ' + fmtFr(teMoy * 100) + ' %',
+      deltaEStr, deltaColor(ratioE, teMoy),
+      ''
+    ) : '<div></div>') +
+    kpiCard(
+      'Total brut',
+      fmtFr(scoreBrut) + ' / ' + examTot,
+      ratioBrutYou, ratioBrutAvg,
+      'moy. classe ' + fmtFr(brutMoy),
+      deltaBStr, deltaColor(scoreBrut, brutMoy),
+      malusLine
+    ) +
+    '</div>';
 }
 
-// Bloc compétences : radar gauche + grille 2×2 (ou ligne)
+// Bloc compétences : bascule radar / barres % (clic sur la case, CSS pur — pas de JS)
+// compPcts = { A:0..1, N:0..1, R:0..1, V:0..1 } depuis genererHtmlEleve
 function blocCompetences(comps, compPcts, cfg, p) {
   if (cfg.competences === "none") return "";
   var br = p.radius + "px";
-  var hp = 18;
-  var cs = 64; // hauteur de case en px
 
-  var radarHtml = '<div style="flex-shrink:0;">' + svgRadar(compPcts, p) + '</div>';
+  var radarHtml = '<div class="comp-view-radar" style="align-items:center;justify-content:center;padding:8px 0;">' + svgRadar(compPcts, p) + '</div>';
 
-  var cells = COMPETENCES.map(function(c) {
-    var lettre = comps[c.id] || "—";
-    var col = p.compColors[c.id] || p.accent;
-    var circleSize = Math.round(cs * 0.48);
-    var letterSize = Math.round(cs * 0.28);
-    return '<div style="display:flex;align-items:center;justify-content:space-between;gap:6px;' +
-      'background:' + col + '18;border:1.5px solid ' + col + '44;border-radius:' + (p.radius + 2) + 'px;' +
-      'padding:7px 10px;height:' + cs + 'px;">' +
-      '<div style="font-size:11px;font-weight:700;color:' + col + ';">' + esc(c.label) + '</div>' +
-      '<div style="width:' + circleSize + 'px;height:' + circleSize + 'px;border-radius:50%;background:' + col + ';' +
-        'display:flex;align-items:center;justify-content:center;flex-shrink:0;">' +
-        '<span style="font-weight:900;font-size:' + letterSize + 'px;color:#ffffff;line-height:1;font-family:monospace;">' + esc(lettre) + '</span>' +
-      '</div>' +
+  var barsHtml = '<div class="comp-view-bars" style="flex-direction:column;justify-content:center;gap:13px;padding:8px 0;">' +
+    COMPETENCES.map(function(c) {
+      var pct = Math.round((compPcts[c.id] || 0) * 100);
+      var col = p.compColors[c.id] || p.accent;
+      return '<div style="display:flex;align-items:center;gap:8px;">' +
+        '<span style="font-family:' + p.labelFont + ';font-size:10px;font-weight:700;color:#fff;background:' + col + ';border-radius:4px;padding:2px 6px;flex:none;line-height:1.4;">' + esc(c.short) + '</span>' +
+        '<div style="flex:1;min-width:0;font-size:12px;color:' + p.text + ';white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">' + esc(c.label) + '</div>' +
+        '<div style="flex:2;height:6px;background:' + p.border + ';border-radius:99px;overflow:hidden;">' +
+          '<div style="width:' + pct + '%;height:100%;background:' + p.accent + ';border-radius:99px;"></div>' +
+        '</div>' +
+        '<div style="font-family:' + p.labelFont + ';font-size:11px;color:' + p.textMuted + ';width:34px;flex:none;text-align:right;">' + pct + ' %</div>' +
+      '</div>';
+    }).join('') +
     '</div>';
-  });
 
-  var grid = '<div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;flex:1;min-width:0;">' +
-    cells.join("") + '</div>';
+  return '<style>' +
+      '.comp-view-radar, .comp-view-bars { flex: 1; min-height: 0; }' +
+      '.comp-view-radar { display: flex; } .comp-view-bars { display: none; }' +
+      '#compToggle:checked ~ .comp-view-radar { display: none; }' +
+      '#compToggle:checked ~ .comp-view-bars { display: flex; }' +
+    '</style>' +
+    '<label for="compToggle" style="cursor:pointer;display:flex;flex-direction:column;background:' + p.card + ';border:1px solid ' + p.border + ';border-radius:' + br + ';padding:14px 16px;height:100%;box-sizing:border-box;">' +
+    '<input type="checkbox" id="compToggle" style="position:absolute;opacity:0;width:0;height:0;">' +
+    radarHtml + barsHtml +
+    '<div class="no-print" style="text-align:center;font-family:' + p.labelFont + ';font-size:9px;color:' + p.textMuted + ';letter-spacing:.06em;text-transform:uppercase;flex:none;margin-top:6px;">cliquer pour basculer</div>' +
+    '</label>';
+}
 
-  return '<div style="display:flex;align-items:center;gap:12px;background:' + p.card + ';border:1px solid ' + p.border + ';border-radius:' + br + ';padding:12px ' + (hp + 4) + 'px;margin-bottom:10px;">' +
-    radarHtml + grid + '</div>';
+// Rangée diagnostic : compétences (gauche) | distribution + classement (droite)
+// Option B : colonnes 50/50, col. droite empilée
+function blocDiagnosticRow(comps, compPcts, allNotes, studentNote, presents, getNote20, studentId, cfg, p, ft) {
+  var br = p.radius + "px";
+
+  // Colonne droite : labels section + graphiques compacts
+  var rightContent = '';
+  if (cfg.histogramme) {
+    rightContent +=
+      '<div style="font-family:' + p.labelFont + ';font-size:10px;font-weight:400;text-transform:uppercase;letter-spacing:.08em;color:' + p.textMuted + ';margin-bottom:6px;">Distribution de la classe</div>' +
+      svgHisto(allNotes, studentNote, p, true);
+  }
+  rightContent +=
+    '<div style="font-family:' + p.labelFont + ';font-size:10px;font-weight:400;text-transform:uppercase;letter-spacing:.08em;color:' + p.textMuted + ';margin-top:' + (cfg.histogramme ? '12px' : '0') + ';margin-bottom:4px;">Classement</div>' +
+    svgRankChart(presents, getNote20, studentId, p);
+
+  var rightCol = '<div style="flex:1;min-width:0;">' +
+    '<div style="background:' + p.card + ';border:1px solid ' + p.border + ';border-radius:' + br + ';padding:14px 16px;height:100%;box-sizing:border-box;">' +
+    rightContent + '</div>' +
+    '</div>';
+
+  if (!ft.competences) {
+    return '<div style="margin-bottom:14px;">' + rightCol + '</div>';
+  }
+
+  var leftCol = '<div style="flex:1;min-width:0;">' + blocCompetences(comps, compPcts, cfg, p) + '</div>';
+
+  return '<div style="display:flex;gap:14px;margin-bottom:14px;align-items:stretch;">' + leftCol + rightCol + '</div>';
 }
 
 // Commentaire enseignant
 function blocCommentaire(commentaire, cfg, p) {
   if (!cfg.commentaire || !commentaire || !commentaire.trim()) return "";
   var br = p.radius + "px";
-  return '<div style="border-left:3px solid ' + p.accent + ';background:' + p.accent + '0e;padding:10px 14px;border-radius:0 ' + br + ' ' + br + ' 0;margin-bottom:10px;">' +
-    '<div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.8px;color:' + p.accent + ';margin-bottom:4px;">Commentaire</div>' +
-    '<div style="font-size:13px;line-height:1.5;white-space:pre-wrap;color:' + p.text + ';">' + esc(commentaire.trim()) + '</div>' +
+  return '<div style="display:flex;gap:14px;border:1px solid ' + p.border + ';border-left:3px solid ' + p.accent + ';border-radius:0 ' + br + ' ' + br + ' 0;padding:16px 20px;margin-bottom:10px;background:' + p.card + ';">' +
+    '<div style="font-family:' + p.headerFont + ';font-size:40px;line-height:0.7;color:' + p.accent + ';flex:none;">“</div>' +
+    '<div>' +
+      '<div style="font-family:' + p.labelFont + ';font-size:10px;font-weight:400;text-transform:uppercase;letter-spacing:.08em;color:' + p.textMuted + ';margin-bottom:7px;">Appréciation</div>' +
+      '<div style="font-family:' + p.headerFont + ';font-size:15px;line-height:1.55;white-space:pre-wrap;color:' + p.text + ';">' + esc(commentaire.trim()) + '</div>' +
+    '</div>' +
     '</div>';
 }
 
 // Titre de section
 function sectionTitle(label, p) {
-  return '<div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.8px;color:' + p.textMuted + ';' +
+  return '<div style="font-family:' + p.labelFont + ';font-size:10px;font-weight:400;text-transform:uppercase;letter-spacing:.08em;color:' + p.textMuted + ';' +
     'margin:16px 0 8px;padding-bottom:4px;border-bottom:1px solid ' + p.border + ';">' + label + '</div>';
 }
 
-// Histogramme
-function blocHistogramme(allNotes, studentNote, cfg, p) {
-  if (!cfg.histogramme) return "";
-  var br = p.radius + "px";
-  return sectionTitle("Distribution de la classe", p) +
-    '<div style="background:' + p.card + ';border:1px solid ' + p.border + ';border-radius:' + br + ';padding:12px 14px;margin-bottom:10px;">' +
-    svgHisto(allNotes, studentNote, p) +
-    '<div style="font-size:11px;color:' + p.textMuted + ';margin-top:4px;text-align:right;">' +
-      '<span style="color:' + p.danger + ';">▏</span> votre note (' + fmt1(studentNote) + ')' +
-    '</div></div>';
-}
-
 // Détail par exercice
-function blocDetailExercices(student, exam, grades, remarks, presents, allRemarques, cfg, p, seuilDifficile, seuilReussite, seuilPiege, bonusCompletConfig, ft) {
+function blocDetailExercices(student, exam, grades, remarks, presents, allRemarques, cfg, p, seuilDifficile, seuilReussite, seuilPiege, bonusCompletConfig, ft, clampQuestion) {
   if (!cfg.detailExercices) return "";
   var br = p.radius + "px";
   var html = sectionTitle("Détail par exercice", p);
 
-  exam.exercises.forEach(function(ex) {
+  exam.exercises.forEach(function(ex, exIdx) {
     var aTraiteEx = ex.questions.some(function(q) {
       return q.items.some(function(it) { return grades[gradeKey(student.id, it.id)]; })
         || grades[treatedKey(student.id, q.id)];
     });
     if (!aTraiteEx) return;
 
-    var sc = exerciseScore(grades, student.id, ex, bonusCompletConfig);
-    var eNotes = presents.map(function(s) { return exerciseScore(grades, s.id, ex, bonusCompletConfig).earned; });
-    var eMoy = eNotes.reduce(function(a, b) { return a + b; }, 0) / eNotes.length;
-    var eMin = Math.min.apply(null, eNotes);
-    var eMax = Math.max.apply(null, eNotes);
+    // ── Calculs exercice ──
+    var sc = exerciseScore(grades, student.id, ex, bonusCompletConfig, clampQuestion);
+    var eNotes = presents.map(function(s) {
+      return exerciseScore(grades, s.id, ex, bonusCompletConfig, clampQuestion).earned;
+    });
+    var eMoy = eNotes.reduce(function(a, b) { return a + b; }, 0) / (eNotes.length || 1);
+    var eMax = Math.max.apply(null, eNotes.concat([0]));
     var coeff = ex.coeff !== undefined ? ex.coeff : 1;
-    var coeffStr = coeff !== 1 ? ' <span style="font-size:11px;font-weight:600;margin-left:5px;color:' + p.textMuted + ';">×' + coeff + '</span>' : "";
+    var coeffStr = coeff !== 1
+      ? ' <span style="font-size:11px;font-weight:600;margin-left:5px;color:' + p.textMuted + ';">×' + coeff + '</span>'
+      : "";
 
-    html += '<div style="background:' + p.card + ';border:1px solid ' + p.border + ';border-radius:' + br + ';padding:10px 14px;margin-bottom:8px;">' +
-      '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:2px;">' +
-        '<span style="font-weight:700;font-size:13px;color:' + p.text + ';">' + esc(ex.title) + coeffStr + '</span>' +
-        '<span style="font-family:monospace;font-weight:700;font-size:14px;color:' + p.accent + ';">' + fmt1(sc.earned) + ' / ' + fmt1(sc.total) + '</span>' +
-      '</div>' +
-      '<div style="font-size:11px;color:' + p.textMuted + ';margin-bottom:7px;">classe — moy ' + fmt1(eMoy) + ' · min ' + fmt1(eMin) + ' · max ' + fmt1(eMax) + '</div>' +
-      '<table style="width:100%;border-collapse:collapse;font-size:11px;">' +
-        '<thead><tr>' +
-          ['Q.', 'Comp.', 'Note', 'Remarques'].map(function(h) {
-            return '<th style="text-align:left;padding:3px 6px;color:' + p.textDim + ';font-weight:600;border-bottom:1px solid ' + p.border + ';">' + h + '</th>';
-          }).join('') +
-        '</tr></thead><tbody>';
+    // Nombre de copies : élèves ayant traité au moins une question de cet exercice
+    var nbCopies = presents.filter(function(s) {
+      return ex.questions.some(function(q) {
+        return q.items.some(function(it) { return grades[gradeKey(s.id, it.id)]; })
+          || grades[treatedKey(s.id, q.id)];
+      });
+    }).length;
 
+    var exRatio = sc.total > 0 ? sc.earned / sc.total : 0;
+    var exColor = exRatio >= 0.75 ? p.success : exRatio >= 0.5 ? p.warning : p.danger;
+    var pctEx = Math.round(exRatio * 100);
+
+    // ── Header exercice : badge EX N + titre + score ──
+    var headerHtml =
+      '<div style="display:flex;align-items:center;gap:10px;margin-bottom:10px;">' +
+        '<span style="font-family:' + p.labelFont + ';font-size:11px;font-weight:600;' +
+          'color:#fff;background:' + p.accent + ';border-radius:4px;padding:3px 8px;flex:none;">EX ' + (exIdx + 1) + '</span>' +
+        '<span style="font-family:' + p.headerFont + ';font-size:15px;font-weight:500;color:' + p.text + ';flex:1;">' +
+          esc(ex.title) + coeffStr +
+        '</span>' +
+        '<span style="font-family:' + p.headerFont + ';font-size:16px;font-weight:600;color:' + p.accent + ';">' +
+          fmtFr(sc.earned) +
+        '</span>' +
+        '<span style="font-family:' + p.labelFont + ';font-size:11px;color:' + p.textMuted + ';"> / ' + fmtFr(sc.total) + '</span>' +
+      '</div>';
+
+    // ── Barre de progression exercice ──
+    var progHtml =
+      '<div style="display:flex;align-items:center;gap:8px;margin-bottom:13px;">' +
+        '<div style="flex:1;height:5px;background:' + p.border + ';border-radius:99px;overflow:hidden;">' +
+          '<div style="width:' + pctEx + '%;height:100%;background:' + exColor + ';border-radius:99px;"></div>' +
+        '</div>' +
+        '<span style="font-family:' + p.labelFont + ';font-size:10px;color:' + p.textMuted + ';flex:none;">' + pctEx + ' %</span>' +
+      '</div>';
+
+    // ── Lignes de questions ──
+    var tbodyRows = '';
     ex.questions.forEach(function(q) {
       var aTraite = q.items.some(function(it) { return grades[gradeKey(student.id, it.id)]; })
         || grades[treatedKey(student.id, q.id)];
       if (!aTraite) return;
 
-      var qsc = questionScore(grades, student.id, q);
-      var qMax = q.items.reduce(function(s, it) { return s + (parseFloat(it.points) || 0); }, 0);
+      var qsc = questionScore(grades, student.id, q, clampQuestion);
+      var qMax = q.items.reduce(function(s, it) {
+        return it.negative ? s : s + (parseFloat(it.points) || 0);
+      }, 0);
+
       var nbTraitants = presents.filter(function(s) {
-        return q.items.some(function(it) { return grades[gradeKey(s.id, it.id)]; }) || grades[treatedKey(s.id, q.id)];
+        return q.items.some(function(it) { return grades[gradeKey(s.id, it.id)]; })
+          || grades[treatedKey(s.id, q.id)];
       }).length;
       var obtTotal = presents.reduce(function(s, st) {
         return s + q.items.reduce(function(ss, it) {
-          return ss + (grades[gradeKey(st.id, it.id)] ? (parseFloat(it.points) || 0) : 0);
+          return it.negative ? ss : ss + (grades[gradeKey(st.id, it.id)] ? (parseFloat(it.points) || 0) : 0);
         }, 0);
       }, 0);
+
       var tauxTraitement = presents.length > 0 ? (nbTraitants / presents.length) * 100 : 0;
-      var tauxReussite = nbTraitants > 0 && qMax > 0 ? (obtTotal / (nbTraitants * qMax)) * 100 : 0;
-      var estDifficile = tauxTraitement < seuilDifficile;
-      var estPiege = tauxTraitement >= 50 && tauxReussite < seuilPiege;
-      var pctReussite = qsc.total > 0 ? (qsc.earned / qsc.total) * 100 : 0;
-      var etoile = (estDifficile && pctReussite >= seuilReussite) ? " ✨" : "";
-      var piegeMark = (ft && ft.questionPiege && estPiege) ? " ⚠️" : "";
-      var bonusMark = q.bonus ? " 🎁" : "";
+      var tauxReussite   = nbTraitants > 0 && qMax > 0 ? (obtTotal / (nbTraitants * qMax)) * 100 : 0;
+      var estDifficile   = tauxTraitement < seuilDifficile;
+      var estPiege       = tauxTraitement >= 50 && tauxReussite < seuilPiege;
+      var pctReussite    = qsc.total > 0 ? (qsc.earned / qsc.total) * 100 : 0;
+      var etoile         = (estDifficile && pctReussite >= seuilReussite) ? " ✨" : "";
+      var piegeMark      = (ft && ft.questionPiege && estPiege) ? " ⚠️" : "";
+      var bonusMark      = q.bonus ? " 🎁" : "";
 
       var remLabels = (remarks[student.id + "__" + q.id] || []).map(function(id) {
         var rem = allRemarques.find(function(r) { return r.id === id; });
         return rem ? rem.label : id;
       }).join(", ");
 
+      // Pills compétences (fond plein blanc sur couleur)
       var compSpans = q.competences.map(function(cid) {
         var comp = COMPETENCES.find(function(c) { return c.id === cid; });
         var col = p.compColors[cid] || p.accent;
-        return comp ? '<span style="display:inline-block;font-size:9px;font-weight:700;padding:1px 4px;border-radius:3px;margin-right:2px;font-family:monospace;color:' + col + ';background:' + col + '18;">' + esc(comp.short) + '</span>' : "";
+        return comp
+          ? '<span style="display:inline-block;font-size:9px;font-weight:700;padding:1px 5px;border-radius:3px;margin-right:2px;' +
+              'font-family:' + p.labelFont + ';color:#fff;background:' + col + ';">' + esc(comp.short) + '</span>'
+          : "";
       }).join("");
 
+      var qRatio    = qsc.total > 0 ? qsc.earned / qsc.total : 0;
       var noteColor = qsc.total > 0
-        ? (qsc.earned / qsc.total >= 0.75 ? p.success : qsc.earned / qsc.total >= 0.5 ? p.warning : p.danger)
+        ? (qRatio >= 0.75 ? p.success : qRatio >= 0.5 ? p.warning : p.danger)
         : p.textDim;
 
       var trColor = estDifficile ? p.danger : estPiege ? p.warning : p.text;
-      var trStyle = (estDifficile || estPiege) ? 'font-weight:700;' : '';
+      var trStyle = (estDifficile || estPiege) ? 'font-weight:600;' : '';
+
+      // Lien audio (si activé)
       var qLabelHtml;
       if (cfg.soundLinksEnabled && cfg.soundBaseUrl) {
         var audioUrl = cfg.soundBaseUrl + buildAudioFilename(cfg.nomDS, cfg.studentNom, ex.title, q.label, cfg.soundAudioExt || "webm");
@@ -520,26 +667,112 @@ function blocDetailExercices(student, exam, grades, remarks, presents, allRemarq
       } else {
         qLabelHtml = esc(q.label);
       }
-      html += '<tr style="' + trStyle + '">' +
-        '<td style="padding:3px 6px;border-bottom:1px solid ' + p.border + '66;color:' + trColor + ';">' + qLabelHtml + bonusMark + etoile + piegeMark + '</td>' +
-        '<td style="padding:3px 6px;border-bottom:1px solid ' + p.border + '66;">' + compSpans + '</td>' +
-        '<td style="padding:3px 6px;border-bottom:1px solid ' + p.border + '66;color:' + noteColor + ';font-weight:700;font-family:monospace;white-space:nowrap;">' + fmt1(qsc.earned) + '/' + fmt1(qsc.total) + '</td>' +
-        '<td style="padding:3px 6px;border-bottom:1px solid ' + p.border + '66;color:' + p.textMuted + ';font-size:10px;">' + esc(remLabels) + '</td>' +
+
+      // Barre de score par question (56 px de large, 4 px de haut)
+      var scoreBarW = Math.round(qRatio * 56);
+      var scoreCellHtml =
+        '<div style="display:flex;align-items:center;gap:6px;">' +
+          '<div style="width:56px;height:4px;background:' + p.border + ';border-radius:99px;overflow:hidden;flex:none;">' +
+            '<div style="width:' + scoreBarW + 'px;height:100%;background:' + noteColor + ';border-radius:99px;"></div>' +
+          '</div>' +
+          '<span style="font-family:' + p.labelFont + ';font-size:11px;color:' + noteColor + ';font-weight:600;white-space:nowrap;">' +
+            fmtFr(qsc.earned) + '/' + fmtFr(qsc.total) +
+          '</span>' +
+        '</div>';
+
+      tbodyRows +=
+        '<tr style="' + trStyle + '">' +
+          '<td style="padding:4px 6px;border-bottom:1px solid ' + p.border + '44;color:' + trColor + ';white-space:nowrap;">' +
+            qLabelHtml + bonusMark + etoile + piegeMark +
+          '</td>' +
+          '<td style="padding:4px 6px;border-bottom:1px solid ' + p.border + '44;">' + compSpans + '</td>' +
+          '<td style="padding:4px 6px;border-bottom:1px solid ' + p.border + '44;">' + scoreCellHtml + '</td>' +
+          '<td style="padding:4px 6px;border-bottom:1px solid ' + p.border + '44;color:' + p.textMuted + ';font-size:10px;font-style:italic;">' +
+            esc(remLabels) +
+          '</td>' +
         '</tr>';
     });
 
-    // Ligne bonus exercice complet si déclenché
+    // Ligne bonus exercice complet (si déclenché) — conservée dans la table
     if (ex.bonusComplet && bonusCompletConfig) {
       var bonusPts = bonusCompletPoints(grades, student.id, ex, bonusCompletConfig);
       if (bonusPts > 0) {
-        html += '<tr>' +
-          '<td colspan="3" style="padding:3px 6px;font-size:10px;font-weight:700;color:' + p.success + ';border-top:1px solid ' + p.border + '44;">🏆 Bonus exercice complet +' + fmt1(bonusPts) + ' pt' + (bonusPts > 1 ? 's' : '') + '</td>' +
-          '<td style="padding:3px 6px;border-top:1px solid ' + p.border + '44;"></td>' +
+        tbodyRows +=
+          '<tr>' +
+            '<td colspan="3" style="padding:4px 6px;font-size:10px;font-weight:700;color:' + p.success + ';border-top:1px solid ' + p.border + '44;">' +
+              '🏆 Bonus exercice complet +' + fmtFr(bonusPts) + ' pt' + (bonusPts > 1 ? 's' : '') +
+            '</td>' +
+            '<td style="padding:4px 6px;border-top:1px solid ' + p.border + '44;"></td>' +
           '</tr>';
       }
     }
-    html += '</tbody></table></div>';
+
+    // ── Table questions ──
+    var tableHtml =
+      '<table style="width:100%;border-collapse:collapse;font-size:11px;">' +
+        '<thead><tr>' +
+          ['Q.', 'Comp.', 'Score', 'Commentaire'].map(function(h) {
+            return '<th style="text-align:left;padding:3px 6px 6px;font-family:' + p.labelFont + ';font-size:10px;' +
+              'font-weight:400;letter-spacing:.06em;text-transform:uppercase;color:' + p.textDim + ';border-bottom:1px solid ' + p.border + ';">' + h + '</th>';
+          }).join('') +
+        '</tr></thead>' +
+        '<tbody>' + tbodyRows + '</tbody>' +
+      '</table>';
+
+    // ── Sidebar « Dans la classe » ──
+    var SW = 118;
+    var Xsb = function(v) {
+      return (sc.total > 0 ? Math.min(SW, Math.max(0, (v / sc.total) * SW)) : 0).toFixed(1);
+    };
+    var moyX = Xsb(eMoy);
+    var youX = Xsb(sc.earned);
+
+    // Étiquette "Vous" : à gauche du point si l'élève est dans le dernier quart
+    var youLblX  = sc.total > 0 && sc.earned / sc.total > 0.75 ? (parseFloat(youX) - 3).toFixed(1) : (parseFloat(youX) + 3).toFixed(1);
+    var youAnchor = sc.total > 0 && sc.earned / sc.total > 0.75 ? 'end' : 'start';
+
+    var sidebarSvg =
+      '<svg viewBox="0 0 ' + SW + ' 34" style="width:100%;height:34px;display:block;margin-top:8px;" xmlns="http://www.w3.org/2000/svg">' +
+        '<rect x="0" y="13" width="' + SW + '" height="4" rx="2" fill="' + p.border + '"/>' +
+        '<rect x="' + moyX + '" y="9" width="1.5" height="12" rx="0.5" fill="' + p.textDim + '"/>' +
+        '<circle cx="' + youX + '" cy="15" r="4.5" fill="' + p.accent + '" stroke="' + p.card + '" stroke-width="1.5"/>' +
+        '<text x="0" y="32" font-family="monospace" font-size="8.5" fill="' + p.textMuted + '">0</text>' +
+        '<text x="' + moyX + '" y="7" text-anchor="middle" font-family="monospace" font-size="7.5" fill="' + p.textDim + '">' + fmtFr(eMoy) + '</text>' +
+        '<text x="' + SW + '" y="32" text-anchor="end" font-family="monospace" font-size="8.5" fill="' + p.textMuted + '">' + fmtFr(sc.total) + '</text>' +
+      '</svg>';
+
+    var sidebarHtml =
+      '<div style="width:128px;flex:none;">' +
+        '<div style="font-family:' + p.labelFont + ';font-size:10px;letter-spacing:.08em;text-transform:uppercase;color:' + p.textMuted + ';margin-bottom:8px;">Dans la classe</div>' +
+        '<table style="font-size:11px;border-collapse:collapse;width:100%;">' +
+          '<tr>' +
+            '<td style="padding:1px 0;color:' + p.textMuted + ';font-family:' + p.labelFont + ';font-size:10px;">Copies</td>' +
+            '<td style="padding:1px 0;text-align:right;font-weight:600;color:' + p.text + ';">' + nbCopies + '</td>' +
+          '</tr>' +
+          '<tr>' +
+            '<td style="padding:1px 0;color:' + p.textMuted + ';font-family:' + p.labelFont + ';font-size:10px;">Moyenne</td>' +
+            '<td style="padding:1px 0;text-align:right;font-weight:600;color:' + p.text + ';">' + fmtFr(eMoy) + '</td>' +
+          '</tr>' +
+          '<tr>' +
+            '<td style="padding:1px 0;color:' + p.textMuted + ';font-family:' + p.labelFont + ';font-size:10px;">Maximum</td>' +
+            '<td style="padding:1px 0;text-align:right;font-weight:600;color:' + p.text + ';">' + fmtFr(eMax) + '</td>' +
+          '</tr>' +
+        '</table>' +
+        sidebarSvg +
+      '</div>';
+
+    // ── Carte exercice complète ──
+    html +=
+      '<div style="background:' + p.card + ';border:1px solid ' + p.border + ';border-radius:' + br + ';padding:14px 16px;margin-bottom:10px;break-inside:avoid;">' +
+        headerHtml +
+        progHtml +
+        '<div style="display:flex;gap:16px;align-items:flex-start;">' +
+          '<div style="flex:1;min-width:0;">' + tableHtml + '</div>' +
+          sidebarHtml +
+        '</div>' +
+      '</div>';
   });
+
   return html;
 }
 
@@ -554,10 +787,13 @@ function blocBareme(student, exam, grades, cfg, p) {
         || grades[treatedKey(student.id, q.id)];
       if (!aTraite) return;
       q.items.forEach(function(it) {
+        var itChecked = !!grades[gradeKey(student.id, it.id)];
+        if (it.negative && !itChecked) return;
         items.push({
           exTitle: ex.title, qLabel: q.label, bonus: q.bonus, label: it.label,
-          earned: grades[gradeKey(student.id, it.id)] ? (parseFloat(it.points) || 0) : 0,
+          earned: itChecked ? (parseFloat(it.points) || 0) : 0,
           total: parseFloat(it.points) || 0,
+          negative: !!it.negative,
           isBonusComplet: false,
         });
       });
@@ -588,14 +824,15 @@ function blocBareme(student, exam, grades, cfg, p) {
       html += '<tr><td colspan="3" style="padding:8px 8px 2px;color:' + p.accent + ';font-weight:700;">' + esc(it.exTitle) + '</td></tr>';
       lastEx = it.exTitle;
     }
-    var check = it.earned > 0 ? "✓ " : "· ";
-    var earnColor = it.earned > 0 ? p.success : p.textDim;
+    var check = it.negative ? "− " : (it.earned > 0 ? "✓ " : "· ");
+    var earnColor = it.negative ? p.negText : (it.earned > 0 ? p.success : p.textDim);
+    var itemLabelColor = it.negative ? p.negText : p.textMuted;
     var itemLabel = it.isBonusComplet
       ? esc(it.label)
       : check + '[Q.' + esc(it.qLabel) + (it.bonus ? " 🎁" : "") + '] ' + esc(it.label);
     var itemStyle = it.isBonusComplet
       ? 'padding:2px 8px;border-bottom:1px solid ' + p.border + '44;font-size:10px;color:' + p.success + ';font-weight:700;'
-      : 'padding:2px 8px;border-bottom:1px solid ' + p.border + '44;font-size:10px;color:' + p.textMuted + ';';
+      : 'padding:2px 8px;border-bottom:1px solid ' + p.border + '44;font-size:10px;color:' + itemLabelColor + ';';
     html += '<tr>' +
       '<td style="' + itemStyle + '">' + itemLabel + '</td>' +
       '<td style="padding:2px 8px;border-bottom:1px solid ' + p.border + '44;text-align:center;font-family:monospace;">' + (it.isBonusComplet ? '+' : '') + fmt1(it.total) + '</td>' +
@@ -615,8 +852,9 @@ function buildCSS(p) {
     "*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }",
     "body { font-family: " + p.bodyFont + "; background: " + p.bg + "; color: " + p.text + "; font-size: 14px; line-height: 1.5; " + ruledBg + " }",
     ".page { max-width: 720px; margin: 0 auto; padding: 24px 20px 48px; }",
-    "@media (max-width: 500px) { .page { padding: 14px 10px 32px; } }",
-    "@media print { body { background: #fff; } .page { padding: 0; } }",
+    "@media screen and (max-width: 500px) { .page { padding: 14px 10px 32px; } }",
+    "@page { size: A4; margin: 0; }",
+    "@media print { body { background: #fff !important; print-color-adjust: exact; -webkit-print-color-adjust: exact; } .page { padding: 10mm 8mm; width: 210mm; max-width: 210mm; margin: 0 auto; } .no-print { display: none !important; } .comp-view-radar { display: none !important; } .comp-view-bars { display: flex !important; } }",
   ].join("\n");
 }
 
@@ -679,6 +917,15 @@ export function genererHtmlEleve(opts) {
   var stuMalus = malusTotal(remarks, student.id, exam, malusPaliers, malusManuel, allRemarques);
   var ratioJ = ratioJustesse(grades, student.id, exam);
   var ratioE = ratioEfficacite(grades, student.id, exam);
+  // Statistiques classe pour le band KPI
+  var scoreBrut = studentTotal(grades, student.id, exam);
+  var examTot = examTotal(exam);
+  var tjAll = presents.map(function(s) { return ratioJustesse(grades, s.id, exam); });
+  var tjMoy = tjAll.reduce(function(a, b) { return a + b; }, 0) / (tjAll.length || 1);
+  var teAll = presents.map(function(s) { return ratioEfficacite(grades, s.id, exam); });
+  var teMoy = teAll.reduce(function(a, b) { return a + b; }, 0) / (teAll.length || 1);
+  var allBruts = presents.map(function(s) { return studentTotal(grades, s.id, exam); });
+  var brutMoy = allBruts.reduce(function(a, b) { return a + b; }, 0) / (allBruts.length || 1);
   var commentaire = (commentaires && commentaires[student.id]) || "";
 
   var genDate = new Date().toLocaleDateString("fr-FR", { day: "2-digit", month: "long", year: "numeric" });
@@ -695,7 +942,7 @@ export function genererHtmlEleve(opts) {
       var smRates = {};
       exam.exercises.forEach(function(ex) {
         ex.questions.forEach(function(q) {
-          var qMax = q.items.reduce(function(s, it) { return s + (parseFloat(it.points) || 0); }, 0);
+          var qMax = q.items.reduce(function(s, it) { return it.negative ? s : s + (parseFloat(it.points) || 0); }, 0);
           var thresh = qMax * 0.5;
           var ok = allStudents.filter(function(st) {
             var earned = q.items.reduce(function(sum, it) {
@@ -732,10 +979,7 @@ export function genererHtmlEleve(opts) {
 
   // ── Zone centrale : blocs ordonnables et redimensionnables ──
   var BLOC_RENDERERS = {
-    stats:       function() { return blocStats(student, presents, getNote20, ratioJ, ratioE, stuMalus, cfg, p); },
-    competences: function() { return ft.competences ? blocCompetences(comps, compPcts, cfg, p) : ""; },
-    commentaire: function() { return blocCommentaire(commentaire, cfg, p); },
-    histogramme: function() { return blocHistogramme(allNotes, noteNorm, cfg, p); },
+    stats:       function() { return blocStats(student, presents, getNote20, ratioJ, ratioE, stuMalus, cfg, p, scoreBrut, examTot, tjMoy, teMoy, brutMoy); },
     starMap:     function() { return blocStarMapHtml; },
   };
 
@@ -770,10 +1014,11 @@ export function genererHtmlEleve(opts) {
     '</div>';
 
   var body =
-    blocTitreDS(nomDS, dateDS, p) +
-    blocHeader(student, noteNorm, noteBrute, rang, effectif, cfg, p) +
+    blocHeader(student, noteNorm, noteBrute, rang, effectif, cfg, p, nomDS, dateDS) +
+    blocCommentaire(commentaire, cfg, p) +
     zoneGrid +
-    blocDetailExercices(student, exam, grades, remarks, presents, allRemarques, cfg, p, seuilDifficile, seuilReussite, opts.seuilPiege || 30, cfg.bonusCompletConfig, ft) +
+    blocDiagnosticRow(comps, compPcts, allNotes, noteNorm, presents, getNote20, student.id, cfg, p, ft) +
+    blocDetailExercices(student, exam, grades, remarks, presents, allRemarques, cfg, p, seuilDifficile, seuilReussite, opts.seuilPiege || 30, cfg.bonusCompletConfig, ft, opts.clampQuestion !== false) +
     blocBareme(student, exam, grades, cfg, p) +
     '<div style="margin-top:32px;padding-top:10px;border-top:1px solid ' + p.border + ';font-size:10px;color:' + p.textDim + ';display:flex;justify-content:space-between;flex-wrap:wrap;gap:4px;">' +
       '<span>' + esc(ETABLISSEMENT.nom) + ' — ' + esc(nomDS || "") + (dateDS ? " · " + esc(dateDS) : "") + '</span>' +
@@ -786,12 +1031,118 @@ export function genererHtmlEleve(opts) {
     '<link rel="preconnect" href="https://fonts.googleapis.com">\n' +
     '<link href="' + googleFontsUrl(cfg.theme) + '" rel="stylesheet">\n' +
     '<style>\n' + buildCSS(p) + '\n</style>\n' +
-    '</head>\n<body>\n<div class="page">\n' +
+    '</head>\n<body>\n' +
+    '<button onclick="window.print()" class="no-print" title="Imprimer / Enregistrer en PDF&#10;Marges : aucune · Échelle : 100 % · Arrière-plans : activé" style="position:fixed;top:16px;right:16px;padding:8px;background:' + p.accent + ';color:#fff;border:none;border-radius:8px;cursor:pointer;font-size:16px;line-height:1;box-shadow:0 2px 8px rgba(0,0,0,.15);z-index:100;">🖨️</button>' +
+    '<div class="page">\n' +
     body +
     '\n</div>\n</body>\n</html>';
 }
 
 // ─── Export tous élèves ───────────────────────────────────────────
+
+export function genererHtmlTousPrintable(opts) {
+  var nomDS = opts.nomDS;
+  var students = opts.students;
+  var absents = opts.absents;
+  var htmlConfig = opts.htmlConfig || {};
+  var theme = htmlConfig.theme || "light";
+
+  var presents = students.filter(function(s) { return !absents[s.id]; });
+
+  // Calcul du rankMap (même logique que genererHtmlTous)
+  var ranked = presents.map(function(s) { return { id: s.id, note: opts.getNote20(s.id) }; })
+    .sort(function(a, b) { return b.note - a.note; });
+  var rg = 1;
+  var rankMap = {};
+  ranked.forEach(function(r, i) {
+    if (i > 0 && r.note < ranked[i - 1].note) rg = i + 1;
+    rankMap[r.id] = rg;
+  });
+
+  // Génère chaque rapport complet puis extrait le contenu <body>
+  var bodies = presents.map(function(student) {
+    var full = genererHtmlEleve(Object.assign({}, opts, {
+      student: student,
+      allStudents: students,
+      rankMap: rankMap,
+    }));
+    var bodyMatch = full.match(/<body[^>]*>([\s\S]*)<\/body>/i);
+    return bodyMatch ? bodyMatch[1] : full;
+  });
+
+  var p = paletteTheme(theme);
+
+  // CSS : styles individuels + règles de saut de page + séparateur visuel écran
+  var css = buildCSS(p) + '\n' +
+    '.page-eleve { page-break-after: always; break-after: page; }\n' +
+    '.page-eleve:last-child { page-break-after: avoid; break-after: avoid; }\n' +
+    '@media screen { .page-eleve { border-bottom: 2px dashed ' + p.border + '; margin-bottom: 48px; padding-bottom: 32px; } }\n';
+
+  var pages = bodies.map(function(body) {
+    // Le bouton 🖨️ déjà présent dans chaque body est retiré
+    // pour n'en garder qu'un seul sur le document global
+    var cleanBody = body.replace(/<button[^>]*class="no-print"[^>]*>[\s\S]*?<\/button>/g, '');
+    return '<div class="page-eleve">\n' + cleanBody + '\n</div>';
+  }).join('\n');
+
+  var printBtn = '<button onclick="window.print()" class="no-print"' +
+    ' title="Imprimer / Enregistrer en PDF&#10;Marges : aucune · Échelle : 100 % · Arrière-plans : activé"' +
+    ' style="position:fixed;top:16px;right:16px;padding:8px;background:' + p.accent + ';color:#fff;' +
+    'border:none;border-radius:8px;cursor:pointer;font-size:16px;line-height:1;' +
+    'box-shadow:0 2px 8px rgba(0,0,0,.15);z-index:100;">🖨️</button>';
+
+  return '<!DOCTYPE html>\n<html lang="fr">\n<head>\n' +
+    '<meta charset="UTF-8">\n<meta name="viewport" content="width=device-width, initial-scale=1">\n' +
+    '<title>Impression — ' + esc(nomDS || 'Rapports') + '</title>\n' +
+    '<link rel="preconnect" href="https://fonts.googleapis.com">\n' +
+    '<link href="' + googleFontsUrl(theme) + '" rel="stylesheet">\n' +
+    '<style>\n' + css + '\n</style>\n' +
+    '</head>\n<body>\n' +
+    printBtn + '\n' +
+    pages + '\n' +
+    '</body>\n</html>';
+}
+
+export function genererScriptsConversionPdf(nomDS) {
+  var slug = (nomDS || "DS").replace(/\s+/g, "_");
+
+  var sh = [
+    '#!/bin/bash',
+    '# Conversion des rapports HTML en PDF individuels',
+    '# Prérequis : pip install weasyprint',
+    'set -e',
+    'echo "Conversion de ' + slug + '..."',
+    'for f in CR_' + slug + '_*.html; do',
+    '  [ -f "$f" ] || continue',
+    '  out="${f%.html}.pdf"',
+    '  echo "  → $out"',
+    '  weasyprint "$f" "$out"',
+    'done',
+    'echo "Terminé."',
+    '',
+  ].join('\n');
+
+  var py = [
+    '#!/usr/bin/env python3',
+    '# Conversion des rapports HTML en PDF individuels',
+    '# Prérequis : pip install weasyprint',
+    'import glob, subprocess, sys',
+    'pattern = "CR_' + slug + '_*.html"',
+    'files = sorted(glob.glob(pattern))',
+    'if not files:',
+    '    print(f"Aucun fichier trouvé ({pattern})")',
+    '    sys.exit(1)',
+    'print(f"{len(files)} fichier(s) à convertir...")',
+    'for f in files:',
+    '    out = f[:-5] + ".pdf"',
+    '    print(f"  → {out}")',
+    '    subprocess.run(["weasyprint", f, out], check=True)',
+    'print("Terminé.")',
+    '',
+  ].join('\n');
+
+  return { sh: sh, py: py };
+}
 
 export function genererHtmlTous(opts) {
   var exam = opts.exam, students = opts.students, grades = opts.grades;
@@ -945,7 +1296,7 @@ export function genererRapportClasse(opts) {
     var barW = Math.min(44, innerW / n - 6);
 
     var qStats = questions.map(function(q) {
-      var qMax = q.items.reduce(function(s, it) { return s + (parseFloat(it.points) || 0); }, 0);
+      var qMax = q.items.reduce(function(s, it) { return it.negative ? s : s + (parseFloat(it.points) || 0); }, 0);
       if (qMax === 0) return { tauxReussite: 0, tauxTraitement: 0 };
       var nbTraitants = presents.filter(function(s) {
         return grades[treatedKey(s.id, q.id)] || q.items.some(function(it) { return grades[gradeKey(s.id, it.id)]; });
@@ -1040,7 +1391,7 @@ export function genererRapportClasse(opts) {
     '</div>';
 
   var printBtn = '<script>if(window.self!==window.top){document.addEventListener("DOMContentLoaded",function(){var b=document.getElementById("print-btn");if(b)b.style.display="none";});}<\/script>' +
-    '<button id="print-btn" class="no-print" onclick="window.print()" style="position:fixed;top:1rem;right:1rem;padding:8px 16px;background:' + p.accent + ';color:#fff;border:none;border-radius:8px;cursor:pointer;font-size:0.85rem;font-weight:600;box-shadow:0 2px 8px rgba(0,0,0,0.15);z-index:100;">🖨️ Imprimer / PDF</button>';
+    '<button id="print-btn" class="no-print" onclick="window.print()" title="Imprimer / Enregistrer en PDF&#10;Marges : aucune · Échelle : 100 % · Arrière-plans : activé" style="position:fixed;top:1rem;right:1rem;padding:8px;background:' + p.accent + ';color:#fff;border:none;border-radius:8px;cursor:pointer;font-size:16px;line-height:1;box-shadow:0 2px 8px rgba(0,0,0,0.15);z-index:100;">🖨️</button>';
 
   var grid = '<div class="grid">' +
     blocCommentaireDS() +

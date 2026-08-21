@@ -22,7 +22,15 @@ function formatAgo(date) {
 
 export default function SyncIndicator({ status, remoteMeta, lastSyncAt, error, onPush, onPull, onCheck, onResolveConflict, th, FONT_B, MONO, toast }) {
   var _open = useState(false); var setOpen = _open[1]; var open = _open[0];
+  var _localToast = useState(null); var localToast = _localToast[0]; var setLocalToast = _localToast[1];
+  var localToastTimerRef = useRef(null);
   var triggerRef = useRef(null);
+
+  function showFeedback(msg) {
+    if (localToastTimerRef.current) clearTimeout(localToastTimerRef.current);
+    setLocalToast(msg);
+    localToastTimerRef.current = setTimeout(function() { setLocalToast(null); }, 1500);
+  }
 
   var cfg = STATUS_CONFIG[status] || STATUS_CONFIG.checking;
   var fillColor = cfg.color ? th[cfg.color] : th.textDim;
@@ -67,15 +75,15 @@ export default function SyncIndicator({ status, remoteMeta, lastSyncAt, error, o
       <div>
         <div style={{ fontSize: 12, color: th.text, fontWeight: 600 }}>{"Synchronisé"}</div>
         {lastSyncAt && <div style={{ fontSize: 11, color: th.textMuted, marginTop: 2 }}>{"Dernière synchro " + formatAgo(lastSyncAt)}</div>}
-        <button style={btnStyle} onClick={function() { onCheck && onCheck(); setOpen(false); }}>{"⟳ Vérifier maintenant"}</button>
+        <button style={btnStyle} onClick={function() { showFeedback("Vérification lancée…"); onCheck && onCheck(); setOpen(false); }}>{"⟳ Vérifier maintenant"}</button>
       </div>
     );
 
     if (status === "local-ahead") return (
       <div>
         <div style={{ fontSize: 12, color: th.text, fontWeight: 600 }}>{"Modifications non synchronisées"}</div>
-        <div style={{ fontSize: 11, color: th.textMuted, marginTop: 2 }}>{"L'auto-save est programmé (2 min après démarrage + 30s)"}</div>
-        <button style={btnStyle} onClick={function() { onPush && onPush(); setOpen(false); }}>{"☁️ Envoyer maintenant"}</button>
+        <div style={{ fontSize: 11, color: th.textMuted, marginTop: 2 }}>{"Auto-save dans ~2 min — ou forcer ci-dessous"}</div>
+        <button style={btnStyle} onClick={function() { showFeedback("Envoi en cours…"); onPush && onPush(); setOpen(false); }}>{"☁️ Envoyer maintenant"}</button>
       </div>
     );
 
@@ -86,7 +94,7 @@ export default function SyncIndicator({ status, remoteMeta, lastSyncAt, error, o
           {"Depuis " + (remoteMeta.pushedByName || remoteMeta.pushedBy || "un autre appareil")}
           {remoteMeta.pushedAt ? " · " + new Date(remoteMeta.pushedAt).toLocaleString("fr-FR") : ""}
         </div>}
-        <button style={btnStyle} onClick={function() { onPull && onPull(); setOpen(false); }}>{"⬇ Récupérer"}</button>
+        <button style={btnStyle} onClick={function() { showFeedback("Récupération en cours…"); onPull && onPull(); setOpen(false); }}>{"⬇ Récupérer"}</button>
       </div>
     );
 
@@ -102,7 +110,7 @@ export default function SyncIndicator({ status, remoteMeta, lastSyncAt, error, o
       <div>
         <div style={{ fontSize: 12, color: th.danger, fontWeight: 700 }}>{"❌ Erreur réseau"}</div>
         {error && <div style={{ fontSize: 11, color: th.textMuted, marginTop: 2, fontFamily: MONO, wordBreak: "break-all" }}>{error}</div>}
-        <button style={btnStyle} onClick={function() { onCheck && onCheck(); setOpen(false); }}>{"⟳ Réessayer"}</button>
+        <button style={btnStyle} onClick={function() { showFeedback("Nouvelle tentative…"); onCheck && onCheck(); setOpen(false); }}>{"⟳ Réessayer"}</button>
       </div>
     );
 
@@ -181,6 +189,20 @@ export default function SyncIndicator({ status, remoteMeta, lastSyncAt, error, o
         }}>
           <div>{toast.message}</div>
           {toast.detail && <div style={{ fontSize: 10, opacity: 0.85 }}>{toast.detail}</div>}
+        </div>
+      )}
+
+      {/* Toast feedback déclenchement manuel */}
+      {localToast && (
+        <div style={{
+          position: "fixed", bottom: toast ? 64 : 16, right: 16, zIndex: 300,
+          background: th.accent, color: "#fff",
+          padding: "8px 14px", borderRadius: th.radius,
+          boxShadow: "0 4px 12px rgba(0,0,0,0.18)",
+          fontFamily: FONT_B, fontSize: 12, fontWeight: 600,
+          pointerEvents: "none", opacity: 0.92,
+        }}>
+          {localToast}
         </div>
       )}
     </div>
