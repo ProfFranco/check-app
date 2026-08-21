@@ -4,6 +4,8 @@
 // Aucune dépendance React. Testable en Node avec node --test.
 // ═══════════════════════════════════════════════════════════════════
 
+import { decryptSnapshot, encryptSnapshot } from "./crypto";
+
 // ─── Clés exclues du hash de contenu ────────────────────────────
 const EXCLUDED = new Set([
   "_syncMeta", "settingsTab", "uiScale", "mode", "showSettings",
@@ -109,11 +111,116 @@ function githubAdapter(config) {
   };
 }
 
+// ─── Adapter Sycomore ────────────────────────────────────────────
+//
+// Même interface que githubAdapter, deux différences internes :
+//   1. Le snapshot est chiffré côté client avant d'être poussé (le serveur
+//      ne stocke qu'un opaque) et déchiffré au pull. Le cœur syncPush /
+//      syncPull / contentHash reste inchangé : il ne voit que du clair.
+//   2. Le serveur versionne par entier croissant là où GitHub versionne par
+//      SHA. Les versions sont converties en chaîne à la frontière : le state
+//      localStorage ne stocke que des chaînes, et diagnoseSyncStatus compare
+//      avec !== — un entier y divergerait systématiquement de sa chaîne.
+
+function sycomoreAdapter(config) {
+  const { token, passphrase } = config;
+  const apiBase = (config.apiBase || "").replace(/\/+$/, "");
+  if (!token) throw new Error("Config Sycomore incomplète : jeton d'accès manquant");
+  if (!passphrase) throw new Error("Config Sycomore incomplète : phrase secrète manquante");
+
+  const root = apiBase + "/api/check-sync";
+  const headers = { "Authorization": "Bearer " + token };
+
+  function urlFor(profileId, suffix) {
+    return root + "/" + encodeURIComponent(profileId) + (suffix || "");
+  }
+
+  async function request(url, options) {
+    const r = await fetch(url, options);
+    if (r.status === 401) {
+      const err = new Error("Session Sycomore expirée — reconnexion nécessaire");
+      err.authRequired = true;
+      throw err;
+    }
+    return r;
+  }
+
+  return {
+    backend: "sycomore",
+    describe: function() { return "Sycomore · " + (apiBase || "même origine"); },
+
+    async head(profileId) {
+      const r = await request(urlFor(profileId, "/head"), { headers });
+      if (!r.ok) throw new Error("HEAD " + r.status);
+      const data = await r.json();
+      // version 0 = aucune sauvegarde : équivalent du 404 GitHub
+      return { version: data.version ? String(data.version) : null, pushedAt: null };
+    },
+
+    async pull(profileId) {
+      const r = await request(urlFor(profileId), { headers });
+      if (r.status === 404) return null;
+      if (!r.ok) throw new Error("PULL " + r.status);
+      const data = await r.json();
+      const snapshot = await decryptSnapshot(JSON.parse(data.payload), passphrase);
+      return {
+        snapshot,
+        version: String(data.version),
+        meta: snapshot._syncMeta || null,
+      };
+    },
+
+    async push(profileId, snapshot, expectedVersion) {
+      const envelope = await encryptSnapshot(snapshot, passphrase);
+      const r = await request(urlFor(profileId), {
+        method: "PUT",
+        headers: Object.assign({}, headers, { "Content-Type": "application/json" }),
+        body: JSON.stringify({
+          payload: JSON.stringify(envelope),
+          expected_version: expectedVersion ? parseInt(expectedVersion, 10) : 0,
+          device_name: config.deviceName || null,
+        }),
+      });
+
+      if (r.status === 409) return { ok: false, conflict: true };
+      if (!r.ok) throw new Error("PUSH " + r.status);
+      const data = await r.json();
+      return { ok: true, newVersion: String(data.version) };
+    },
+
+    // Snapshots : le serveur versionne et purge lui-même (rétention 30),
+    // il n'y a donc pas d'équivalent de maintainSnapshots à appeler ici.
+    async listSnapshots(profileId) {
+      const r = await request(urlFor(profileId, "/snapshots"), { headers });
+      if (!r.ok) return [];
+      const data = await r.json();
+      return data.map(function(s) {
+        return {
+          slug: String(s.version),
+          version: s.version,
+          date: s.created_at ? String(s.created_at).slice(0, 10) : null,
+          deviceName: s.device_name || null,
+        };
+      });
+    },
+
+    async readSnapshot(profileId, slug) {
+      const r = await request(urlFor(profileId) + "?version=" + encodeURIComponent(slug), { headers });
+      if (!r.ok) return null;
+      const data = await r.json();
+      try {
+        return await decryptSnapshot(JSON.parse(data.payload), passphrase);
+      } catch (_e) { return null; }
+    },
+  };
+}
+
 // ─── Factory d'adapter ───────────────────────────────────────────
 
 export function createSyncAdapter(config) {
   const { backend } = config;
   if (backend === "github") return githubAdapter(config);
+  if (backend === "sycomore") return sycomoreAdapter(config);
   throw new Error("Backend inconnu : " + backend);
 }
 
@@ -305,6 +412,10 @@ export async function maintainSnapshots(adapter, profileId, localState) {
 }
 
 export async function listAvailableSnapshots(adapter, profileId) {
+  // Adapter fournissant sa propre liste (Sycomore) : on la lui délègue.
+  if (adapter.listSnapshots) {
+    try { return await adapter.listSnapshots(profileId); } catch(_e) { return []; }
+  }
   var repo = adapter._repo;
   var headers = adapter._headers;
   if (!repo || !headers) return [];
@@ -318,6 +429,9 @@ export async function listAvailableSnapshots(adapter, profileId) {
 }
 
 export async function readSnapshot(adapter, profileId, slug) {
+  if (adapter.readSnapshot) {
+    try { return await adapter.readSnapshot(profileId, slug); } catch(_e) { return null; }
+  }
   var repo = adapter._repo;
   var headers = adapter._headers;
   if (!repo || !headers) return null;
