@@ -9,7 +9,7 @@
   "background_color": "#faf7f2",
   "icons": [
     {
-      "src": "/logos/splash.png",
+      "src": "logos/splash.png",
       "sizes": "512x512",
       "type": "image/png",
       "purpose": "any maskable"

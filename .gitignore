@@ -3,6 +3,7 @@ node_modules/
 
 # Build
 build/
+build-check/
 
 # Variables d'environnement locales
 .env
