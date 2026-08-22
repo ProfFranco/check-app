@@ -35,8 +35,12 @@ root.render(
 );
 
 // ─── Service Worker (PWA hors ligne) ─────────────────────────────
+// Chemin relatif au dossier de déploiement : CHECK n'est jamais servi à la
+// racine d'un domaine (GitHub Pages sous /check-app/, VPS sous /check/).
+// Un "/sw.js" absolu viserait la racine du domaine et échouerait en 404,
+// laissant le mode hors ligne inopérant.
 if ("serviceWorker" in navigator) {
   window.addEventListener("load", () => {
-    navigator.serviceWorker.register("/sw.js").catch(() => {});
+    navigator.serviceWorker.register(process.env.PUBLIC_URL + "/sw.js").catch(() => {});
   });
 }
