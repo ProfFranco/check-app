@@ -52,6 +52,11 @@ const LOGO_DARK   = process.env.PUBLIC_URL + "/logos/logo-dark.png";
 const LOGO_YOUNG  = process.env.PUBLIC_URL + "/logos/logo-young.png";
 const SPLASH_IMG = process.env.PUBLIC_URL + "/logos/splash.png";
 
+// Retour vers Sycomore — renseigné au build uniquement pour le déploiement VPS
+// (REACT_APP_SYCOMORE_URL=/). Absent du build GitHub Pages, où la racine du
+// domaine n'est pas Sycomore : le bouton n'y apparaît alors pas du tout.
+const SYCOMORE_URL = process.env.REACT_APP_SYCOMORE_URL || "";
+
 var PROFILE_COLORS = ["#8B7355","#534AB7","#0F6E56","#A32D2D","#185FA5"];
 
 // ─── Raccourcis ──────────────────────────────────────────────────
@@ -1806,6 +1811,10 @@ function retirerDsSynthese(examId) {
         </div>}
         {!isMobile && !isTablet && <div style={{ flex: 1 }} />}
         
+        {SYCOMORE_URL && <a href={SYCOMORE_URL} title={"Retour à Sycomore"}
+          style={{ ...inp, cursor: "pointer", fontSize: 13, padding: "5px 9px", textDecoration: "none", display: "inline-flex", alignItems: "center", gap: 4, color: th.textMuted }}>
+          {"\uD83C\uDF33"}{!isMobile && !isTablet && <span style={{ fontSize: 11, fontWeight: 600 }}>{"Sycomore"}</span>}
+        </a>}
         <button onClick={function() { setShowSettings(true); }} style={{ ...inp, cursor: "pointer", fontSize: 14, padding: "5px 9px" }}>{"\u2699\uFE0F"}</button>
         {!isMobile && !isTablet && <button onClick={saveJSON} style={{ ...inp, cursor: "pointer", fontSize: 12, padding: "5px 8px" }}>{"\uD83D\uDCBE"}</button>}
         {!isMobile && !isTablet && <button onClick={function() { fileRef.current && fileRef.current.click(); }} style={{ ...inp, cursor: "pointer", fontSize: 12, padding: "5px 8px" }}>{"\uD83D\uDCC2"}</button>}
