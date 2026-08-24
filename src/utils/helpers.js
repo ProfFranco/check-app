@@ -64,6 +64,23 @@ export function cleIdentite(nom, prenom) {
  *   ambigus     \u2192 \u00e9l\u00e8ves CHECK dont la cl\u00e9 correspond \u00e0 plusieurs identit\u00e9s
  *                 (jamais rapproch\u00e9s automatiquement : \u00e0 trancher \u00e0 la main)
  */
+/**
+ * Détecte si l'app tourne dans Safari iOS/iPadOS hors mode PWA installé (P-H3).
+ * `navigator.standalone` n'existe que sur iOS/iPadOS (Safari et WebViews basés
+ * dessus) — undefined ailleurs (desktop, Android) signale "non concerné", pas
+ * "non installé" : WebKit y évince le stockage inscriptible par script
+ * (IndexedDB, localStorage) après 7 jours d'inactivité, sauf pour un site
+ * ajouté à l'écran d'accueil, qui en est exempté.
+ *
+ * Retourne true (bandeau à afficher), false (installé, rien à afficher) ou
+ * null (plateforme non concernée par cette éviction spécifique).
+ */
+export function iosInstallationRecommandee(nav) {
+  var navigateur = nav || (typeof navigator !== "undefined" ? navigator : null);
+  if (!navigateur || navigateur.standalone === undefined) return null;
+  return navigateur.standalone !== true;
+}
+
 export function apparierIdentites(students, pack) {
   var identities = (pack && pack.identities) || {};
   var parCle = {};
