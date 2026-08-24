@@ -88,7 +88,7 @@ function githubAdapter(config) {
       };
     },
 
-    async push(profileId, snapshot, expectedVersion) {
+    async push(profileId, snapshot, expectedVersion, pushOptions) {
       const body = {
         message: "CHECK sync " + new Date().toLocaleString("fr-FR"),
         content: btoa(unescape(encodeURIComponent(JSON.stringify(snapshot)))),
@@ -99,6 +99,7 @@ function githubAdapter(config) {
         method: "PUT",
         headers: Object.assign({}, headers, { "Content-Type": "application/json" }),
         body: JSON.stringify(body),
+        keepalive: !!(pushOptions && pushOptions.keepalive),
       });
 
       if (r.status === 409 || r.status === 422) {
@@ -173,7 +174,7 @@ function sycomoreAdapter(config) {
       };
     },
 
-    async push(profileId, snapshot, expectedVersion) {
+    async push(profileId, snapshot, expectedVersion, pushOptions) {
       const envelope = await encryptSnapshot(snapshot, passphrase);
       const r = await request(urlFor(profileId), {
         method: "PUT",
@@ -183,6 +184,7 @@ function sycomoreAdapter(config) {
           expected_version: expectedVersion ? parseInt(expectedVersion, 10) : 0,
           device_name: config.deviceName || null,
         }),
+        keepalive: !!(pushOptions && pushOptions.keepalive),
       });
 
       if (r.status === 409) return { ok: false, conflict: true };
@@ -280,6 +282,12 @@ export async function syncCheck(adapter, localState, profileId) {
   return { status, remoteVersion, lastKnownVersion, remoteMeta: null };
 }
 
+// `options.keepalive` (P-H3) : demande un fetch qui survit à la fermeture/mise
+// en arrière-plan de l'onglet (flush sur pagehide/visibilitychange, cf. App.jsx).
+// Limite du navigateur : un fetch keepalive plafonne le corps à ~64 Ko, très en
+// dessous des 15 Mo autorisés côté serveur — sur un gros profil, ce push peut
+// échouer silencieusement. Le filet reste le push debouncé normal au retour au
+// premier plan ; ne pas compter sur keepalive comme garantie de livraison.
 export async function syncPush(adapter, localState, profileId, options) {
   options = options || {};
   const { lastKnownVersion, deviceId, deviceName } = getLocalSyncState(profileId);
@@ -306,7 +314,7 @@ export async function syncPush(adapter, localState, profileId, options) {
     expectedVersion = head.version;
   }
 
-  const result = await adapter.push(profileId, snapshot, expectedVersion);
+  const result = await adapter.push(profileId, snapshot, expectedVersion, { keepalive: !!options.keepalive });
 
   if (result.ok) {
     updateLocalSyncState(profileId, {

@@ -88,7 +88,19 @@ function useSyncStatus({ buildAppState, activeProfileId, syncConfig, restoreStat
 
   var inFlightRef = useRef(false);
   var mountedAtRef = useRef(Date.now());
-  var autoPullDoneRef = useRef(false);
+  // Réfs "toujours à jour" pour doCheck/doPush (P-H3) : les listeners focus/
+  // visibilitychange/pagehide/heartbeat sont enregistrés dans des useEffect à
+  // dépendances restreintes ([adapter, activeProfileId, dbLoaded] ou [adapter,
+  // status]), qui ne se ré-exécutent quasiment jamais. Sans ce niveau
+  // d'indirection, ils capturent une fermeture figée de doCheck/doPush au
+  // moment de leur (rare) (ré)enregistrement — laquelle referme elle-même sur
+  // buildAppState tel qu'il était CE rendu-là, donc sur des states React
+  // périmés. Un seul auto-pull passait inaperçu (le cas lastKnownVersion===null
+  // ne compare aucun hash) ; un deuxième comparait un hash calculé sur l'état
+  // d'avant le premier pull contre lastPushedHash fraîchement mis à jour —
+  // toujours divergent, donc jamais "remote-ahead" mais "conflict" à tort.
+  var doCheckRef = useRef(null);
+  var doPushRef = useRef(null);
 
   var adapter = useMemo(function() {
     try {
@@ -130,7 +142,7 @@ function useSyncStatus({ buildAppState, activeProfileId, syncConfig, restoreStat
         setError(result.error || "Erreur pull");
       }
     }).catch(function(e) {
-      setStatus("error");
+      setStatus(e.authRequired ? "auth-expired" : "error");
       setError(e.message || String(e));
     }).finally(function() {
       inFlightRef.current = false;
@@ -162,7 +174,7 @@ function useSyncStatus({ buildAppState, activeProfileId, syncConfig, restoreStat
         if (dailySnapshot) maintainSnapshots(adapter, activeProfileId, state).catch(function() {});
       }
     }).catch(function(e) {
-      setStatus("error");
+      setStatus(e.authRequired ? "auth-expired" : "error");
       setError(e.message || String(e));
     }).finally(function() {
       inFlightRef.current = false;
@@ -177,28 +189,36 @@ function useSyncStatus({ buildAppState, activeProfileId, syncConfig, restoreStat
       setStatus(result.status);
       setRemoteMeta(result.remoteMeta);
       setError(null);
-      // Auto-pull initial : une seule fois si remote-ahead et aucune modif locale
-      if (!autoPullDoneRef.current && result.status === "remote-ahead") {
-        autoPullDoneRef.current = true;
+      // Auto-pull (P-H3) : à chaque détection remote-ahead, pas une seule fois par
+      // session — status remote-ahead signifie par construction que le local n'a
+      // pas divergé (diagnoseSyncStatus), donc rien à perdre à récupérer. Le cas
+      // conflict, lui, ne se résout jamais tout seul (invariant, cf. modale).
+      if (result.status === "remote-ahead") {
         inFlightRef.current = false;
         return doPull({ showToast: true });
       }
-      autoPullDoneRef.current = true;
     }).catch(function(e) {
-      setStatus("error");
+      setStatus(e.authRequired ? "auth-expired" : "error");
       setError(e.message || String(e));
     }).finally(function() {
       inFlightRef.current = false;
     });
   }
 
+  // Réfs toujours à jour (cf. commentaire à leur déclaration) — mises à jour à
+  // CHAQUE rendu, sans passer par un effect, pour que les listeners ci-dessous
+  // (enregistrés une fois pour toutes ou rarement ré-enregistrés) appellent
+  // toujours la dernière closure de doCheck/doPush, jamais une figée.
+  doCheckRef.current = doCheck;
+  doPushRef.current = doPush;
+
   // Heartbeat 30s + init au montage
   useEffect(function() {
     if (!adapter) { setStatus("unconfigured"); return; }
-    doCheck();
+    doCheckRef.current();
     var timer = setInterval(function() {
       if (document.hidden) return;
-      doCheck();
+      doCheckRef.current();
     }, 30000);
     return function() { clearInterval(timer); };
   }, [adapter, activeProfileId, dbLoaded]); // eslint-disable-line
@@ -208,16 +228,42 @@ function useSyncStatus({ buildAppState, activeProfileId, syncConfig, restoreStat
     if (!adapter || status !== "local-ahead") return;
     var elapsed = Date.now() - mountedAtRef.current;
     var delay = elapsed < 120000 ? (120000 - elapsed + 30000) : 30000;
-    var timer = setTimeout(function() { doPush(); }, delay);
+    var timer = setTimeout(function() { doPushRef.current(); }, delay);
     return function() { clearTimeout(timer); };
   }, [adapter, status]); // eslint-disable-line
 
-  // Retour de focus → heartbeat immédiat
+  // Retour de focus/onglet visible → heartbeat immédiat (P-H3 : visibilitychange
+  // en plus de focus — plus fiable que focus seul dans certains contextes de
+  // multitâche iPad/PWA). doCheck() lui-même déclenche l'auto-pull si remote-ahead.
   useEffect(function() {
-    function onFocus() { doCheck(); }
+    function onFocus() { doCheckRef.current(); }
+    function onVisibility() { if (document.visibilityState === "visible") doCheckRef.current(); }
     window.addEventListener("focus", onFocus);
-    return function() { window.removeEventListener("focus", onFocus); };
+    document.addEventListener("visibilitychange", onVisibility);
+    return function() {
+      window.removeEventListener("focus", onFocus);
+      document.removeEventListener("visibilitychange", onVisibility);
+    };
   }, [adapter, activeProfileId, dbLoaded]); // eslint-disable-line
+
+  // Passage en arrière-plan → flush du push si des modifs locales attendent
+  // (P-H3). Déterminant sur iPad, où l'app peut être suspendue sans prévenir et
+  // où le débounce de 2 min n'a alors jamais l'occasion d'expirer. keepalive:true
+  // laisse la requête survivre à la suspension — dans la limite de taille du
+  // navigateur, cf. le commentaire sur options.keepalive dans utils/sync.js.
+  useEffect(function() {
+    if (!adapter) return;
+    function flush() {
+      if (status === "local-ahead") doPushRef.current({ keepalive: true });
+    }
+    function onVisibility() { if (document.visibilityState === "hidden") flush(); }
+    document.addEventListener("visibilitychange", onVisibility);
+    window.addEventListener("pagehide", flush);
+    return function() {
+      document.removeEventListener("visibilitychange", onVisibility);
+      window.removeEventListener("pagehide", flush);
+    };
+  }, [adapter, status]); // eslint-disable-line
 
   return {
     status: status, remoteMeta: remoteMeta, lastSyncAt: lastSyncAt,
@@ -1840,6 +1886,7 @@ function retirerDsSynthese(examId) {
           onPull={syncHook.pull}
           onCheck={syncHook.checkNow}
           onResolveConflict={function() { setShowConflictModal(true); }}
+          onGoToSauvegarde={function() { setMode("sauvegarde"); }}
           th={th} FONT_B={FONT_B} MONO={MONO}
         />
         {!isMobile && !isTablet && examNomDS && (function() {

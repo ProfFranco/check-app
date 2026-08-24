@@ -7,6 +7,7 @@ const STATUS_CONFIG = {
   "remote-ahead": { color: "warning",   label: "Version distante plus récente" },
   conflict:       { color: "danger",    label: "Conflit" },
   error:          { color: "danger",    label: "Erreur réseau" },
+  "auth-expired": { color: "warning",   label: "Session expirée" },
   checking:       { color: null,        label: "Vérification…" },
   pushing:        { color: "accent",    label: "Envoi…" },
   pulling:        { color: "warning",   label: "Réception…" },
@@ -20,7 +21,7 @@ function formatAgo(date) {
   return date.toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" });
 }
 
-export default function SyncIndicator({ status, remoteMeta, lastSyncAt, error, onPush, onPull, onCheck, onResolveConflict, th, FONT_B, MONO, toast }) {
+export default function SyncIndicator({ status, remoteMeta, lastSyncAt, error, onPush, onPull, onCheck, onResolveConflict, onGoToSauvegarde, th, FONT_B, MONO, toast }) {
   var _open = useState(false); var setOpen = _open[1]; var open = _open[0];
   var _localToast = useState(null); var localToast = _localToast[0]; var setLocalToast = _localToast[1];
   var localToastTimerRef = useRef(null);
@@ -41,6 +42,7 @@ export default function SyncIndicator({ status, remoteMeta, lastSyncAt, error, o
     if (status === "remote-ahead") return "Version distante plus récente";
     if (status === "conflict") return "Conflit détecté";
     if (status === "error") return "Erreur : " + (error || "inconnue");
+    if (status === "auth-expired") return "Session Sycomore expirée — reconnexion nécessaire";
     if (status === "unconfigured") return "Synchronisation non configurée";
     return cfg.label;
   }
@@ -114,10 +116,19 @@ export default function SyncIndicator({ status, remoteMeta, lastSyncAt, error, o
       </div>
     );
 
+    if (status === "auth-expired") return (
+      <div>
+        <div style={{ fontSize: 12, color: th.danger, fontWeight: 700 }}>{"🔒 Session Sycomore expirée"}</div>
+        <div style={{ fontSize: 11, color: th.textMuted, marginTop: 4, lineHeight: 1.5 }}>{"Le jeton de connexion n'est plus valide. Reconnectez-vous dans la section 🌳 Sycomore."}</div>
+        <button style={btnStyle} onClick={function() { onGoToSauvegarde && onGoToSauvegarde(); setOpen(false); }}>{"🔑 Se reconnecter"}</button>
+      </div>
+    );
+
     if (status === "unconfigured") return (
       <div>
         <div style={{ fontSize: 12, color: th.text, fontWeight: 600 }}>{"Synchronisation non configurée"}</div>
-        <div style={{ fontSize: 11, color: th.textMuted, marginTop: 4 }}>{"Configurer dans Réglages → Export"}</div>
+        <div style={{ fontSize: 11, color: th.textMuted, marginTop: 4 }}>{"Configurer dans Réglages → Sauvegarde"}</div>
+        {onGoToSauvegarde && <button style={btnStyle} onClick={function() { onGoToSauvegarde(); setOpen(false); }}>{"⚙️ Ouvrir Sauvegarde"}</button>}
       </div>
     );
 

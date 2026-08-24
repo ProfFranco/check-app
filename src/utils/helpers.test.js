@@ -7,7 +7,7 @@
 // ═══════════════════════════════════════════════════════════════════
 
 import assert from "assert";
-import { apparierIdentites, cleIdentite } from "./helpers";
+import { apparierIdentites, cleIdentite, iosInstallationRecommandee } from "./helpers";
 
 // ─── cleIdentite ─────────────────────────────────────────────────
 
@@ -74,4 +74,18 @@ test("apparier: liste d'élèves vide → résultat vide, pas d'exception", func
   const res = apparierIdentites([], PACK);
   assert.deepStrictEqual(res.map, {});
   assert.deepStrictEqual(res.nonApparies, []);
+});
+
+// ─── iosInstallationRecommandee (P-H3) ────────────────────────────
+
+test("iosInstallationRecommandee: plateforme non iOS (standalone undefined) → null", function() {
+  assert.strictEqual(iosInstallationRecommandee({}), null);
+});
+
+test("iosInstallationRecommandee: iOS, déjà installé en PWA → false", function() {
+  assert.strictEqual(iosInstallationRecommandee({ standalone: true }), false);
+});
+
+test("iosInstallationRecommandee: iOS, onglet Safari classique → true", function() {
+  assert.strictEqual(iosInstallationRecommandee({ standalone: false }), true);
 });

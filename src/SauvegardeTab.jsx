@@ -2,6 +2,9 @@
 // SauvegardeTab — onglet Sauvegarde & synchronisation
 // ═══════════════════════════════════════════════════════════════════
 
+import { useState } from "react";
+import { iosInstallationRecommandee } from "./utils/helpers";
+
 export default function SauvegardeTab({
   th, FONT, FONT_B,
   exportOpen, setExportOpen,
@@ -15,6 +18,14 @@ export default function SauvegardeTab({
   onLinkFile, onUnlinkFile, onReauthorize,
   syncBackend, syncConfigured, sycomore,
 }) {
+  // Bandeau d'installation PWA (P-H3) : WebKit évince le stockage inscriptible
+  // par script (IndexedDB, localStorage) après 7 jours d'inactivité sur un site
+  // non installé — sur iPad, ça peut faire disparaître des données locales non
+  // encore synchronisées. Rejetable pour la session, réapparaît au prochain
+  // lancement (pas de persistance à inventer pour un simple rappel).
+  var _bandeauPwaMasque = useState(false); var bandeauPwaMasque = _bandeauPwaMasque[0]; var setBandeauPwaMasque = _bandeauPwaMasque[1];
+  var installationRecommandee = iosInstallationRecommandee() === true && !bandeauPwaMasque;
+
   function Section(props) {
     var key = props.skey;
     var isOpen = exportOpen[key] !== false;
@@ -45,6 +56,17 @@ export default function SauvegardeTab({
         var btnStyle = function(active) { return { flex: 1, padding: "11px", borderRadius: th.radiusSm, cursor: active ? "pointer" : "not-allowed", fontFamily: FONT_B, fontSize: 13, fontWeight: 700, background: active ? th.accentBg : th.surface, border: "1px solid " + (active ? th.accent + "55" : th.border), color: active ? th.accent : th.textDim, opacity: syncLoading ? 0.6 : 1 }; };
         return (
           <Section skey="sync" icon="☁️" title="Synchronisation">
+            {installationRecommandee && (
+              <div style={{ display: "flex", alignItems: "flex-start", gap: 8, fontSize: 11, color: th.warning, fontFamily: FONT_B, padding: "8px 10px", background: th.warningBg, borderRadius: th.radiusSm, marginTop: 10, border: "1px solid " + th.warning + "33", lineHeight: 1.5 }}>
+                <span style={{ flex: 1 }}>
+                  {"📲 Installez CHECK sur l'écran d'accueil : sur iPad, Safari efface les données d'un site non installé après 7 jours sans ouverture — sauvegardes non synchronisées comprises. Partager → Sur l'écran d'accueil."}
+                </span>
+                <button onClick={function() { setBandeauPwaMasque(true); }}
+                  style={{ background: "transparent", border: "none", color: th.warning, cursor: "pointer", fontSize: 13, padding: 0, lineHeight: 1 }}>
+                  {"✕"}
+                </button>
+              </div>
+            )}
             <div style={{ fontSize: 12, color: th.textMuted, fontFamily: FONT_B, padding: "10px 0 6px", lineHeight: 1.6 }}>
               {estSycomore
                 ? "Sauvegarde et restauration sur votre serveur Sycomore. La sauvegarde est chiffrée dans ce navigateur avant l'envoi : le serveur ne stocke qu'un bloc illisible sans votre phrase secrète."
