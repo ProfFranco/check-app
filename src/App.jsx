@@ -1021,6 +1021,69 @@ export default function App() {
       .finally(function() { setSycomoreBusy(false); });
   }
 
+  // Import de la classe sélectionnée depuis Sycomore (P-H4b) — remplace la
+  // double saisie des noms. L'API ne renvoie que { id, code_affichage } : aucun
+  // nom ne transite par le réseau, ils viennent du trousseau local. Le
+  // rapprochement est direct (les identifiants serveur sont la source), donc
+  // sans passer par apparierIdentites ni le moindre appariement par nom.
+  //
+  // Les élèves déjà présents ET déjà rapprochés à cette classe sont conservés
+  // tels quels (leurs notes sont indexées par leur id CHECK, les écraser les
+  // détacherait de leurs copies) ; seuls les manquants sont ajoutés.
+  function sycomoreImporterClasse() {
+    if (!sycomoreToken || !sycomoreClasseId) return;
+    setSycomoreBusy(true);
+    setSycomoreMsg(null);
+    fetch(sycomoreApi("/classes/" + sycomoreClasseId + "/etudiants?actif=true"), {
+      headers: { "Authorization": "Bearer " + sycomoreToken },
+    })
+      .then(function(r) {
+        if (r.status === 401) throw new Error("Session expirée — reconnectez-vous.");
+        if (!r.ok) throw new Error("Erreur " + r.status);
+        return r.json();
+      })
+      .then(function(inscrits) {
+        var dejaMappes = {};
+        Object.keys(sycomoreMap).forEach(function(checkId) { dejaMappes[sycomoreMap[checkId]] = checkId; });
+
+        var nouveaux = [];
+        var fusion = Object.assign({}, sycomoreMap);
+        inscrits.forEach(function(e) {
+          if (dejaMappes[e.id]) return; // déjà dans ce profil, on n'y touche pas
+          var ident = (sycomoreTrousseauPack && sycomoreTrousseauPack.identities)
+            ? sycomoreTrousseauPack.identities[String(e.id)] : null;
+          var nouvelId = uid();
+          nouveaux.push({
+            id: nouvelId,
+            nom: ident ? ident.nom : "",
+            prenom: ident ? ident.prenom : "",
+          });
+          fusion[nouvelId] = e.id;
+        });
+
+        if (!nouveaux.length) {
+          setSycomoreMsg({ type: "ok", texte: "Aucun nouvel élève : la classe est déjà importée." });
+          return;
+        }
+
+        var listeFinale = students.concat(nouveaux);
+        setStudents(listeFinale);
+        setSycomoreMap(fusion);
+        // Sauvegarde immédiate : élèves et rapprochement doivent survivre à un
+        // reload sans dépendre du debounce de 500 ms (cf. anti-pattern saveDB).
+        saveDB(buildPersistedState({ students: listeFinale, sycomoreMap: fusion }), activeProfileId);
+
+        var sansNom = nouveaux.filter(function(s) { return !s.nom && !s.prenom; }).length;
+        setSycomoreMsg({
+          type: sansNom ? "warn" : "ok",
+          texte: "✓ " + nouveaux.length + " élève(s) importé(s)"
+            + (sansNom ? " · " + sansNom + " sans identité dans le trousseau (code seul)" : ""),
+        });
+      })
+      .catch(function(e) { setSycomoreMsg({ type: "error", texte: e.message || String(e) }); })
+      .finally(function() { setSycomoreBusy(false); });
+  }
+
   // Le pack d'identités ne fait que transiter en mémoire pour le rapprochement :
   // il n'est ni stocké ni envoyé nulle part. Seuls les etudiant_id en sortent.
   function sycomoreImporterPack(file) {
@@ -3065,6 +3128,7 @@ function retirerDsSynthese(examId) {
             sycomoreClasses: sycomoreClasses, sycomoreChargerClasses: sycomoreChargerClasses,
             sycomoreClasseId: sycomoreClasseId, setSycomoreClasseId: setSycomoreClasseId,
             sycomoreImporterPack: sycomoreImporterPack,
+            sycomoreImporterClasse: sycomoreImporterClasse,
             sycomoreAppariement: sycomoreAppariement,
             sycomoreMap: sycomoreMap,
             sycomoreTrousseauActif: sycomoreTrousseauActif,
