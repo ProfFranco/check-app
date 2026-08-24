@@ -133,28 +133,70 @@ export default function SauvegardeTab({
               </div>
             </div>
 
-            {/* Phrase secrète de chiffrement */}
+            {/* Phrase secrète de chiffrement — P-H2 : sourcée automatiquement depuis
+                le trousseau partagé quand il est disponible sur cet appareil. */}
             <div style={{ marginBottom: 12, paddingTop: 10, borderTop: "1px solid " + th.border }}>
-              <div style={label}>{"Phrase secrète (chiffre la sauvegarde avant l'envoi)"}</div>
-              <input type="password" value={s.sycomorePass} autoComplete="new-password"
-                onChange={function(e) { s.setSycomorePass(e.target.value); localStorage.setItem("check_sycomore_passphrase", e.target.value); }}
-                style={champ} />
-              <div style={{ fontSize: 10, color: th.warning, fontFamily: FONT_B, marginTop: 6, lineHeight: 1.5 }}>
-                {"⚠ Sans cette phrase, une sauvegarde envoyée sur le serveur est définitivement illisible — y compris par vous. Notez-la ailleurs."}
-              </div>
+              {s.sycomoreTrousseauActif ? (
+                <div style={{ fontSize: 11, fontFamily: FONT_B, color: th.success }}>
+                  {"🔑 Phrase secrète : depuis le trousseau Sycomore de cet appareil."}
+                </div>
+              ) : (
+                <div>
+                  <div style={label}>{"Phrase secrète (chiffre la sauvegarde avant l'envoi)"}</div>
+                  <input type="password" value={s.sycomorePass} autoComplete="new-password"
+                    onChange={function(e) { s.setSycomorePass(e.target.value); localStorage.setItem("check_sycomore_passphrase", e.target.value); }}
+                    style={champ} />
+                  <div style={{ fontSize: 10, color: th.warning, fontFamily: FONT_B, marginTop: 6, lineHeight: 1.5 }}>
+                    {"⚠ Sans cette phrase, une sauvegarde envoyée sur le serveur est définitivement illisible — y compris par vous. Notez-la ailleurs."}
+                  </div>
+                </div>
+              )}
             </div>
+
+            {/* Déverrouillage direct du trousseau (P-H2) : uniquement quand CHECK est
+                connecté à Sycomore mais que le store partagé est vide sur cet appareil
+                (Sycomore n'y a jamais tourné). Non bloquant — le reste de la section
+                fonctionne normalement pendant ce temps via la saisie manuelle. */}
+            {connecte && !s.sycomoreTrousseauActif && (
+              <div style={{ marginBottom: 12, paddingTop: 10, borderTop: "1px solid " + th.border }}>
+                <div style={{ fontSize: 12, fontWeight: 700, color: th.text, fontFamily: FONT_B, marginBottom: 4 }}>
+                  {"🔑 Trousseau non déverrouillé sur cet appareil"}
+                </div>
+                <div style={{ fontSize: 10, color: th.textMuted, fontFamily: FONT_B, marginBottom: 8, lineHeight: 1.5 }}>
+                  {"Si un trousseau existe sur ce compte Sycomore, sa phrase déverrouille aussi la phrase secrète et le rapprochement des élèves ci-dessous — sans re-saisie."}
+                </div>
+                <div style={{ display: "flex", gap: 8 }}>
+                  <input type="password" value={s.trousseauPhraseInput} autoComplete="off"
+                    placeholder="Phrase du trousseau"
+                    onChange={function(e) { s.setTrousseauPhraseInput(e.target.value); }}
+                    style={Object.assign({}, champ, { flex: 1 })} />
+                  <button disabled={s.trousseauDeverrouillageBusy || !s.trousseauPhraseInput} style={btn(!s.trousseauDeverrouillageBusy && !!s.trousseauPhraseInput, false)}
+                    onClick={s.sycomoreDeverrouillerTrousseau}>
+                    {s.trousseauDeverrouillageBusy ? "⏳…" : "Déverrouiller"}
+                  </button>
+                </div>
+              </div>
+            )}
 
             {/* Rapprochement des élèves */}
             <div style={{ marginBottom: 12, paddingTop: 10, borderTop: "1px solid " + th.border }}>
               <div style={{ fontSize: 12, fontWeight: 700, color: th.text, fontFamily: FONT_B, marginBottom: 4 }}>
                 {"🔗 Rapprochement des élèves"}
               </div>
-              <div style={{ fontSize: 10, color: th.textMuted, fontFamily: FONT_B, marginBottom: 8, lineHeight: 1.5 }}>
-                {"Importez le pack d'identités Sycomore pour associer chaque élève CHECK à son identifiant serveur. Le pack est lu en mémoire et n'est jamais envoyé nulle part."}
-              </div>
-              <input type="file" accept="application/json,.json"
-                onChange={function(e) { s.sycomoreImporterPack(e.target.files && e.target.files[0]); e.target.value = ""; }}
-                style={{ fontSize: 11, fontFamily: FONT_B, color: th.textMuted, marginBottom: 8 }} />
+              {s.sycomoreTrousseauActif ? (
+                <div style={{ fontSize: 10, color: th.textMuted, fontFamily: FONT_B, marginBottom: 8, lineHeight: 1.5 }}>
+                  {"Fait automatiquement depuis le trousseau Sycomore de cet appareil."}
+                </div>
+              ) : (
+                <div>
+                  <div style={{ fontSize: 10, color: th.textMuted, fontFamily: FONT_B, marginBottom: 8, lineHeight: 1.5 }}>
+                    {"Importez le pack d'identités Sycomore pour associer chaque élève CHECK à son identifiant serveur. Le pack est lu en mémoire et n'est jamais envoyé nulle part."}
+                  </div>
+                  <input type="file" accept="application/json,.json"
+                    onChange={function(e) { s.sycomoreImporterPack(e.target.files && e.target.files[0]); e.target.value = ""; }}
+                    style={{ fontSize: 11, fontFamily: FONT_B, color: th.textMuted, marginBottom: 8 }} />
+                </div>
+              )}
               <div style={{ fontSize: 11, fontFamily: FONT_B, color: nbMappes ? th.success : th.textDim }}>
                 {nbMappes + " élève(s) rapproché(s) sur " + (s.students || []).length}
               </div>
