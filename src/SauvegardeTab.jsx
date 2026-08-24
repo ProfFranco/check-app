@@ -244,10 +244,10 @@ export default function SauvegardeTab({
               )}
             </div>
 
-            {/* Envoi de la synthèse */}
-            <div style={{ paddingTop: 10, borderTop: "1px solid " + th.border }}>
+            {/* Classe Sycomore : sélecteur commun à l'import d'élèves et à l'envoi */}
+            <div style={{ marginBottom: 12, paddingTop: 10, borderTop: "1px solid " + th.border }}>
               <div style={{ fontSize: 12, fontWeight: 700, color: th.text, fontFamily: FONT_B, marginBottom: 6 }}>
-                {"📤 Envoyer les résultats du DS actif"}
+                {"🎓 Classe Sycomore"}
               </div>
               <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 8 }}>
                 <select value={s.sycomoreClasseId} disabled={!connecte}
@@ -260,6 +260,21 @@ export default function SauvegardeTab({
                 </select>
                 <button onClick={s.sycomoreChargerClasses} disabled={!connecte || s.sycomoreBusy}
                   style={btn(connecte && !s.sycomoreBusy, false)}>{"↻"}</button>
+              </div>
+              <div style={{ fontSize: 10, color: th.textMuted, fontFamily: FONT_B, marginBottom: 8, lineHeight: 1.5 }}>
+                {"Importe les élèves inscrits, déjà rapprochés — plus de saisie ni de CSV. Les noms viennent du trousseau de cet appareil, jamais du réseau. Les élèves déjà importés sont laissés intacts."}
+              </div>
+              <button onClick={s.sycomoreImporterClasse}
+                disabled={!connecte || !s.sycomoreClasseId || s.sycomoreBusy}
+                style={Object.assign({}, btn(connecte && s.sycomoreClasseId && !s.sycomoreBusy, false), { width: "100%" })}>
+                {s.sycomoreBusy ? "⏳…" : "👥 Importer les élèves de cette classe"}
+              </button>
+            </div>
+
+            {/* Envoi de la synthèse */}
+            <div style={{ paddingTop: 10, borderTop: "1px solid " + th.border }}>
+              <div style={{ fontSize: 12, fontWeight: 700, color: th.text, fontFamily: FONT_B, marginBottom: 6 }}>
+                {"📤 Envoyer les résultats du DS actif"}
               </div>
               <button onClick={s.sycomorePousserSynthese}
                 disabled={!connecte || !s.sycomoreClasseId || s.sycomoreBusy || !s.examNomDS}
