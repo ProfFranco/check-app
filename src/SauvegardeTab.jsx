@@ -49,9 +49,12 @@ export default function SauvegardeTab({
   return (
     <div style={{ maxWidth: 760, margin: "0 auto" }}>
 
-      {/* ── Section Synchronisation ── */}
-      {(function() {
-        var estSycomore = syncBackend === "sycomore";
+      {/* ── Section Synchronisation — GitHub uniquement (P-H5) ──
+          En mode Sycomore, cette section disparaît : ses boutons Sauvegarder/
+          Charger sont de simples doublons de la pastille de synchro (même
+          syncHook.push/pull en dessous), et le reste de la configuration vit
+          désormais entièrement dans la section 🌳 ci-dessous. */}
+      {syncBackend !== "sycomore" && (function() {
         var syncOk = syncConfigured !== undefined ? !!syncConfigured : !!(githubPat && githubRepo);
         var btnStyle = function(active) { return { flex: 1, padding: "11px", borderRadius: th.radiusSm, cursor: active ? "pointer" : "not-allowed", fontFamily: FONT_B, fontSize: 13, fontWeight: 700, background: active ? th.accentBg : th.surface, border: "1px solid " + (active ? th.accent + "55" : th.border), color: active ? th.accent : th.textDim, opacity: syncLoading ? 0.6 : 1 }; };
         return (
@@ -68,14 +71,10 @@ export default function SauvegardeTab({
               </div>
             )}
             <div style={{ fontSize: 12, color: th.textMuted, fontFamily: FONT_B, padding: "10px 0 6px", lineHeight: 1.6 }}>
-              {estSycomore
-                ? "Sauvegarde et restauration sur votre serveur Sycomore. La sauvegarde est chiffrée dans ce navigateur avant l'envoi : le serveur ne stocke qu'un bloc illisible sans votre phrase secrète."
-                : "Sauvegarde et restauration via un dépôt GitHub privé. Configurez votre PAT et le dépôt dans Réglages → ☁️ Sauvegarde."}
+              {"Sauvegarde et restauration via un dépôt GitHub privé. Configurez votre PAT et le dépôt dans Réglages → ☁️\u00a0Sauvegarde."}
             </div>
             {!syncOk && <div style={{ fontSize: 11, color: th.warning, fontFamily: FONT_B, padding: "6px 10px", background: th.warningBg, borderRadius: th.radiusSm, marginBottom: 10, border: "1px solid " + th.warning + "33" }}>
-              {estSycomore
-                ? "⚠ Connectez-vous à Sycomore et définissez une phrase secrète (section 🌳 ci-dessous)."
-                : "⚠ Configurez d'abord votre PAT GitHub et le nom de votre dépôt dans Réglages → ☁️ Sauvegarde."}
+              {"⚠ Configurez d'abord votre PAT GitHub et le nom de votre dépôt dans Réglages → ☁️\u00a0Sauvegarde."}
             </div>}
             <div style={{ display: "flex", gap: 8, marginBottom: 8 }}>
               <button onClick={githubSave} disabled={!syncOk || syncLoading} style={btnStyle(syncOk && !syncLoading)}>
@@ -122,9 +121,21 @@ export default function SauvegardeTab({
         };
         var nbMappes = Object.keys(s.sycomoreMap || {}).length;
         var connecte = !!s.sycomoreToken;
+        var estSycomore = syncBackend === "sycomore";
 
         return (
-          <Section skey="sycomore" icon="🌳" title="Sycomore" maxH={2600}>
+          <Section skey="sycomore" icon="🌳" title="Sycomore" maxH={2800}>
+            {estSycomore && installationRecommandee && (
+              <div style={{ display: "flex", alignItems: "flex-start", gap: 8, fontSize: 11, color: th.warning, fontFamily: FONT_B, padding: "8px 10px", background: th.warningBg, borderRadius: th.radiusSm, marginTop: 10, border: "1px solid " + th.warning + "33", lineHeight: 1.5 }}>
+                <span style={{ flex: 1 }}>
+                  {"📲 Installez CHECK sur l'écran d'accueil : sur iPad, Safari efface les données d'un site non installé après 7 jours sans ouverture — sauvegardes non synchronisées comprises. Partager → Sur l'écran d'accueil."}
+                </span>
+                <button onClick={function() { setBandeauPwaMasque(true); }}
+                  style={{ background: "transparent", border: "none", color: th.warning, cursor: "pointer", fontSize: 13, padding: 0, lineHeight: 1 }}>
+                  {"✕"}
+                </button>
+              </div>
+            )}
             <div style={{ fontSize: 12, color: th.textMuted, fontFamily: FONT_B, padding: "10px 0 10px", lineHeight: 1.6 }}>
               {"Envoi des résultats de DS vers Sycomore pour le suivi par élève. Seuls les identifiants d'élèves et les notes sont transmis — aucun nom ne quitte ce navigateur."}
             </div>
@@ -143,7 +154,7 @@ export default function SauvegardeTab({
               <input type="password" id="sycomore-pass" autoComplete="current-password"
                 placeholder={connecte ? "déjà connecté" : ""}
                 style={Object.assign({}, champ, { marginBottom: 8 })} />
-              <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+              <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
                 <button disabled={s.sycomoreBusy} style={btn(!s.sycomoreBusy, true)}
                   onClick={function() {
                     var el = document.getElementById("sycomore-pass");
@@ -152,6 +163,15 @@ export default function SauvegardeTab({
                   {s.sycomoreBusy ? "⏳…" : connecte ? "🔄 Se reconnecter" : "🔑 Se connecter"}
                 </button>
                 {connecte && <span style={{ fontSize: 11, color: th.success, fontFamily: FONT_B }}>{"✓ connecté"}</span>}
+                {/* Historique des versions (P-H5) : remplace les boutons Sauvegarder/
+                    Charger et la case "snapshots quotidiens" de l'ancienne section
+                    ☁️ — la rétention est gérée par le serveur, il n'y a rien à activer. */}
+                {estSycomore && connecte && (
+                  <button onClick={loadSnapshotList} disabled={snapshotLoading}
+                    style={{ marginLeft: "auto", padding: "6px 12px", borderRadius: th.radiusSm, cursor: snapshotLoading ? "not-allowed" : "pointer", fontFamily: FONT_B, fontSize: 11, fontWeight: 700, background: th.surface, border: "1px solid " + th.border, color: th.text }}>
+                    {snapshotLoading ? "⏳ Chargement…" : "📋 Historique des versions"}
+                  </button>
+                )}
               </div>
             </div>
 
