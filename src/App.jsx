@@ -31,7 +31,7 @@ import {
 import { genererGabarit, genererDocumentComplet, genererDocumentsIndividuels, genererScriptCompilation } from "./utils/latex";
 import { genererHtmlEleve, genererHtmlTous, DEFAULT_HTML_CONFIG, DEFAULT_RAPPORT_CLASSE_CONFIG, genererRapportClasse } from "./utils/html";
 import { renderStarMap, createAnimatedStarMap } from "./utils/starmap";
-import { apparierIdentites, buildAudioFilename } from "./utils/helpers";
+import { apparierIdentites, buildAudioFilename, deshydraterEtat, rehydraterEtat } from "./utils/helpers";
 import { loadDB, saveDB, loadMeta, saveMeta, initProfiles, profileDBName, openNamedDB } from "./utils/db";
 import { RadarChart, MiniRadarEx, Histo, PBar, ProgressionChart, ProgressionRadar } from "./components/Charts";
 import AudioRecorder from "./components/AudioRecorder";
@@ -643,8 +643,24 @@ export default function App() {
     var fusion = Object.assign({}, sycomoreMap, res.map);
     setSycomoreMap(fusion);
     setSycomoreAppariement(res);
-    saveDB(buildAppState({ sycomoreMap: fusion }), activeProfileId);
+    saveDB(buildPersistedState({ sycomoreMap: fusion }), activeProfileId);
   }, [sycomoreTrousseauPack, dbLoaded, students.length, activeProfileId]); // eslint-disable-line
+
+  // Réhydratation différée (P-H4) : le trousseau et loadDB sont deux lectures
+  // IndexedDB indépendantes. Si restoreState gagne la course, les élèves
+  // restent sans noms et rien ne les rattraperait — cet effet s'en charge dès
+  // que le trousseau arrive. Ne boucle pas : rehydraterEtat rend la même
+  // référence quand il n'a rien à remplir, donc le second passage ne déclenche
+  // aucun setState (cf. test « stabilité référentielle »).
+  useEffect(function() {
+    if (!sycomoreTrousseauPack || !dbLoaded) return;
+    var hydrate = rehydraterEtat(
+      { students: students, synthese: synthese, sycomoreMap: sycomoreMap },
+      sycomoreTrousseauPack
+    );
+    if (hydrate.students !== students) setStudents(hydrate.students);
+    if (hydrate.synthese !== synthese) setSynthese(hydrate.synthese);
+  }, [sycomoreTrousseauPack, dbLoaded, students, synthese, sycomoreMap]); // eslint-disable-line
 
   // ─── P2-b : rechargement du handle lié au démarrage ─────────────
   useEffect(function() {
@@ -683,8 +699,41 @@ export default function App() {
     }, overrides || {});
   }
 
+  // ─── État tel qu'il est PERSISTÉ (P-H4) ─────────────────────────
+  // Identique à buildAppState(), moins les noms d'élèves récupérables depuis
+  // le trousseau (cf. deshydraterEtat : un nom non récupérable n'est jamais
+  // retiré). C'est cette forme qui part dans IndexedDB, dans le blob serveur
+  // et dans le DebugModal.
+  //
+  // Les DEUX filets de sécurité locaux — sauvegarde complète .json et fichier
+  // lié — utilisent au contraire buildAppState() nominatif, via
+  // rehydraterEnveloppe() : ce sont les sauvegardes de dernier recours, elles
+  // doivent rester lisibles seules, y compris le jour où le serveur (donc le
+  // trousseau) a disparu.
+  function buildPersistedState(overrides) {
+    return deshydraterEtat(buildAppState(overrides), sycomoreTrousseauPack);
+  }
+
+  // Réhydrate tous les profils d'une enveloppe de backup : collectAllProfiles
+  // lit les profils NON actifs directement depuis IndexedDB, donc déshydratés.
+  // Chaque état porte son propre sycomoreMap, la réhydratation est donc valable
+  // profil par profil.
+  function rehydraterEnveloppe(envelope) {
+    if (!sycomoreTrousseauPack || !envelope || !Array.isArray(envelope.profiles)) return envelope;
+    return Object.assign({}, envelope, {
+      profiles: envelope.profiles.map(function(p) {
+        return Object.assign({}, p, { state: rehydraterEtat(p.state, sycomoreTrousseauPack) });
+      }),
+    });
+  }
+
   // ─── Restauration de l'état depuis un objet sauvegardé (source unique) ────
-  function restoreState(d) {
+  function restoreState(dBrut) {
+    // P-H4 : réhydratation à l'entrée. Sans effet sur un état déjà nominatif
+    // (backup .json, snapshot d'avant P-H4) — rehydraterEtat ne remplit que les
+    // noms vides. Si le trousseau n'est pas encore chargé (course entre deux
+    // lectures IndexedDB), l'effet ci-dessous rattrape à son arrivée.
+    var d = rehydraterEtat(dBrut, sycomoreTrousseauPack);
     if (d.exams) setExams(d.exams.map(function(ex) {
       return Object.assign({}, ex, {
         features: Object.assign({}, DEFAULT_FEATURES, ex.features || {}),
@@ -777,13 +826,14 @@ export default function App() {
   useEffect(function() {
     if (!dbLoaded) return;
     var timer = setTimeout(function() {
-      var currentState = buildAppState();
-      saveDB(currentState, activeProfileId);
+      saveDB(buildPersistedState(), activeProfileId);
       // ─── P2-b : réécriture silencieuse du fichier lié ────────
+      // Le fichier lié est un filet de dernier recours : il reste NOMINATIF
+      // (buildAppState + rehydraterEnveloppe), contrairement à IndexedDB.
       if (linkedFileHandle && linkedFilePerm === "granted") {
-        collectAllProfiles(APP_VERSION, { id: activeProfileId, state: currentState })
+        collectAllProfiles(APP_VERSION, { id: activeProfileId, state: buildAppState() })
           .then(function(envelope) {
-            return writeToLinkedFile(linkedFileHandle, JSON.stringify(envelope, null, 2));
+            return writeToLinkedFile(linkedFileHandle, JSON.stringify(rehydraterEnveloppe(envelope), null, 2));
           })
           .then(function(result) {
             if (result && !result.ok && result.reason === "permission") {
@@ -834,7 +884,9 @@ export default function App() {
 
   // ─── Hook de synchronisation cloud ──────────────────────────────
   var syncHook = useSyncStatus({
-    buildAppState: buildAppState,
+    // P-H4 : le hook pousse et hashe la forme PERSISTÉE, jamais la nominative —
+    // c'est ce qui garantit qu'aucun nom d'élève récupérable n'atteint le serveur.
+    buildAppState: buildPersistedState,
     activeProfileId: activeProfileId,
     syncConfig: {
       backend: syncBackend,
@@ -970,7 +1022,7 @@ export default function App() {
         setSycomoreAppariement(res);
         // Sauvegarde immédiate : le mapping doit survivre à un reload sans
         // dépendre du debounce de 500 ms (cf. anti-pattern saveDB).
-        saveDB(buildAppState({ sycomoreMap: fusion }), activeProfileId);
+        saveDB(buildPersistedState({ sycomoreMap: fusion }), activeProfileId);
         var n = Object.keys(res.map).length;
         setSycomoreMsg({
           type: res.nonApparies.length || res.ambigus.length ? "warn" : "ok",
@@ -1026,7 +1078,7 @@ export default function App() {
     if (etudiantId) fusion[studentId] = parseInt(etudiantId, 10);
     else delete fusion[studentId];
     setSycomoreMap(fusion);
-    saveDB(buildAppState({ sycomoreMap: fusion }), activeProfileId);
+    saveDB(buildPersistedState({ sycomoreMap: fusion }), activeProfileId);
   }
 
   function sycomorePousserSynthese() {
@@ -1150,7 +1202,7 @@ export default function App() {
 
   function switchProfile(profileId) {
     // Sauvegarde immédiate du profil courant avant de switcher
-    saveDB(buildAppState(), activeProfileId);
+    saveDB(buildPersistedState(), activeProfileId);
     setActiveProfileId(profileId);
     saveMeta({ profiles: profiles, activeId: profileId });
     resetAppState();
@@ -1307,10 +1359,11 @@ export default function App() {
     if (backupBusy) return;
     setBackupBusy(true);
     try {
-      var activeState = buildAppState();
-      if (activeProfileId) await saveDB(activeState, activeProfileId);
-      var envelope = await collectAllProfiles(APP_VERSION, { id: activeProfileId, state: activeState });
-      downloadFile(JSON.stringify(envelope, null, 2), backupFilename(), "application/json");
+      // IndexedDB reçoit l'état déshydraté, le fichier téléchargé l'état
+      // nominatif (filet de dernier recours, cf. buildPersistedState).
+      if (activeProfileId) await saveDB(buildPersistedState(), activeProfileId);
+      var envelope = await collectAllProfiles(APP_VERSION, { id: activeProfileId, state: buildAppState() });
+      downloadFile(JSON.stringify(rehydraterEnveloppe(envelope), null, 2), backupFilename(), "application/json");
     } catch (e) {
       window.alert("La sauvegarde a échoué : " + (e && e.message ? e.message : e));
     } finally {
@@ -1451,7 +1504,7 @@ function exporterVersSynthese() {
   var filtree = synthese.filter(function(row) { return row.examId !== exam.id; });
   var nouvellesSynthese = filtree.concat(nouvelles);
   setSynthese(nouvellesSynthese);
-  saveDB(buildAppState({ synthese: nouvellesSynthese }), activeProfileId);
+  saveDB(buildPersistedState({ synthese: nouvellesSynthese }), activeProfileId);
 }
 
 function telechargerSynthese() {
@@ -3441,7 +3494,9 @@ function retirerDsSynthese(examId) {
 
       {/* DEBUG */}
       {showDebug && (function() {
-        var debugSections = buildAppState();
+        // Forme réellement persistée (déshydratée) : c'est aussi ce qui permet
+        // de vérifier d'un coup d'œil qu'aucun nom ne part vers le serveur.
+        var debugSections = buildPersistedState();
         return (
           <DebugModal
             sections={debugSections}
