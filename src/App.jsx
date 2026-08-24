@@ -513,6 +513,9 @@ export default function App() {
   // Trousseau partagé (P-H2) : jamais persisté en localStorage ni en base CHECK —
   // relu depuis le store IndexedDB partagé avec Sycomore à chaque chargement.
   var _sycomoreTrousseauPack = useState(null); var setSycomoreTrousseauPack = _sycomoreTrousseauPack[1]; var sycomoreTrousseauPack = _sycomoreTrousseauPack[0];
+  // Drapeau d'arbitrage entre les deux sources concurrentes de la phrase de
+  // chiffrement (trousseau partagé vs localStorage) — cf. les deux useEffect.
+  var trousseauPhraseRef = useRef(false);
   var _sycomoreTrousseauActif = useState(false); var setSycomoreTrousseauActif = _sycomoreTrousseauActif[1]; var sycomoreTrousseauActif = _sycomoreTrousseauActif[0];
   var _trousseauPhraseInput = useState(""); var setTrousseauPhraseInput = _trousseauPhraseInput[1]; var trousseauPhraseInput = _trousseauPhraseInput[0];
   var _trousseauDeverrouillageBusy = useState(false); var setTrousseauDeverrouillageBusy = _trousseauDeverrouillageBusy[1]; var trousseauDeverrouillageBusy = _trousseauDeverrouillageBusy[0];
@@ -611,7 +614,13 @@ export default function App() {
       setSycomoreUrl(localStorage.getItem("check_sycomore_url") || "");
       setSycomoreUser(localStorage.getItem("check_sycomore_user") || "");
       setSycomoreToken(localStorage.getItem("check_sycomore_token") || "");
-      setSycomorePass(localStorage.getItem("check_sycomore_passphrase") || "");
+      // Le trousseau est prioritaire sur la phrase de localStorage (P-H2) : ces
+      // deux chargements sont asynchrones et concurrents, et celui-ci gagne en
+      // pratique (deux allers-retours IndexedDB contre un), ce qui écrasait
+      // silencieusement la phrase du trousseau par une valeur locale périmée.
+      if (!trousseauPhraseRef.current) {
+        setSycomorePass(localStorage.getItem("check_sycomore_passphrase") || "");
+      }
       if (resolvedActiveId) setDeviceName(getLocalSyncState(resolvedActiveId).deviceName);
     });
   }, []);
@@ -626,6 +635,11 @@ export default function App() {
     lireTrousseauPartage().then(function(pack) {
       if (!pack) return;
       setSycomoreTrousseauPack(pack);
+      // Marqué AVANT le setState : si le chargement localStorage ci-dessus
+      // n'a pas encore posé sa valeur, il verra ce drapeau et s'abstiendra.
+      // Dans l'ordre inverse, c'est ce setSycomorePass qui écrase la sienne.
+      // Les deux ordres d'arrivée aboutissent donc à la phrase du trousseau.
+      trousseauPhraseRef.current = true;
       setSycomorePass(pack.secrets.checkSyncPassphrase);
       setSycomoreTrousseauActif(true);
     });
