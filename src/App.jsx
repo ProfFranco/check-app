@@ -44,6 +44,8 @@ import OverviewTab from "./OverviewTab";
 import { createSyncAdapter, syncCheck, syncPush, syncPull, getLocalSyncState, maintainSnapshots, listAvailableSnapshots, readSnapshot, contentHash } from "./utils/sync";
 import { collectAllProfiles, restoreReplace, restoreMerge, parseBackup, validateBackup, backupFilename } from "./utils/backup";
 import { isFileLinkSupported, displayName, saveHandle, loadHandle, clearHandle, queryPermission, requestPermission, pickSaveFile, writeToLinkedFile } from "./utils/filelink";
+import { lireTrousseauPartage, ecrireTrousseauPartage } from "./utils/sharedTrousseau";
+import { decryptSnapshot } from "./utils/crypto";
 import SyncIndicator from "./components/SyncIndicator";
 import AccueilTab from "./AccueilTab";
 // ─── Logos (dans public/logos/) ──────────────────────────────────
@@ -462,6 +464,12 @@ export default function App() {
   // sycomoreMap : seul état Sycomore persisté en base (données métier du profil).
   // La config (URL, jeton, phrase secrète) vit en localStorage, comme le PAT GitHub.
   var _sycomoreMap = useState({}); var setSycomoreMap = _sycomoreMap[1]; var sycomoreMap = _sycomoreMap[0];
+  // Trousseau partagé (P-H2) : jamais persisté en localStorage ni en base CHECK —
+  // relu depuis le store IndexedDB partagé avec Sycomore à chaque chargement.
+  var _sycomoreTrousseauPack = useState(null); var setSycomoreTrousseauPack = _sycomoreTrousseauPack[1]; var sycomoreTrousseauPack = _sycomoreTrousseauPack[0];
+  var _sycomoreTrousseauActif = useState(false); var setSycomoreTrousseauActif = _sycomoreTrousseauActif[1]; var sycomoreTrousseauActif = _sycomoreTrousseauActif[0];
+  var _trousseauPhraseInput = useState(""); var setTrousseauPhraseInput = _trousseauPhraseInput[1]; var trousseauPhraseInput = _trousseauPhraseInput[0];
+  var _trousseauDeverrouillageBusy = useState(false); var setTrousseauDeverrouillageBusy = _trousseauDeverrouillageBusy[1]; var trousseauDeverrouillageBusy = _trousseauDeverrouillageBusy[0];
   var _profiles = useState([]); var setProfiles = _profiles[1]; var profiles = _profiles[0];
   var _activeProfileId = useState(null); var setActiveProfileId = _activeProfileId[1]; var activeProfileId = _activeProfileId[0];
   var _showProfileMenu = useState(false); var setShowProfileMenu = _showProfileMenu[1]; var showProfileMenu = _showProfileMenu[0];
@@ -561,6 +569,36 @@ export default function App() {
       if (resolvedActiveId) setDeviceName(getLocalSyncState(resolvedActiveId).deviceName);
     });
   }, []);
+
+  // ─── P-H2 : trousseau partagé avec Sycomore ──────────────────────
+  // Store IndexedDB commun (même origine depuis P-F5) : si Sycomore a déjà été
+  // déverrouillé sur cet appareil, la phrase de sync et les identités arrivent
+  // ici sans aucune saisie. Absent en développement ou sur un hébergement
+  // séparé (GitHub Pages) : repli silencieux sur le comportement manuel
+  // existant, ci-dessus (aucun cas spécial à coder pour ça).
+  useEffect(function() {
+    lireTrousseauPartage().then(function(pack) {
+      if (!pack) return;
+      setSycomoreTrousseauPack(pack);
+      setSycomorePass(pack.secrets.checkSyncPassphrase);
+      setSycomoreTrousseauActif(true);
+    });
+  }, []);
+
+  // Rapprochement automatique élève CHECK ↔ etudiant_id Sycomore dès que le
+  // trousseau partagé et la liste des élèves sont tous deux disponibles —
+  // remplace l'import manuel de fichier (sycomoreImporterPack). Se redéclenche
+  // si de nouveaux élèves sont ajoutés (import CSV ultérieur, par exemple) ;
+  // les rapprochements manuels déjà faits pour d'autres élèves sont préservés
+  // (apparierIdentites + fusion, identique à sycomoreImporterPack ci-dessous).
+  useEffect(function() {
+    if (!sycomoreTrousseauPack || !dbLoaded || students.length === 0) return;
+    var res = apparierIdentites(students, sycomoreTrousseauPack);
+    var fusion = Object.assign({}, sycomoreMap, res.map);
+    setSycomoreMap(fusion);
+    setSycomoreAppariement(res);
+    saveDB(buildAppState({ sycomoreMap: fusion }), activeProfileId);
+  }, [sycomoreTrousseauPack, dbLoaded, students.length, activeProfileId]); // eslint-disable-line
 
   // ─── P2-b : rechargement du handle lié au démarrage ─────────────
   useEffect(function() {
@@ -899,6 +937,42 @@ export default function App() {
       }
     };
     reader.readAsText(file);
+  }
+
+  // Déverrouillage direct du trousseau depuis CHECK (P-H2), pour l'appareil où
+  // Sycomore n'a jamais tourné (le store IndexedDB partagé est donc vide).
+  // Réutilise la session Sycomore déjà ouverte (sycomoreToken, connexion 🌳
+  // existante) — seule la phrase du trousseau est demandée ici, jamais
+  // identifiant/mot de passe une seconde fois. Écrit le résultat dans le store
+  // partagé pour que Sycomore en bénéficie aussi sur cet appareil ensuite.
+  function sycomoreDeverrouillerTrousseau() {
+    if (!sycomoreToken || !trousseauPhraseInput) return;
+    setTrousseauDeverrouillageBusy(true);
+    setSycomoreMsg(null);
+    fetch(sycomoreApi("/trousseau"), { headers: { "Authorization": "Bearer " + sycomoreToken } })
+      .then(function(r) {
+        if (r.status === 404) throw new Error("Aucun trousseau n'existe encore sur ce compte Sycomore.");
+        if (!r.ok) throw new Error("Erreur " + r.status);
+        return r.json();
+      })
+      .then(function(data) {
+        var envelope = JSON.parse(data.payload);
+        return decryptSnapshot(envelope, trousseauPhraseInput);
+      })
+      .then(function(pack) {
+        setSycomoreTrousseauPack(pack);
+        setSycomorePass(pack.secrets.checkSyncPassphrase);
+        setSycomoreTrousseauActif(true);
+        setTrousseauPhraseInput("");
+        ecrireTrousseauPartage(pack);
+        setSycomoreMsg({ type: "ok", texte: "✓ Trousseau déverrouillé." });
+      })
+      .catch(function(e) {
+        setSycomoreMsg({ type: "error", texte: e.message || String(e) });
+      })
+      .finally(function() {
+        setTrousseauDeverrouillageBusy(false);
+      });
   }
 
   function sycomoreDefinirMapping(studentId, etudiantId) {
@@ -2879,6 +2953,10 @@ function retirerDsSynthese(examId) {
             sycomoreImporterPack: sycomoreImporterPack,
             sycomoreAppariement: sycomoreAppariement,
             sycomoreMap: sycomoreMap,
+            sycomoreTrousseauActif: sycomoreTrousseauActif,
+            trousseauPhraseInput: trousseauPhraseInput, setTrousseauPhraseInput: setTrousseauPhraseInput,
+            trousseauDeverrouillageBusy: trousseauDeverrouillageBusy,
+            sycomoreDeverrouillerTrousseau: sycomoreDeverrouillerTrousseau,
             sycomoreDefinirMapping: sycomoreDefinirMapping,
             sycomorePousserSynthese: sycomorePousserSynthese,
             students: students,
