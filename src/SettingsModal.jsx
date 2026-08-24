@@ -842,55 +842,70 @@ export default function SettingsModal({
         })()}
 
         {/* ── Onglet Sauvegarde & synchronisation ── */}
-        {settingsTab === "sauvegarde" && (
+        {settingsTab === "sauvegarde" && (function() {
+          var estSycomore = (syncBackend || "github") === "sycomore";
+          return (
           <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-            {/* Choix du backend de synchronisation (GitHub historique | serveur Sycomore) */}
-            <div>
-              <div style={{ fontSize: 10, fontWeight: 700, color: th.textMuted, fontFamily: FONT_B, marginBottom: 4 }}>{"Destination de la synchronisation"}</div>
-              <div style={{ display: "flex", gap: 6 }}>
-                {[{ id: "github", label: "\u2601\uFE0F GitHub" }, { id: "sycomore", label: "\uD83C\uDF33 Sycomore" }].map(function(opt) {
-                  var actif = (syncBackend || "github") === opt.id;
-                  return (
-                    <button key={opt.id}
-                      onClick={function() { setSyncBackend(opt.id); localStorage.setItem("check_sync_backend", opt.id); }}
-                      style={{ flex: 1, padding: "7px 10px", borderRadius: 4, cursor: "pointer", fontFamily: FONT_B, fontSize: 12, fontWeight: 700,
-                        background: actif ? th.accentBg : th.card, border: "1px solid " + (actif ? th.accent + "55" : th.border),
-                        color: actif ? th.accent : th.textMuted }}>
-                      {opt.label}
-                    </button>
-                  );
-                })}
-              </div>
-              <div style={{ fontSize: 10, color: th.textMuted, fontFamily: FONT_B, marginTop: 6, lineHeight: 1.5 }}>
-                {(syncBackend || "github") === "sycomore"
-                  ? "Connexion, phrase secrète et rapprochement des \u00e9l\u00e8ves se configurent dans l\u2019onglet Sauvegarde \u2192 \uD83C\uDF33 Sycomore."
-                  : "Les r\u00e9glages GitHub ci-dessous restent utilis\u00e9s tant que ce backend est s\u00e9lectionn\u00e9."}
-              </div>
+            {/* Choix du backend — repliée en une ligne discrète (P-H5) : le
+                détail GitHub ci-dessous disparaît en mode Sycomore plutôt que
+                de rester affiché sans objet. Le sélecteur reste accessible : la
+                sync GitHub demeure un filet de secours (invariant P-H). */}
+            <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+              <span style={{ fontSize: 10, fontWeight: 700, color: th.textMuted, fontFamily: FONT_B }}>{"Destination :"}</span>
+              {[{ id: "github", label: "☁️ GitHub" }, { id: "sycomore", label: "🌳 Sycomore" }].map(function(opt) {
+                var actif = (syncBackend || "github") === opt.id;
+                return (
+                  <button key={opt.id}
+                    onClick={function() { setSyncBackend(opt.id); localStorage.setItem("check_sync_backend", opt.id); }}
+                    style={{ padding: "4px 10px", borderRadius: 4, cursor: "pointer", fontFamily: FONT_B, fontSize: 11, fontWeight: 700,
+                      background: actif ? th.accentBg : th.card, border: "1px solid " + (actif ? th.accent + "55" : th.border),
+                      color: actif ? th.accent : th.textMuted }}>
+                    {opt.label}
+                  </button>
+                );
+              })}
             </div>
+            {estSycomore && (
+              <div style={{ fontSize: 10, color: th.textMuted, fontFamily: FONT_B, lineHeight: 1.5 }}>
+                {"Connexion, phrase secrète et rapprochement des élèves se configurent dans l'onglet Sauvegarde → 🌳 Sycomore."}
+              </div>
+            )}
+            {!estSycomore && (<>
+              <div style={{ height: 1, background: th.border, margin: "4px 0" }} />
+              <div style={{ fontSize: 10, color: th.textMuted, fontFamily: FONT_B, marginBottom: 6, lineHeight: 1.6 }}>
+                {"Synchronisation inter-appareils via un dépôt GitHub privé."}
+                <br />{"Créez un PAT sur github.com → Settings → Developer settings → Personal access tokens → Tokens (classic), avec la portée "}
+                <strong>{"repo"}</strong>{"."}
+              </div>
+              <div>
+                <div style={{ fontSize: 10, fontWeight: 700, color: th.textMuted, fontFamily: FONT_B, marginBottom: 3 }}>{"Personal Access Token (PAT)"}</div>
+                <input type="password" value={githubPat} onChange={function(e) { setGithubPat(e.target.value); localStorage.setItem("check_github_pat", e.target.value); }}
+                  placeholder="ghp_xxxxxxxxxxxxxxxxxxxx"
+                  style={{ width: "100%", background: th.card, border: "1px solid " + th.border, color: th.text, borderRadius: 4, padding: "5px 8px", fontSize: 12, fontFamily: MONO, outline: "none" }} />
+              </div>
+              <div style={{ fontSize: 11, color: th.warning, lineHeight: 1.4 }}>
+                {"⚠️ Ce token est stocké en clair dans le navigateur (localStorage). "}
+                {"Utilisez un "}
+                <a href="https://github.com/settings/personal-access-tokens/new" target="_blank" rel="noopener noreferrer" style={{ color: th.accent }}>{"fine-grained token"}</a>
+                {" avec accès limité à un seul dépôt privé (permission Contents: read & write uniquement)."}
+              </div>
+              <div>
+                <div style={{ fontSize: 10, fontWeight: 700, color: th.textMuted, fontFamily: FONT_B, marginBottom: 3 }}>{"Dépôt privé (compte/nom-du-dépôt)"}</div>
+                <input type="text" value={githubRepo} onChange={function(e) { setGithubRepo(e.target.value); localStorage.setItem("check_github_repo", e.target.value); }}
+                  placeholder="moncompte/check-sauvegarde"
+                  style={{ width: "100%", background: th.card, border: "1px solid " + th.border, color: th.text, borderRadius: 4, padding: "5px 8px", fontSize: 12, fontFamily: MONO, outline: "none" }} />
+              </div>
+              <div style={{ fontSize: 9, color: th.textDim, fontFamily: FONT_B, lineHeight: 1.5 }}>
+                {"Le PAT et le dépôt sont stockés dans le localStorage de votre navigateur (séparé des données métier). Ils ne sont jamais envoyés à d'autres serveurs qu'api.github.com."}
+              </div>
+              {(githubPat || githubRepo) && (
+                <button onClick={function() { setGithubPat(""); setGithubRepo(""); localStorage.removeItem("check_github_pat"); localStorage.removeItem("check_github_repo"); }}
+                  style={{ marginTop: 4, padding: "5px 12px", borderRadius: th.radiusSm, cursor: "pointer", fontFamily: FONT_B, fontSize: 11, fontWeight: 700, background: "transparent", border: "1px solid " + th.danger, color: th.danger }}>
+                  {"🔓 Dissocier ce compte GitHub"}
+                </button>
+              )}
+            </>)}
             <div style={{ height: 1, background: th.border, margin: "4px 0" }} />
-            <div style={{ fontSize: 10, color: th.textMuted, fontFamily: FONT_B, marginBottom: 6, lineHeight: 1.6 }}>
-              {"Synchronisation inter-appareils via un dépôt GitHub privé."}
-              <br />{"Créez un PAT sur github.com → Settings → Developer settings → Personal access tokens → Tokens (classic), avec la portée "}
-              <strong>{"repo"}</strong>{"."}
-            </div>
-            <div>
-              <div style={{ fontSize: 10, fontWeight: 700, color: th.textMuted, fontFamily: FONT_B, marginBottom: 3 }}>{"Personal Access Token (PAT)"}</div>
-              <input type="password" value={githubPat} onChange={function(e) { setGithubPat(e.target.value); localStorage.setItem("check_github_pat", e.target.value); }}
-                placeholder="ghp_xxxxxxxxxxxxxxxxxxxx"
-                style={{ width: "100%", background: th.card, border: "1px solid " + th.border, color: th.text, borderRadius: 4, padding: "5px 8px", fontSize: 12, fontFamily: MONO, outline: "none" }} />
-            </div>
-            <div style={{ fontSize: 11, color: th.warning, lineHeight: 1.4 }}>
-              {"⚠️ Ce token est stocké en clair dans le navigateur (localStorage). "}
-              {"Utilisez un "}
-              <a href="https://github.com/settings/personal-access-tokens/new" target="_blank" rel="noopener noreferrer" style={{ color: th.accent }}>{"fine-grained token"}</a>
-              {" avec accès limité à un seul dépôt privé (permission Contents: read & write uniquement)."}
-            </div>
-            <div>
-              <div style={{ fontSize: 10, fontWeight: 700, color: th.textMuted, fontFamily: FONT_B, marginBottom: 3 }}>{"Dépôt privé (compte/nom-du-dépôt)"}</div>
-              <input type="text" value={githubRepo} onChange={function(e) { setGithubRepo(e.target.value); localStorage.setItem("check_github_repo", e.target.value); }}
-                placeholder="moncompte/check-sauvegarde"
-                style={{ width: "100%", background: th.card, border: "1px solid " + th.border, color: th.text, borderRadius: 4, padding: "5px 8px", fontSize: 12, fontFamily: MONO, outline: "none" }} />
-            </div>
             <div>
               <div style={{ fontSize: 10, fontWeight: 700, color: th.textMuted, fontFamily: FONT_B, marginBottom: 3 }}>{"Nom de cet appareil"}</div>
               <input type="text" value={deviceName || ""} onChange={function(e) { setDeviceName(activeProfileId, e.target.value); setDeviceNameLocal(e.target.value); }}
@@ -898,17 +913,9 @@ export default function SettingsModal({
                 style={{ width: "100%", background: th.card, border: "1px solid " + th.border, color: th.text, borderRadius: 4, padding: "5px 8px", fontSize: 12, fontFamily: FONT_B, outline: "none" }} />
               <div style={{ fontSize: 9, color: th.textDim, fontFamily: FONT_B, marginTop: 3 }}>{"Affiché sur les autres appareils lors d'une synchronisation."}</div>
             </div>
-            <div style={{ fontSize: 9, color: th.textDim, fontFamily: FONT_B, lineHeight: 1.5 }}>
-              {"Le PAT et le dépôt sont stockés dans le localStorage de votre navigateur (séparé des données métier). Ils ne sont jamais envoyés à d'autres serveurs qu'api.github.com."}
-            </div>
-            {(githubPat || githubRepo) && (
-              <button onClick={function() { setGithubPat(""); setGithubRepo(""); localStorage.removeItem("check_github_pat"); localStorage.removeItem("check_github_repo"); }}
-                style={{ marginTop: 4, padding: "5px 12px", borderRadius: th.radiusSm, cursor: "pointer", fontFamily: FONT_B, fontSize: 11, fontWeight: 700, background: "transparent", border: "1px solid " + th.danger, color: th.danger }}>
-                {"🔓 Dissocier ce compte GitHub"}
-              </button>
-            )}
           </div>
-        )}
+          );
+        })()}
 
         {/* ── Bas du modal : debug + fermer ── */}
         <div style={{ marginTop: 16, paddingTop: 12, borderTop: "1px solid " + th.border, display: "flex", alignItems: "center", justifyContent: "space-between" }}>

@@ -39,7 +39,8 @@ export default function SyncIndicator({ status, remoteMeta, lastSyncAt, error, o
   function buildTitle() {
     if (status === "synced" && lastSyncAt) return "Synchronisé — " + formatAgo(lastSyncAt);
     if (status === "local-ahead") return "Modifications locales non synchronisées";
-    if (status === "remote-ahead") return "Version distante plus récente";
+    if (status === "remote-ahead") return "Version distante plus récente"
+      + (remoteMeta && remoteMeta.pushedByName ? " — depuis " + remoteMeta.pushedByName : "");
     if (status === "conflict") return "Conflit détecté";
     if (status === "error") return "Erreur : " + (error || "inconnue");
     if (status === "auth-expired") return "Session Sycomore expirée — reconnexion nécessaire";
