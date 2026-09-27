@@ -7,7 +7,7 @@
 // aussi bien côté client que dans un script Node.js.
 // ═══════════════════════════════════════════════════════════════════
 
-import { COMPETENCES, REMARQUES } from "../config/settings";
+import { COMPETENCES, REMARQUES, TT_COEFF } from "../config/settings";
 
 // ─── Utilitaires de base ─────────────────────────────────────────
 
@@ -409,6 +409,43 @@ export function normaliser(notes, method, params) {
   }
 
   return notes;
+}
+
+// ─── Notes d'un DS (pipeline complet) ────────────────────────────
+
+/** Copie corrigée : au moins un item coché ou une case "traitée" sur le DS */
+export function copieCorrigee(grades, studentId, exam) {
+  return exam.exercises.some(ex => ex.questions.some(q =>
+    grades[treatedKey(studentId, q.id)]
+    || (q.items || []).some(it => grades[gradeKey(studentId, it.id)])));
+}
+
+/**
+ * Notes /20 des copies corrigées d'un DS, selon les réglages de ce DS.
+ * Pipeline unique, partagé par App.jsx (DS actif) et l'article de classe
+ * (DS précédents) : score pondéré + bonus exercice complet, coefficient
+ * tiers-temps, malus (avant ou après), normalisation.
+ * corriges : tableau d'élèves ({ id }). settings : exam.settings complet.
+ * Retourne { [studentId]: { brut, norm } }.
+ */
+export function notesDS(exam, corriges, grades, settings, groupes, remarks, malusManuel, allRemarques) {
+  const map = {};
+  if (!exam || !corriges.length) return map;
+  const etW = examTotalWeighted(exam);
+  const tt = (groupes && groupes.tt) || [];
+  const raw20 = corriges.map(s => {
+    // Score pondéré incluant le bonus exercice complet
+    const totalPondere = studentTotalWeighted(grades, s.id, exam, settings.bonusCompletConfig, settings.clampQuestion);
+    let note = etW > 0 ? noteSur20(totalPondere, etW) : 0;
+    if (tt.indexOf(s.id) >= 0) note = clamp(note * TT_COEFF, 0, 20);
+    return note;
+  });
+  const getMT = sid => malusTotal(remarks || {}, sid, exam, settings.malusPaliers, malusManuel || {}, allRemarques);
+  const preNorm = settings.malusMode === "avant" ? raw20.map((nn, i) => clamp(nn * (1 - getMT(corriges[i].id) / 100), 0, 20)) : raw20;
+  const normed = normaliser(preNorm, settings.normMethod, settings.normParams);
+  const final2 = settings.malusMode === "apres" ? normed.map((nn, i) => clamp(nn * (1 - getMT(corriges[i].id) / 100), 0, 20)) : normed;
+  corriges.forEach((s, i) => { map[s.id] = { brut: raw20[i], norm: final2[i] }; });
+  return map;
 }
 
 // ─── Import CSV d'élèves ─────────────────────────────────────────

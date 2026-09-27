@@ -2,9 +2,9 @@
 // ExportTab — onglet Export
 // ═══════════════════════════════════════════════════════════════════
 
-import { genererGabarit, genererGabaritPapier, genererDocumentComplet, genererDocumentsIndividuels, genererScriptCompilation } from "./utils/latex";
+import { genererGabarit, genererDocumentComplet, genererDocumentsIndividuels, genererScriptCompilation, genererArticleClasse } from "./utils/latex";
 import { genererHtmlEleve, genererHtmlTous, genererHtmlTousPrintable, genererScriptsConversionPdf, DEFAULT_RAPPORT_CLASSE_CONFIG, genererRapportClasse } from "./utils/html";
-import { downloadFile } from "./utils/calculs";
+import { downloadFile, examAbsents, copieCorrigee } from "./utils/calculs";
 
 export default function ExportTab({
   th, FONT, FONT_B, MONO,
@@ -12,6 +12,7 @@ export default function ExportTab({
   examNomDS, examDateDS,
   presents, corriges,
   students, grades, remarks, absents,
+  exams, absentsAll, groupes, allRemarquesBase,
   seuils, seuilDifficile, seuilReussite, seuilPiege, bonusCompletConfig, clampQuestion,
   features,
   malusPaliers, malusManuel,
@@ -81,7 +82,7 @@ export default function ExportTab({
           <span style={{ fontSize: 11, color: th.textMuted, display: "inline-block", transition: "transform 0.28s ease", transform: isOpen ? "rotate(180deg)" : "rotate(0deg)" }}>{"▼"}</span>
         </div>
         <div style={{
-          maxHeight: isOpen ? 1200 : 0,
+          maxHeight: isOpen ? 2400 : 0,
           overflow: "hidden",
           transition: "max-height 0.38s ease",
         }}>
@@ -189,7 +190,7 @@ export default function ExportTab({
           disabled={!htmlStudent}
           onClick={function() {
             if (!htmlStudent) return;
-            var currentGab = htmlConfig.papierLatex === true ? genererGabaritPapier(examNomDS, examDateDS, etablissement) : (gabaritTex || genererGabarit(examNomDS, examDateDS, etablissement));
+            var currentGab = gabaritTex || genererGabarit(examNomDS, examDateDS, etablissement);
             var docs = genererDocumentsIndividuels({
               gabarit: currentGab, exam: exam, students: students, grades: grades, remarks: remarks, absents: absents,
               nomDS: examNomDS, dateDS: examDateDS, seuils: seuils,
@@ -200,8 +201,6 @@ export default function ExportTab({
               bonusCompletConfig: bonusCompletConfig, clampQuestion: clampQuestion,
               features: ft,
               baremeLatex: htmlConfig.baremeLatex !== false,
-              papierLatex: htmlConfig.papierLatex === true,
-              papierTextes: htmlConfig.papierTextes || null,
             });
             var doc = docs.find(function(d) { return d.filename.indexOf(
               (htmlStudent.nom + "_" + htmlStudent.prenom).normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-zA-Z0-9_-]/g, "_").slice(0, 30)
@@ -218,7 +217,7 @@ export default function ExportTab({
             disabled={!corriges.length}
             onClick={function() {
               if (!corriges.length) return;
-              var currentGab = htmlConfig.papierLatex === true ? genererGabaritPapier(examNomDS, examDateDS, etablissement) : (gabaritTex || genererGabarit(examNomDS, examDateDS, etablissement));
+              var currentGab = gabaritTex || genererGabarit(examNomDS, examDateDS, etablissement);
               var docs = genererDocumentsIndividuels({
                 gabarit: currentGab, exam: exam, students: students, grades: grades, remarks: remarks, absents: absents,
                 nomDS: examNomDS, dateDS: examDateDS, seuils: seuils,
@@ -229,8 +228,6 @@ export default function ExportTab({
                 bonusCompletConfig: bonusCompletConfig, clampQuestion: clampQuestion,
                 features: ft,
                 baremeLatex: htmlConfig.baremeLatex !== false,
-                papierLatex: htmlConfig.papierLatex === true,
-                papierTextes: htmlConfig.papierTextes || null,
               });
               var script = genererScriptCompilation(examNomDS);
               var el = document.createElement("script");
@@ -265,7 +262,7 @@ export default function ExportTab({
           color={th.accent}
           disabled={!corriges.length}
           onClick={function() {
-            var currentGab = htmlConfig.papierLatex === true ? genererGabaritPapier(examNomDS, examDateDS, etablissement) : (gabaritTex || genererGabarit(examNomDS, examDateDS, etablissement));
+            var currentGab = gabaritTex || genererGabarit(examNomDS, examDateDS, etablissement);
             var tex = genererDocumentComplet({
               gabarit: currentGab, exam: exam, students: students, grades: grades, remarks: remarks, absents: absents,
               nomDS: examNomDS, dateDS: examDateDS, seuils: seuils,
@@ -276,8 +273,6 @@ export default function ExportTab({
               bonusCompletConfig: bonusCompletConfig, clampQuestion: clampQuestion,
               features: ft,
               baremeLatex: htmlConfig.baremeLatex !== false,
-              papierLatex: htmlConfig.papierLatex === true,
-              papierTextes: htmlConfig.papierTextes || null,
             });
             downloadFile(tex, "CR_" + (examNomDS || "DS") + ".tex", "text/x-tex");
           }}
@@ -400,6 +395,84 @@ export default function ExportTab({
                 style={{ alignSelf: "flex-start", padding: "7px 16px", borderRadius: 7, background: th.accent, color: "#fff", border: "none", cursor: "pointer", fontFamily: FONT_B, fontSize: 12, fontWeight: 700, opacity: exam ? 1 : 0.5 }}>
                 ⬇️ HTML rapport classe
               </button>
+
+              {/* Article de classe LaTeX (faux article de recherche) */}
+              {(function() {
+                var tirages = (rapportClasseConfig && rapportClasseConfig.tirages) || {};
+                var tirage = tirages[activeExamId] || 0;
+                var idxExam = (exams || []).findIndex(function(x) { return x.id === exam.id; });
+                var nbDsPrec = idxExam > 0 ? exams.slice(0, idxExam).filter(function(x) {
+                  var abs = examAbsents(absentsAll || {}, x.id);
+                  return students.some(function(st) { return !abs[st.id] && copieCorrigee(grades, st.id, x); });
+                }).length : 0;
+                var incomplet = corriges.length < presents.length;
+                function changerTirage(t) {
+                  var n = Object.assign({}, tirages);
+                  n[activeExamId] = t;
+                  setRapportClasseConfig(Object.assign({}, rapportClasseConfig, { tirages: n }));
+                }
+                return (
+                  <div style={{ borderTop: "1px solid " + th.border, paddingTop: 10, marginTop: 2, display: "flex", flexDirection: "column", gap: 6 }}>
+                    <div style={{ fontSize: 12, fontWeight: 700, color: th.text, fontFamily: FONT_B }}>{"📰 Article de classe (LaTeX)"}</div>
+                    <div style={{ fontSize: 11, color: th.textMuted, fontFamily: FONT_B, lineHeight: 1.5 }}>
+                      {"Faux article de recherche pour toute la classe : statistiques collectives, aucune note individuelle. Les cases Commentaire, Par compétence et Par exercice ci-dessus s'appliquent aussi."}
+                    </div>
+                    {[
+                      { key: "coauteurs", label: "Co-auteurs honoraires (top 5, sans note)" },
+                      { key: "evolution", label: "Étude longitudinale (DS précédents)" },
+                      { key: "annexe",    label: "Annexe : indicateurs par question" },
+                    ].map(function(item) {
+                      return (
+                        <label key={item.key} style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, cursor: "pointer" }}>
+                          <input type="checkbox"
+                            checked={!!(rapportClasseConfig && rapportClasseConfig[item.key])}
+                            onChange={function(e) {
+                              setRapportClasseConfig(Object.assign({}, rapportClasseConfig, { [item.key]: e.target.checked }));
+                            }}
+                          />
+                          {item.label}
+                        </label>
+                      );
+                    })}
+                    <div style={{ fontSize: 11, fontFamily: FONT_B, color: incomplet ? th.warning : th.textMuted }}>
+                      {corriges.length + " copie" + (corriges.length > 1 ? "s" : "") + " corrigée" + (corriges.length > 1 ? "s" : "") + " sur " + presents.length
+                        + (incomplet ? " — le classement (co-auteurs) peut encore changer" : "")
+                        + " · " + (nbDsPrec ? nbDsPrec + " DS précédent" + (nbDsPrec > 1 ? "s" : "") : "aucun DS précédent")}
+                    </div>
+                    <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+                      <button
+                        disabled={!corriges.length}
+                        onClick={function() {
+                          var tex = genererArticleClasse({
+                            exams: exams, examId: exam.id, students: students, grades: grades, absents: absentsAll || {},
+                            groupes: groupes, remarks: remarks, malusManuel: malusManuel, allRemarques: allRemarquesBase,
+                            etablissement: etablissement, nomDS: examNomDS, dateDS: examDateDS,
+                            commentaire: (commentaireDS && commentaireDS[activeExamId]) || "",
+                            config: rapportClasseConfig, articleTextes: htmlConfig.articleTextes || null,
+                          });
+                          downloadFile(tex, "Article_classe_" + (examNomDS || "DS").replace(/\s+/g, "_") + ".tex", "text/x-tex");
+                        }}
+                        style={{ padding: "7px 16px", borderRadius: 7, background: corriges.length ? th.accent : th.surface, color: corriges.length ? "#fff" : th.textDim, border: "none", cursor: corriges.length ? "pointer" : "not-allowed", fontFamily: FONT_B, fontSize: 12, fontWeight: 700 }}>
+                        {"⬇️ Article .tex"}
+                      </button>
+                      <button onClick={function() { changerTirage(tirage + 1); }}
+                        title={"Tire d'autres phrases pour ce DS (le même tirage redonne toujours le même texte)"}
+                        style={{ padding: "7px 12px", borderRadius: 7, background: "transparent", color: th.text, border: "1px solid " + th.border, cursor: "pointer", fontFamily: FONT_B, fontSize: 12 }}>
+                        {"🎲 Autre tirage" + (tirage ? " (n°" + tirage + ")" : "")}
+                      </button>
+                      {tirage > 0 && (
+                        <button onClick={function() { changerTirage(0); }}
+                          style={{ background: "none", border: "none", color: th.textMuted, cursor: "pointer", fontFamily: FONT_B, fontSize: 11, textDecoration: "underline" }}>
+                          {"↺ Tirage initial"}
+                        </button>
+                      )}
+                    </div>
+                    <div style={{ fontSize: 10, color: th.textDim, fontFamily: FONT_B }}>
+                      {"Compiler avec xelatex, deux passes (renvois et références)."}
+                    </div>
+                  </div>
+                );
+              })()}
             </div>
           )}
         </div>

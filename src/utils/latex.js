@@ -2,24 +2,27 @@
 // GÉNÉRATEUR LATEX
 // ═══════════════════════════════════════════════════════════════════
 //
-// Génère le code LaTeX pour les rapports individuels.
-// Le gabarit (préambule) est éditable dans l'interface.
-// Les histogrammes par exercice sont en pgfplots (LaTeX pur).
+// Génère le code LaTeX pour les rapports individuels (gabarit bento)
+// et pour l'article de classe (faux article de recherche, deux colonnes,
+// un document par DS pour toute la classe : genererArticleClasse).
+// Le gabarit bento (préambule) est éditable dans l'interface.
+// Les graphiques sont en pgfplots/TikZ (LaTeX pur).
 //
 // Pour modifier l'apparence des rapports :
 // → Modifiez le gabarit dans l'onglet Export de l'app
 // → Ou modifiez la fonction genererGabarit() ci-dessous
 // ═══════════════════════════════════════════════════════════════════
 
-import { COMPETENCES, REMARQUES, ETABLISSEMENT } from "../config/settings";
+import { COMPETENCES, REMARQUES, ETABLISSEMENT, DEFAULT_FEATURES } from "../config/settings";
 import {
   studentTotal, examTotal, noteSur20,
   questionScore, exerciseScore, bonusCompletPoints,
   ratioJustesse, ratioEfficacite,
   notesParCompetence, countMalusRemarks, malusTotal,
-  competencePct, compColor,
+  competencePct, compColor, examTotalWeighted,
 } from "./calculs";
 import { slugify, buildAudioFilename } from "./helpers";
+import { statsDS, serieDS, evolution } from "./statsClasse";
 
 // ─── Formatage LaTeX ─────────────────────────────────────────────
 
@@ -480,8 +483,6 @@ export function genererDocumentComplet({
   bonusCompletConfig, clampQuestion = true,
   features,
   baremeLatex = true,
-  papierLatex = false,
-  papierTextes = null,
 }) {
   const presents = students.filter(s => !absents[s.id]);
 
@@ -489,11 +490,11 @@ export function genererDocumentComplet({
   const { rankMap, stats } = _buildRankAndStats(presents, getNote20);
 
   // Gabarit
-  let doc = gabarit || (papierLatex ? genererGabaritPapier(nomDS, dateDS) : genererGabarit(nomDS, dateDS));
+  let doc = gabarit || genererGabarit(nomDS, dateDS);
 
   // Rapports individuels
   for (const student of presents) {
-    doc += (papierLatex ? genererRapportElevePapier : genererRapportEleve)({
+    doc += genererRapportEleve({
       student, exam, grades, remarks, absents,
       allStudents: students, nomDS, dateDS, seuils, seuilDifficile, seuilReussite, seuilPiege,
       getNote20, rankMap, stats, malusPaliers, malusManuel,
@@ -502,7 +503,6 @@ export function genererDocumentComplet({
       bonusCompletConfig, clampQuestion,
       features,
       baremeLatex,
-      papierTextes,
     });
   }
 
@@ -523,19 +523,17 @@ export function genererDocumentsIndividuels({
   bonusCompletConfig, clampQuestion = true,
   features,
   baremeLatex = true,
-  papierLatex = false,
-  papierTextes = null,
 }) {
   const presents = students.filter(s => !absents[s.id]);
   const { rankMap, stats } = _buildRankAndStats(presents, getNote20);
-  const gab = gabarit || (papierLatex ? genererGabaritPapier(nomDS, dateDS) : genererGabarit(nomDS, dateDS));
+  const gab = gabarit || genererGabarit(nomDS, dateDS);
 
   return presents.map(student => {
     const slug = slugify(student.nom + "_" + student.prenom);
     const filename = `CR_${nomDS || "DS"}_${slug}.tex`.replace(/\s+/g, "_");
     const content =
       gab +
-      (papierLatex ? genererRapportElevePapier : genererRapportEleve)({
+      genererRapportEleve({
         student, exam, grades, remarks, absents,
         allStudents: students, nomDS, dateDS, seuils, seuilDifficile, seuilReussite, seuilPiege,
         getNote20, rankMap, stats, malusPaliers, malusManuel,
@@ -544,7 +542,6 @@ export function genererDocumentsIndividuels({
         bonusCompletConfig, clampQuestion,
         features,
         baremeLatex,
-        papierTextes,
       }) +
       `\\end{document}\n`;
     return { filename, content };
@@ -595,16 +592,36 @@ function _rng(seed) {
   };
 }
 
-function _pick(r, arr) { return arr[Math.floor(r() * arr.length)]; }
-
-function _pickN(r, arr, n) {
-  var a = arr.slice();
-  for (var i = 0; i < Math.min(n, a.length); i++) {
-    var j = i + Math.floor(r() * (a.length - i));
-    var tmp = a[i]; a[i] = a[j]; a[j] = tmp;
+// Permutation déterministe de [0, n) (Fisher-Yates sur _rng)
+function _perm(n, seed) {
+  var r = _rng(seed);
+  var a = [];
+  for (var i = 0; i < n; i++) a.push(i);
+  for (var j = n - 1; j > 0; j--) {
+    var k = Math.floor(r() * (j + 1));
+    var t = a[j]; a[j] = a[k]; a[k] = t;
   }
-  return a.slice(0, n);
+  return a;
 }
+
+// Rotation sans répétition : chaque banque est parcourue, au fil des DS du
+// profil, dans un ordre mélangé fixé une fois pour toutes (graine de profil
+// + clé de banque). Deux DS consécutifs ne tirent donc jamais la même
+// phrase, et un même DS redonne toujours le même texte. Un « autre tirage »
+// décale la lecture d'un cran : chaque banque change alors de phrase.
+// ctx : { graine, pas, tirage } — pas = rang du DS dans la série (0 = premier).
+function _rotN(ctx, banques, cle, n) {
+  var banque = banques[cle] || [];
+  var m = Math.min(n, banque.length);
+  if (!m) return [];
+  var p = _perm(banque.length, _graine(ctx.graine + "|" + cle));
+  var debut = (ctx.pas + (ctx.tirage || 0)) * m;
+  var out = [];
+  for (var i = 0; i < m; i++) out.push(banque[p[(debut + i) % banque.length]]);
+  return out;
+}
+
+function _rot(ctx, banques, cle) { return _rotN(ctx, banques, cle, 1)[0] || ""; }
 
 // Remplace les {placeholders} d'un gabarit par les valeurs fournies.
 // Un placeholder inconnu est laissé tel quel. Les groupes LaTeX ne
@@ -616,135 +633,318 @@ function _tpl(str, vars) {
   });
 }
 
+// Fusionne des surcharges partielles (depuis l'UI) avec les banques par défaut.
+function _mergeBanques(defauts, surcharges) {
+  if (!surcharges) return defauts;
+  var out = Object.assign({}, defauts);
+  Object.keys(defauts).forEach(function(cle) {
+    if (Array.isArray(surcharges[cle]) && surcharges[cle].length) out[cle] = surcharges[cle];
+  });
+  return out;
+}
+
+// ─── Article de classe : seuils de ton et banques ────────────────
+
+// Seuils qui pilotent le choix des banques (moyennes et σ en points /20)
+var ARTICLE_SEUILS = {
+  niveauHaut: 12, niveauBas: 8,          // moyenne brute de cohorte
+  sigmaHomogene: 2.5, sigmaHeterogene: 4, // écart-type brut
+  tendance: 1,                            // écart de moyenne brute entre deux DS
+  rhoStable: 0.7, rhoBrassage: 0.4,       // corrélation de rang de Spearman
+  contraste: 0.25,                        // écart de réussite meilleur/pire exercice
+  strategie: 0.1,                         // écart justesse − efficacité
+  compContraste: 0.15,                    // écart compétence forte/faible
+  coauteursMin: 6,                        // copies corrigées pour publier les co-auteurs
+};
+
+// Banques personnalisables depuis Réglages → Export LaTeX (clé, libellé)
+export var ARTICLE_TEXTES_EDITABLES = [
+  ["ouverture", "Phrases d'ouverture du résumé"],
+  ["verdict", "Verdicts du résumé (complètent « Ces résultats sont … »)"],
+  ["limites", "Limites de l'étude"],
+  ["conclusion", "Conclusions"],
+  ["remerciements_divers", "Remerciements divers (complètent « … ainsi que … »)"],
+  ["conflit", "Conflit d'intérêts"],
+  ["financement", "Financement"],
+  ["relecteur2", "Rapport du relecteur n°2"],
+];
+
 // Banques de gabarits. Chaque entrée est une phrase complète et
 // autoporteuse ; les données s'injectent via des placeholders, jamais
-// par concaténation (la syntaxe est garantie par construction).
-// Placeholders disponibles : {sujet} {ds} {note} {rang} {effectif}
-// {nTraitees} {totalQuestions} ({n}/{total} en alias) {moyenne}
-// {just} {effi} {meilleurEx} {pctMeilleur} {pireEx} {pctPire}
-// {compForte} {compFaible} {nEtoiles} {figOverview}
-function _banquesDefaut() {
+// par concaténation. Placeholders : {classe} {ds} {n} {nEx} {nExTxt} {nQ} {rangDS}
+// {moyenne} {mediane} {sigma} {moyBrute} {sigmaBrut} {partSup10}
+// {dsPrec} {refPrec} {nPrec} {nPrecTxt} {delta} {deltaAbs} {moyCible} {maxCible}
+// {sigmaCible} {nAbsents} {nAbsentsTxt} {attrition} {meilleurEx} {pctMeilleur} {pireEx}
+// {pctPire} {qReussie} {pctReussie} {qDelaissee} {pctDelaissee} {qPieges}
+// {nPieges} {nPiegesTxt} {qDiscri} {rDiscri} {compForte} {compFaible} {just} {effi}
+// {rho} {nCommuns} {entrants} {secRes} {tirage}
+function _banquesArticleDefaut() {
   return {
+    revue: [
+      "Annales de Docimologie Appliquée",
+      "Cahiers de Métrologie Scolaire",
+      "Revue Internationale des Copies Corrigées",
+      "Acta Correctionis",
+      "Bulletin de la Société Savante des Correcteurs",
+      "Comptes Rendus de l'Académie des Copies",
+      "Physical Review of Copies — Letters",
+    ],
+    type: [
+      "Article de recherche",
+      "Communication courte",
+      "Lettre",
+      "Rapport d'étape",
+      "Note technique",
+      "Prépublication (non relue)",
+    ],
+    titre: [
+      "Étude expérimentale des performances collectives de la cohorte {classe} lors du {ds}",
+      "Sur la distribution des acquis dans une population de {n} sujets soumis au {ds}",
+      "Le {ds} : observation d'un phénomène collectif en conditions contrôlées",
+      "Mesure des performances de la cohorte {classe} : résultats de la campagne {ds}",
+      "Contribution à l'étude des copies de {classe} : le cas du {ds}",
+      "Réponse collective d'une cohorte de {n} sujets à une sollicitation écrite de type {ds}",
+      "Propriétés statistiques d'un échantillon de {n} copies ({ds})",
+    ],
     ouverture: [
-      "Nous rapportons l'étude expérimentale des performances de {sujet}, observées en conditions réelles à l'occasion du {ds}.",
-      "Nous consignons ici, non sans un certain embarras méthodologique, les performances mesurées de {sujet} lors du {ds}.",
-      "Cette note de recherche présente les résultats obtenus par {sujet} au {ds}, résultats que l'auteur s'est efforcé de traiter avec l'objectivité qui le caractérise.",
-      "Nous portons à la connaissance de la communauté scientifique les données expérimentales recueillies sur {sujet} durant le {ds}.",
-      "Il nous est agréable — dans une acception toute relative du terme — de documenter la campagne de mesures conduite sur {sujet} pendant le {ds}.",
-      "La présente contribution s'inscrit dans la longue série d'études consacrées à {sujet}, dont le {ds} constitue le dernier point de mesure en date.",
-      "Conformément aux exigences de transparence de la revue, nous publions l'intégralité des observations effectuées sur {sujet} à l'occasion du {ds}.",
+      "Nous rapportons l'étude expérimentale des performances d'une cohorte de {n} sujets, observés en conditions réelles lors du {ds}.",
+      "Le présent article consigne, avec toute la rigueur que la situation autorise, les performances collectives mesurées au {ds}.",
+      "Nous portons à la connaissance de la communauté scientifique les données recueillies sur une population de {n} copies à l'occasion du {ds}.",
+      "Cette note présente la campagne de mesures n\\textsuperscript{o}~{rangDS}, conduite sur la cohorte {classe} durant le {ds}.",
+      "Conformément aux exigences de transparence de la revue, nous publions l'ensemble des observations collectives effectuées lors du {ds}.",
+      "Il nous est agréable, dans une acception toute relative du terme, de documenter la réponse de la cohorte {classe} au {ds}.",
     ],
     resume_protocole: [
-      "Le protocole repose sur une épreuve écrite notée par items, administrée en une seule passation et sans groupe témoin.",
+      "Le protocole repose sur une épreuve écrite de {nExTxt} et {nQ}~questions, notée par items.",
       "Les mesures ont été effectuées à l'aide d'un barème par items, selon une procédure en double aveugle où, en pratique, seul le correcteur voyait quelque chose.",
-      "La méthodologie, détaillée en section~2, n'appelle aucun commentaire, ce qui ne l'empêchera pas d'en recevoir.",
       "Le dispositif expérimental, éprouvé sur plusieurs générations de sujets, n'a jamais été validé par un comité indépendant, aucun comité n'ayant souhaité s'en approcher.",
+      "L'instrument de mesure comporte {nQ}~questions réparties en {nExTxt}, administrées en une seule passation et sans groupe témoin.",
     ],
     resume_resultat: [
-      "Le sujet obtient {note}/20 et se classe {rang}\\textsuperscript{e} sur {effectif}, avec {nTraitees} questions abordées sur {totalQuestions}.",
-      "La mesure principale s'établit à {note}/20 (rang~{rang}/{effectif}), pour {nTraitees} questions traitées sur les {totalQuestions} proposées.",
-      "On relève une note de {note}/20, plaçant le sujet au rang {rang} sur {effectif} au sein de la cohorte, pour un taux de couverture du sujet de {nTraitees}/{totalQuestions} questions.",
-      "L'observable principale vaut {note}/20 (moyenne de cohorte~: {moyenne}/20), le sujet occupant le rang {rang} sur {effectif}.",
+      "La moyenne de cohorte s'établit à {moyenne}/20 (médiane {mediane}/20, écart-type {sigma}).",
+      "L'observable principale, la note moyenne, vaut {moyenne}/20, pour une médiane de {mediane}/20 et un écart-type de {sigma}.",
+      "On relève une moyenne de {moyenne}/20 et une médiane de {mediane}/20 ; {partSup10} des copies franchissent le seuil symbolique de 10/20.",
+    ],
+    resume_evolution_hausse: [
+      "Par rapport au {dsPrec}, la moyenne brute progresse de {deltaAbs}~pt, résultat que l'auteur se garde d'attribuer à son seul enseignement.",
+      "Une élévation de {deltaAbs}~pt de la moyenne brute est observée depuis le {dsPrec} ; l'hypothèse d'un réchauffement pédagogique ne peut être exclue.",
+    ],
+    resume_evolution_stable: [
+      "La moyenne brute demeure stable par rapport au {dsPrec} ({delta}~pt), ce qui confirme la robustesse de l'instrument, ou celle de la cohorte.",
+      "Aucune dérive significative n'est constatée depuis le {dsPrec} ({delta}~pt) : le système semble avoir atteint un régime stationnaire.",
+    ],
+    resume_evolution_baisse: [
+      "La moyenne brute recule de {deltaAbs}~pt depuis le {dsPrec} ; l'auteur, qui a conçu les deux sujets, envisage sérieusement la piste de l'instrument.",
+      "Un fléchissement de {deltaAbs}~pt est mesuré par rapport au {dsPrec}, écart que la théorie attribue d'ordinaire à la difficulté du sujet plutôt qu'à la cohorte.",
     ],
     verdict: [
       "jugés publiables faute de mieux",
       "d'un intérêt scientifique modéré mais réel",
-      "soumis à réplication urgente",
+      "soumis à réplication lors du prochain DS",
       "compatibles avec l'hypothèse nulle, ce qui n'était pas le but",
-      "conformes aux espérances de l'éditeur, qui étaient basses",
-      "remarquables par leur reproductibilité (l'épreuve n'ayant eu lieu qu'une fois)",
-      "en bon accord avec la littérature, hélas",
+      "conformes aux espérances de l'éditeur",
       "statistiquement significatifs au seuil que l'on voudra bien leur accorder",
+      "en bon accord avec la littérature, hélas",
+      "remarquables par leur reproductibilité (l'épreuve n'ayant eu lieu qu'une fois)",
     ],
     intro: [
-      "L'évaluation des acquis demeure un problème ouvert, malgré des décennies d'efforts.",
-      "La question de savoir si un élève a compris quelque chose reste entière après correction.",
-      "Le DS constitue le paradigme expérimental central de cette étude.",
-      "On notera que l'épreuve, d'une durée de 4~h, fournit un cadre reproductible — en principe.",
+      "L'évaluation des acquis d'une cohorte demeure un problème ouvert, malgré des décennies d'efforts et de copies.",
+      "La question de savoir si une classe a compris quelque chose reste entière après correction, mais elle est désormais mieux documentée.",
+      "Le devoir surveillé constitue le paradigme expérimental central de cette étude ; il présente l'avantage d'être reproductible, en principe.",
       "La littérature sur le sujet est abondante ; sa fréquentation par les principaux intéressés l'est moins.",
-      "Depuis les travaux fondateurs [1], la question a peu progressé, et le présent rapport ne devrait pas bouleverser cet équilibre.",
-      "L'étude s'inscrit dans un programme de recherche au long cours, dont les jalons sont posés à intervalles réguliers et sans consultation préalable des sujets.",
+      "L'étude des comportements collectifs face à une épreuve écrite a une longue histoire, que le présent article ne prétend pas clore.",
       "On rappelle que l'objectif affiché de l'épreuve est la mesure des acquis ; son objectif réel demeure un champ de recherche ouvert.",
+      "Les phénomènes collectifs observés en salle d'examen présentent une richesse que seule une analyse statistique rigoureuse, ou à défaut celle-ci, permet d'apprécier.",
+    ],
+    intro_serie: [
+      "Le présent travail constitue la {rangDS}\\textsuperscript{e}~campagne de mesures conduite sur la cohorte ; il prolonge directement l'étude du {dsPrec}~{refPrec}.",
+      "Cette étude s'inscrit dans un programme de recherche au long cours, dont le {dsPrec}~{refPrec} constituait le dernier jalon publié.",
+      "Après {nPrecTxt}, dont la plus récente est consacrée au {dsPrec}~{refPrec}, les conditions sont réunies pour une analyse longitudinale.",
+    ],
+    intro_premiere: [
+      "Le présent article inaugure une série de campagnes de mesures ; faute de données antérieures, toute comparaison est reportée aux numéros suivants.",
+      "Il s'agit de la première campagne documentée sur cette cohorte : l'auteur dispose donc d'un point de référence, ce qui est peu, mais non nul.",
+    ],
+    methode_attrition: [
+      "L'attrition ({nAbsentsTxt}) est conforme aux standards du domaine et n'a pas été investiguée plus avant.",
+      "Au total, {nAbsentsTxt} ont été perdus de vue le jour de la mesure ; leurs motivations n'ont pas été recueillies, par discrétion.",
+      "Le taux d'attrition s'élève à {attrition} ; aucun biais de sélection n'est suspecté, faute d'avoir été cherché.",
+    ],
+    methode_complet: [
+      "La cohorte a été observée au complet, fait suffisamment rare pour être signalé.",
+      "Aucune attrition n'est à déplorer, ce que l'auteur tient pour un résultat en soi.",
     ],
     methode: [
-      "Le barème suit un protocole par items, avec écrêtage par question.",
-      "La notation obéit à un protocole par items soigneusement documenté, ici même.",
       "Chaque question est notée selon un barème dont l'auteur est seul juge.",
-      "L'instrument de mesure (le sujet d'épreuve) a été étalonné sur un échantillon d'un correcteur, ce qui garantit une excellente reproductibilité inter-juges.",
+      "L'instrument de mesure a été étalonné sur un échantillon d'un correcteur, ce qui garantit une excellente reproductibilité inter-juges.",
       "Les données ont été acquises en salle, en environnement partiellement contrôlé (température, luminosité, motivation).",
-      "L'écrêtage par question garantit qu'aucune question ne rapporte plus que ce qu'elle vaut — règle de calcul dont la portée philosophique n'a pas échappé à l'auteur.",
       "Le traitement statistique se limite à des outils que le lecteur peut vérifier de tête, par prudence méthodologique autant que par goût.",
+      "L'écrêtage par question garantit qu'aucune question ne rapporte plus que ce qu'elle vaut, règle dont la portée philosophique n'a pas échappé à l'auteur.",
     ],
-    resultats_renvoi: [
-      "La figure~\\ref{{figOverview}} donne la vue d'ensemble des performances du sujet relativement à la cohorte ; le détail par exercice est consigné dans les tableaux et histogrammes ci-dessous.",
-      "Les résultats bruts sont rassemblés en figure~\\ref{{figOverview}}, puis détaillés exercice par exercice ; le lecteur pressé peut s'en tenir à la note, comme tout le monde.",
-      "On trouvera en figure~\\ref{{figOverview}} la synthèse graphique des mesures ; les sections qui suivent en donnent le détail, avec le niveau de granularité qu'exige la revue.",
+    methode_norm_none: [
+      "Aucune normalisation n'a été appliquée : les notes publiées sont les notes mesurées, sans correction instrumentale d'aucune sorte.",
+      "Les notes sont livrées brutes de décoffrage, l'auteur ayant renoncé à toute forme de retouche.",
     ],
-    obs_contraste: [
-      "Le sujet manifeste une affinité marquée pour \\og {meilleurEx}\\fg{} ({pctMeilleur} des points), affinité qui s'estompe sensiblement sur \\og {pireEx}\\fg{} ({pctPire}) ; ce contraste appellerait une étude dédiée, que personne ne financera.",
-      "L'écart de rendement entre \\og {meilleurEx}\\fg{} ({pctMeilleur}) et \\og {pireEx}\\fg{} ({pctPire}) suggère soit une préférence thématique assumée, soit une gestion du temps perfectible ; les deux écoles ont leurs partisans.",
-      "On observe un pic de performance sur \\og {meilleurEx}\\fg{} ({pctMeilleur} des points) et un creux sur \\og {pireEx}\\fg{} ({pctPire}), configuration que la littérature interne du laboratoire désigne sous le nom de \\og relief\\fg.",
+    methode_norm_proportional: [
+      "Les notes ont fait l'objet d'une correction proportionnelle calée sur une moyenne cible de {moyCible}/20, procédure que la littérature interne désigne sous le nom de \\og recalibrage homothétique\\fg.",
+      "Une homothétie a ramené la moyenne de cohorte à {moyCible}/20, opération réversible en théorie et irréversible en pratique.",
     ],
-    obs_homogene: [
+    methode_norm_proportional_max: [
+      "Une homothétie calée sur le maximum ({maxCible}/20) a été appliquée, de sorte que la meilleure copie définit l'étalon de la cohorte.",
+      "Les notes ont été rapportées à la meilleure copie, portée à {maxCible}/20 : la cohorte est ainsi mesurée à l'aune de ses propres sommets.",
+    ],
+    methode_norm_affine: [
+      "Une transformation affine (moyenne cible {moyCible}/20, écart-type cible {sigmaCible}) a été appliquée aux mesures brutes, opération que les métrologues nomment étalonnage et les sujets, miracle.",
+      "Les mesures brutes ont subi une transformation affine visant une moyenne de {moyCible}/20 et un écart-type de {sigmaCible}, conformément aux usages de la profession.",
+    ],
+    methode_norm_affine_max: [
+      "Les mesures ont subi une transformation affine ancrée sur le maximum ({maxCible}/20), avec un écart-type cible de {sigmaCible}.",
+      "Une transformation affine a été appliquée, point fixe au sommet ({maxCible}/20) et dispersion cible de {sigmaCible}, afin de préserver l'ordre sans préserver les apparences.",
+    ],
+    methode_norm_gaussienne: [
+      "Les notes ont été redistribuées selon une loi normale (moyenne {moyCible}/20, écart-type {sigmaCible}) par appariement des quantiles, hommage appuyé au prince des mathématiciens.",
+      "Une normalisation gaussienne par quantiles (moyenne {moyCible}/20, écart-type {sigmaCible}) a été appliquée : la cohorte épouse désormais la cloche, qu'elle le veuille ou non.",
+    ],
+    res_niveau_haute: [
+      "Ces valeurs placent la cohorte dans le haut de l'échelle, au grand dam des théoriciens de la courbe en cloche.",
+      "Le niveau mesuré est élevé, au point que l'auteur s'interroge sur l'étalonnage du barème, qu'il se réserve le droit de durcir.",
+      "La performance collective est remarquable ; l'auteur, tenu à la réserve statutaire, se bornera à la qualifier de reproductible, charge à la cohorte de le démontrer.",
+    ],
+    res_niveau_moyenne: [
+      "Ces valeurs situent la cohorte dans la zone médiane de l'échelle, région où, d'expérience, les gisements de points sont les plus rentables.",
+      "Le niveau mesuré est conforme aux attentes, ce qui, pour une expérience, est à la fois rassurant et légèrement décevant.",
+      "La cohorte évolue dans une zone intermédiaire, position dont la théorie prédit qu'elle offre le meilleur rapport signal sur bruit pour les progrès à venir.",
+    ],
+    res_niveau_basse: [
+      "Les valeurs mesurées sous-estiment vraisemblablement la grandeur vraie ; l'écart entre mesure et potentiel est un problème classique de métrologie, que la prochaine campagne devra réduire.",
+      "Le niveau mesuré doit davantage aux conditions du protocole qu'aux aptitudes de la cohorte, que l'auteur a pu observer en environnement moins hostile.",
+      "L'épreuve s'est révélée exigeante ; les gisements de progression identifiés ci-dessous sont donc importants, et par conséquent encourageants.",
+    ],
+    res_dispersion_homogene: [
+      "La dispersion est faible (écart-type brut de {sigmaBrut}~pt) : la cohorte se comporte comme un corps pur, ce qui simplifie l'analyse et prive la discussion de son principal ressort dramatique.",
+      "Les copies se distribuent de façon remarquablement resserrée (écart-type brut de {sigmaBrut}~pt), signe d'une cohésion que l'auteur saluera faute de pouvoir l'expliquer.",
+    ],
+    res_dispersion_heterogene: [
+      "La dispersion est marquée (écart-type brut de {sigmaBrut}~pt) : la cohorte se comporte comme un mélange hétérogène, dont les phases gagneraient à être rapprochées.",
+      "L'étendue de la distribution (écart-type brut de {sigmaBrut}~pt) suggère la coexistence de plusieurs régimes au sein de la cohorte ; le tutorat entre pairs est indiqué comme catalyseur.",
+    ],
+    res_contraste: [
+      "La cohorte manifeste une affinité marquée pour \\og {meilleurEx}\\fg{} ({pctMeilleur} de réussite moyenne), affinité qui s'estompe sensiblement sur \\og {pireEx}\\fg{} ({pctPire}) ; ce contraste appellerait une étude dédiée, que personne ne financera.",
+      "L'écart de rendement entre \\og {meilleurEx}\\fg{} ({pctMeilleur}) et \\og {pireEx}\\fg{} ({pctPire}) suggère soit une préférence thématique collective, soit une gestion du temps perfectible ; les deux écoles ont leurs partisans.",
+      "On observe un pic de performance sur \\og {meilleurEx}\\fg{} ({pctMeilleur}) et un creux sur \\og {pireEx}\\fg{} ({pctPire}), configuration que la littérature interne du laboratoire désigne sous le nom de \\og relief\\fg.",
+    ],
+    res_homogene: [
       "Le rendement est remarquablement homogène d'un exercice à l'autre, ce qui simplifie l'analyse et prive la discussion de son principal ressort dramatique.",
-      "Aucun exercice ne se détache significativement : le sujet répartit ses moyens avec une constance que l'auteur qualifiera de méthodique, faute de terme plus prudent.",
+      "Aucun exercice ne se détache significativement : la cohorte répartit ses moyens avec une constance que l'auteur qualifiera de méthodique, faute de terme plus prudent.",
     ],
-    obs_etoiles: [
-      "On relève {nEtoiles} réussite(s) sur des questions délaissées par la majorité de la cohorte (marqueur $\\bigstar$), ce qui suggère soit une compréhension profonde, soit un goût du risque statistiquement payant ; les deux hypothèses ne s'excluent pas.",
-      "Le sujet s'est aventuré avec succès sur {nEtoiles} question(s) largement évitée(s) par la cohorte ; ce comportement exploratoire est relevé avec intérêt, et un brin de suspicion, au marqueur $\\bigstar$.",
+    res_reussie: [
+      "La {qReussie} détient le record de réussite ({pctReussie} des points chez les sujets l'ayant abordée), établissant un étalon que les questions voisines n'ont pas cherché à contester.",
+      "Mention spéciale à la {qReussie}, réussie à {pctReussie} par ceux qui l'ont traitée : le signal est net, le bruit négligeable.",
     ],
-    obs_justesse: [
-      "La justesse ({just}) excède notablement l'efficacité ({effi}) : ce que le sujet entreprend, il le réussit, mais il entreprend avec parcimonie ; un élargissement du front d'attaque est recommandé.",
-      "Le couple justesse/efficacité ({just} contre {effi}) dessine un profil de tireur d'élite : peu de munitions, peu de déchets ; la cadence, en revanche, gagnerait à être discutée en séance.",
+    res_delaissee: [
+      "La {qDelaissee}, abordée par {pctDelaissee} des sujets seulement, constitue une zone faiblement explorée de l'espace des réponses ; son exploration est vivement encouragée.",
+      "Avec un taux de traitement de {pctDelaissee}, la {qDelaissee} demeure largement \\textit{terra incognita} ; l'auteur y voit un gisement plus qu'un échec.",
     ],
-    obs_efficacite: [
-      "L'efficacité ({effi}) devance la justesse ({just}) : le sujet couvre large et engrange, au prix d'un taux de déchet que la section précédente n'avait pas anticipé ; un recentrage qualitatif est suggéré.",
-      "Le profil ({effi} d'efficacité pour {just} de justesse) est celui d'un ratisseur : tout traiter, quitte à laisser des points en chemin ; la stratégie est défendable, et défendue chaque année.",
+    res_piege: [
+      "L'analyse révèle {nPiegesTxt} ({qPieges}) : massivement abordées, rarement réussies, ces questions exercent sur la cohorte une attraction comparable à celle d'une lampe sur les papillons de nuit.",
+      "La signature caractéristique du piège (traitement élevé, réussite faible) est détectée sur {qPieges} ; un retour ciblé en séance est prescrit.",
     ],
-    obs_equilibre: [
-      "Justesse ({just}) et efficacité ({effi}) évoluent de concert, signe d'une stratégie équilibrée ou d'une absence de stratégie ; l'expérience ne permet pas de trancher.",
-      "L'équilibre entre justesse ({just}) et efficacité ({effi}) est notable ; l'auteur, qui cherchait un déséquilibre à commenter, en prend acte.",
+    res_discriminante: [
+      "La {qDiscri} présente le plus fort pouvoir discriminant ($r$~=~{rDiscri}) : elle sépare les copies avec une efficacité que l'auteur envie.",
+      "La corrélation entre la réussite à la {qDiscri} et la note brute atteint $r$~=~{rDiscri}, ce qui en fait le meilleur prédicteur de la note, et donc la question la plus instructive à retravailler.",
     ],
-    obs_comp: [
-      "L'analyse par compétence (Fig.~\\ref{{figOverview}}) fait apparaître un point d'appui net en {compForte} et une marge de progression documentée en {compFaible}.",
+    res_comp: [
       "Le profil de compétences présente un maximum en {compForte} et un minimum en {compFaible} ; l'exploitation pédagogique de cette anisotropie est laissée en exercice au lecteur.",
+      "L'analyse par compétence fait apparaître un point d'appui collectif en {compForte} et une marge de progression documentée en {compFaible}.",
+      "La cohorte excelle en {compForte} et peine davantage en {compFaible} ; cette asymétrie, bien connue de la littérature, n'est pas une fatalité.",
     ],
-    disc_haute: [
-      "Au regard de la cohorte, le sujet occupe le haut de la distribution (rang {rang}/{effectif}). L'auteur, tenu à la réserve statutaire, se bornera à qualifier la performance de reproductible — charge au sujet de le démontrer dès la prochaine campagne.",
-      "Les performances placent le sujet dans le peloton de tête ({rang}/{effectif}). Ces valeurs, proches des limites hautes de l'instrument, posent la question de l'étalonnage du barème ; l'auteur se réserve le droit de le durcir.",
-      "Avec {note}/20 pour une moyenne de cohorte de {moyenne}/20, le sujet tire la distribution vers la droite, au grand dam des théoriciens de la courbe en cloche.",
+    res_comp_equilibre: [
+      "Le profil de compétences est équilibré, ce qui interdit toute conclusion hâtive, et même lente.",
+      "Aucune compétence ne se distingue nettement des autres ; l'auteur, privé d'anisotropie à commenter, s'incline.",
     ],
-    disc_moyenne: [
-      "Le sujet se situe au cœur de la distribution (rang {rang}/{effectif}, moyenne de cohorte {moyenne}/20), position dont la théorie prédit qu'elle offre le meilleur rapport signal sur bruit pour les progrès à venir.",
-      "Avec un rang de {rang} sur {effectif}, le sujet évolue dans la zone centrale de la cohorte ; c'est là, d'expérience, que les gisements de points identifiés dans les tableaux ci-dessus sont les plus rentables.",
-      "La note ({note}/20) s'écarte peu de la moyenne de cohorte ({moyenne}/20) ; le sujet constitue en cela un excellent point de calibration, rôle ingrat mais indispensable à la science.",
+    res_strategie_ratisseurs: [
+      "Le profil collectif est celui d'un ratisseur : tout aborder, quitte à laisser des points en chemin ; la stratégie est défendable, et défendue chaque année.",
+      "La cohorte couvre large et engrange, au prix d'un taux de déchet que l'auteur recommande de réduire par un surcroît de rigueur.",
     ],
-    disc_basse: [
-      "La position du sujet dans la distribution (rang {rang}/{effectif}) doit davantage aux conditions du protocole qu'à ses aptitudes, que l'auteur a pu observer en environnement moins hostile. Les gisements de progression identifiés plus haut sont importants, donc encourageants.",
-      "Les valeurs mesurées ({note}/20) sous-estiment vraisemblablement la grandeur vraie ; l'écart entre mesure et potentiel est un problème classique de métrologie, que la prochaine campagne devra réduire.",
-      "L'échantillon recueilli lors du {ds} ne rend pas justice au sujet ; l'auteur recommande une réplication rapide en conditions d'entraînement, où le signal est traditionnellement meilleur.",
+    res_strategie_tireurs: [
+      "Le profil collectif est celui d'un tireur d'élite : peu de munitions, peu de déchets ; la cadence, en revanche, gagnerait à être discutée en séance.",
+      "Ce que la cohorte entreprend, elle le réussit ; mais elle entreprend avec parcimonie, et un élargissement du front d'attaque est recommandé.",
+    ],
+    res_strategie_equilibre: [
+      "Justesse et efficacité évoluent de concert, signe d'une stratégie équilibrée ou d'une absence de stratégie ; l'expérience ne permet pas de trancher.",
+      "L'équilibre entre justesse et efficacité est notable ; l'auteur, qui cherchait un déséquilibre à commenter, en prend acte.",
+    ],
+    evo_prudence: [
+      "La comparaison inter-campagnes suppose l'invariance de l'instrument de mesure, hypothèse que l'auteur, concepteur des deux sujets, n'est pas en mesure de garantir.",
+      "On rappellera que deux sujets distincts ne sont pas deux mesures d'une même grandeur ; le lecteur est prié d'interpréter ces écarts avec la modération d'usage.",
+      "Ces écarts intègrent à la fois l'évolution de la cohorte et celle de la difficulté des sujets, deux effets que le protocole ne permet pas de séparer, à la grande frustration de l'auteur.",
+    ],
+    evo_classement_stable: [
+      "Le classement se révèle très stable d'une campagne à l'autre (corrélation de rang de Spearman $\\rho$~=~{rho} sur {nCommuns}~sujets communs) : les positions acquises tendent à se conserver, ce qui est une bonne nouvelle pour les uns et un défi pour les autres.",
+      "La corrélation de rang entre les deux campagnes atteint $\\rho$~=~{rho} ({nCommuns}~sujets) : la hiérarchie observée présente une inertie remarquable, que seule une perturbation sérieuse (le travail) pourrait altérer.",
+    ],
+    evo_classement_modere: [
+      "La corrélation de rang ($\\rho$~=~{rho}, {nCommuns}~sujets) indique une stabilité modérée du classement : les positions évoluent, sans révolution.",
+      "Avec $\\rho$~=~{rho} ({nCommuns}~sujets), le classement conserve sa structure générale tout en admettant des réarrangements locaux, preuve que rien n'est jamais figé.",
+    ],
+    evo_classement_brassage: [
+      "La corrélation de rang est faible ($\\rho$~=~{rho}, {nCommuns}~sujets) : le classement a été profondément brassé, démontrant que la hiérarchie d'un DS ne préjuge en rien de celle du suivant.",
+      "Un brassage significatif du classement est observé ($\\rho$~=~{rho} sur {nCommuns}~sujets), résultat qui devrait encourager quiconque se croyait assigné à résidence.",
+    ],
+    evo_entrants: [
+      "Font leur entrée dans la liste des co-auteurs honoraires : {entrants}, que la rédaction félicite chaleureusement.",
+      "La rédaction salue l'arrivée de {entrants} parmi les co-auteurs honoraires, promotion obtenue sans piston ni pot-de-vin, à la connaissance de l'auteur.",
+      "Nouveaux signataires de ce numéro : {entrants}. Leur contribution a été jugée décisive par un comité composé de l'auteur.",
+    ],
+    disc_hausse: [
+      "L'ensemble des indicateurs dessine une dynamique favorable, que l'auteur attribue, par modestie, à la cohorte plutôt qu'à son enseignement ; il se réserve néanmoins le droit de changer d'avis.",
+      "La progression observée plaide pour la poursuite du programme expérimental à effectifs constants et motivation croissante.",
+    ],
+    disc_stable: [
+      "Le système étudié présente une stabilité remarquable ; l'auteur y voit la preuve d'un régime établi, que seul un apport d'énergie supplémentaire (le travail personnel) permettra de déplacer.",
+      "En l'absence de variation significative, la discussion se concentre sur les gisements identifiés en {secRes}, qui constituent les leviers les plus accessibles.",
+    ],
+    disc_baisse: [
+      "Le recul mesuré ne saurait être interprété sans tenir compte de la difficulté propre au sujet ; les meilleurs systèmes connaissent des fluctuations, et la prochaine campagne offrira une occasion de rebond.",
+      "Les indicateurs sont en retrait par rapport à la campagne précédente ; la littérature enseigne que ce type de fluctuation précède souvent un redressement, pourvu que les causes identifiées en {secRes} soient traitées.",
+    ],
+    disc_neutre: [
+      "La discussion se concentre sur les leviers de progression identifiés en {secRes}, qui constituent les gisements de points les plus accessibles pour la prochaine campagne.",
+      "Au-delà des valeurs moyennes, ce sont les questions délaissées et les pièges mis en évidence en {secRes} qui offrent les marges de progression les plus immédiates.",
+    ],
+    disc_premiere: [
+      "Faute de point de comparaison, la discussion se limite à l'identification des leviers de progression mis en évidence en {secRes} ; les campagnes suivantes diront s'ils ont été actionnés.",
+      "Cette première campagne établit une ligne de base ; tout écart futur lui sera désormais rapporté, pour le meilleur et pour le reste.",
     ],
     limites: [
-      "L'échantillon est de taille $n = 1$, ce qui limite la portée statistique.",
       "L'auteur correspondant est simultanément concepteur du sujet, correcteur et relecteur unique ; un biais ne saurait être exclu.",
-      "Aucune réplication n'a été tentée, l'épreuve n'ayant lieu qu'une fois.",
-      "Les conditions expérimentales (table, stylo, stress) n'ont pas été contrôlées.",
-      "La population de contrôle (la classe) souffre du même biais de sélection que le sujet.",
-      "Le sujet n'a pas eu accès au protocole expérimental avant l'épreuve, contrairement aux usages en vigueur dans certaines revues.",
-      "La durée de l'épreuve n'a pas été optimisée pour minimiser la fatigue cognitive.",
+      "Aucun groupe témoin n'a pu être constitué, la direction ayant refusé qu'une partie de la classe soit dispensée de DS.",
+      "Les conditions expérimentales (table, stylo, stress, heure du déjeuner) n'ont pas été contrôlées.",
+      "La cohorte n'a pas été tirée au sort, mais constituée par une procédure d'admission dont l'auteur décline toute responsabilité.",
+      "La durée de l'épreuve n'a pas été optimisée pour minimiser la fatigue cognitive des sujets, ni celle du correcteur.",
+      "Les sujets n'ont pas eu accès au protocole expérimental avant l'épreuve, contrairement aux usages en vigueur dans certaines revues.",
+      "L'effet du café sur la sévérité du correcteur n'a pas été quantifié, faute de volontaires pour la condition sans café.",
     ],
-    remerciements_sujet: [
-      "d'avoir rendu une copie",
-      "d'avoir traité {n}/{total} questions",
-      "de sa présence le jour de l'épreuve",
-      "de la lisibilité relative de son écriture",
+    conclusion: [
+      "Ces résultats appellent des travaux futurs, au premier rang desquels une réplication lors du prochain DS.",
+      "L'auteur encourage la cohorte à poursuivre ses efforts dans la direction indiquée par la {secRes}.",
+      "Une amélioration des performances est envisageable sous réserve de travail, hypothèse qui reste à tester expérimentalement.",
+      "Ces conclusions sont provisoires dans l'attente de la prochaine campagne de mesures, dont la date ne sera communiquée qu'au dernier moment, par souci d'équité expérimentale.",
+      "L'ensemble des données plaide pour la poursuite du programme expérimental, à effectifs constants et motivation croissante.",
+      "La reproductibilité de ces observations sera mise à l'épreuve lors de la prochaine campagne ; les paris sont ouverts.",
     ],
     remerciements_divers: [
       "la machine à café du laboratoire pour son soutien indéfectible.",
       "les relecteurs anonymes, qui n'existent pas.",
       "l'établissement, pour la fourniture du papier de brouillon.",
-      "le jury de la revue, dont la mansuétude est légendaire.",
+      "le comité éditorial de la revue, dont la mansuétude est légendaire.",
       "l'inventeur du café soluble, sans qui cette correction n'aurait pas abouti.",
+      "le stylo rouge, dont l'encre ne s'est pas tarie malgré les sollicitations.",
+    ],
+    credit_coauteurs: [
+      "Les co-auteurs honoraires ont contribué à l'acquisition des données situées à l'extrémité droite de la distribution.",
+      "Les co-auteurs honoraires ont assuré la validation expérimentale du barème, en démontrant qu'il était possible d'y obtenir des points.",
+      "Les co-auteurs honoraires ont fourni les mesures les plus élevées de la campagne, contribution jugée décisive par le comité éditorial.",
     ],
     conflit: [
       "L'auteur déclare noter ses propres sujets.",
@@ -755,122 +955,39 @@ function _banquesDefaut() {
       "Cette étude n'a bénéficié d'aucun financement, ce qui se ressent.",
       "Aucune source de financement. L'auteur travaille bénévolement, comme d'habitude.",
       "Financée par l'Éducation nationale, indirectement et involontairement.",
+      "Les travaux ont été financés sur fonds propres, principalement en café.",
     ],
-    conclusion: [
-      "Ces résultats appellent des travaux futurs, notamment une réplication.",
-      "L'auteur encourage le sujet à poursuivre ses efforts dans la direction indiquée.",
-      "Une amélioration des performances est envisageable sous réserve de travail.",
-      "Ces conclusions sont provisoires dans l'attente d'un prochain DS.",
-      "La reproductibilité de ces observations sera mise à l'épreuve lors de la prochaine campagne de mesures, dont la date, par souci d'équité expérimentale, ne sera communiquée qu'au dernier moment.",
-      "L'ensemble des données plaide pour la poursuite du programme expérimental, à effectifs constants et motivation croissante.",
+    donnees: [
+      "Les données brutes sont disponibles sur demande motivée auprès de l'auteur, qui déclinera poliment.",
+      "Les copies originales sont archivées en lieu sûr, conformément au règlement général sur la protection des données.",
+      "Les données individuelles ont été restituées à leurs propriétaires respectifs, seuls habilités à les commenter.",
+    ],
+    relecteur2: [
+      "Le relecteur n\\textsuperscript{o}~2 estime que la moyenne aurait pu être plus élevée et suggère de refaire l'expérience avec une autre cohorte ; sa suggestion a été écartée.",
+      "Le relecteur n\\textsuperscript{o}~2 regrette l'absence de groupe témoin et d'intervalle de confiance ; l'auteur lui transmet ses amitiés.",
+      "Le relecteur n\\textsuperscript{o}~2 demande que l'article soit réduit de moitié et la moyenne augmentée d'autant ; seule la première requête a été jugée recevable, et rejetée.",
+      "Le relecteur n\\textsuperscript{o}~2 conteste la pertinence du barème, de la normalisation et de la ponctuation ; ses remarques ont été versées au dossier.",
+    ],
+    erratum: [
+      "Une version antérieure de cet article comportait des formulations jugées trop aimables par le comité éditorial ; elles ont été remplacées.",
+      "Le présent article remplace une version antérieure, retirée à la demande de l'auteur pour des raisons stylistiques (tirage n\\textsuperscript{o}~{tirage}).",
+      "Suite à une erreur de mise en page, une version préliminaire de cet article a circulé ; l'auteur prie ses lecteurs de l'oublier.",
     ],
     refs_fixes: [
-      "[1] S.~Correcteur, \\textit{Le cours}, chap.~4, non publié (2024).",
-      "[2] Id., \\textit{Les exercices du TD}, résultats non publiés, non traités.",
-      "[3] Id., \\textit{Rapport du DS précédent}, archives internes (2024).",
-      "[4] N.~Bourbaki, \\textit{Éléments de mathématique}, Hermann (1939--). Cité par déférence.",
+      "S.~\\textsc{Correcteur}, \\textit{Le cours}, polycopié, non publié.",
+      "S.~\\textsc{Correcteur}, \\textit{Les exercices du TD}, résultats non publiés, non traités.",
+      "N.~\\textsc{Bourbaki}, \\textit{Éléments de mathématique}, Hermann (1939--). Cité par déférence.",
+      "C.~F.~\\textsc{Gauss}, \\textit{Theoria motus corporum coelestium} (1809). Cité pour la courbe en cloche, dont il décline toute responsabilité.",
+      "Anonyme, \\textit{Circulaire relative aux devoirs surveillés}, référence introuvable.",
     ],
   };
-}
-
-// Fusionne papierTextes (partiel, depuis l'UI) avec les banques par défaut.
-function _mergeBanques(papierTextes) {
-  var def = _banquesDefaut();
-  if (!papierTextes) return def;
-  var out = Object.assign({}, def);
-  Object.keys(def).forEach(function(cle) {
-    if (Array.isArray(papierTextes[cle]) && papierTextes[cle].length) out[cle] = papierTextes[cle];
-  });
-  return out;
-}
-
-// stats attendu : { note, rang, effectif, nTraitees, totalQuestions, moyenne }
-// (note/rang/effectif/moyenne : texte LaTeX déjà formaté).
-// obs (optionnel) : observations chiffrées calculées par le générateur
-// { contraste, meilleurEx, pctMeilleur, pireEx, pctPire, nEtoiles,
-//   just, effi, equilibre, compForte, compFaible, tranche, figOverview }.
-function _assemblerTextes(student, exam, nomDS, stats, banques, obs) {
-  var graine = _graine(student.id + (nomDS || ""));
-  var r = _rng(graine);
-  var o = obs || {};
-
-  var vars = {
-    sujet: escapeTex(student.prenom) + "~\\textsc{" + escapeTex(student.nom) + "}",
-    ds: escapeTex(nomDS || "DS"),
-    note: stats.note, rang: stats.rang, effectif: stats.effectif,
-    moyenne: stats.moyenne || "",
-    nTraitees: stats.nTraitees || 0, totalQuestions: stats.totalQuestions || 0,
-    n: stats.nTraitees || 0, total: stats.totalQuestions || 0,
-    just: o.just || "", effi: o.effi || "",
-    meilleurEx: o.meilleurEx || "", pctMeilleur: o.pctMeilleur || "",
-    pireEx: o.pireEx || "", pctPire: o.pctPire || "",
-    compForte: o.compForte || "", compFaible: o.compFaible || "",
-    nEtoiles: (o.nEtoiles !== undefined) ? o.nEtoiles : 0,
-    figOverview: o.figOverview || "fig:overview",
-  };
-  var T = function(s) { return _tpl(s, vars); };
-
-  // Résumé : ouverture + protocole + résultat chiffré + verdict (4 phrases)
-  var resume = [
-    T(_pick(r, banques.ouverture)),
-    T(_pick(r, banques.resume_protocole)),
-    T(_pick(r, banques.resume_resultat)),
-    "Ces résultats sont " + T(_pick(r, banques.verdict)) + ".",
-  ].join(" ");
-
-  var motsExercices = (exam.exercises || []).map(function(ex) {
-    return (ex.title || "").trim().split(/\s+/).slice(0, 2).join(" ");
-  }).filter(Boolean);
-  var motsCompetences = COMPETENCES.map(function(c) { return c.label; });
-  var motsCles = motsExercices.concat(motsCompetences).slice(0, 5).map(escapeTex).join(" ; ");
-
-  var intro = _pickN(r, banques.intro, 2).map(T).join(" ");
-  var methode = _pickN(r, banques.methode, 2).map(T).join(" ");
-
-  // Résultats : renvoi aux figures + relief inter-exercices s'il y en a un
-  var resultats = T(_pick(r, banques.resultats_renvoi));
-  if (o.contraste === "fort") resultats += " " + T(_pick(r, banques.obs_contraste));
-  else if (o.contraste === "homogene") resultats += " " + T(_pick(r, banques.obs_homogene));
-
-  // Discussion : position dans la cohorte, équilibre justesse/efficacité,
-  // profil de compétences, prises de risque récompensées
-  var discParts = [T(_pick(r, banques["disc_" + (o.tranche || "moyenne")] || banques.disc_moyenne))];
-  if (o.equilibre === "justesse") discParts.push(T(_pick(r, banques.obs_justesse)));
-  else if (o.equilibre === "efficacite") discParts.push(T(_pick(r, banques.obs_efficacite)));
-  else if (o.equilibre === "equilibre") discParts.push(T(_pick(r, banques.obs_equilibre)));
-  if (o.compForte && o.compFaible) discParts.push(T(_pick(r, banques.obs_comp)));
-  if (vars.nEtoiles > 0) discParts.push(T(_pick(r, banques.obs_etoiles)));
-  var discussion = discParts.join(" ");
-
-  var limites = _pickN(r, banques.limites, 3).map(T).join("\\par\\smallskip\\noindent ");
-
-  var phraseSujet = T(_pick(r, banques.remerciements_sujet));
-  var remerciements = "L'auteur remercie le sujet " + phraseSujet + ", ainsi que " + T(_pick(r, banques.remerciements_divers));
-
-  var conflit = T(_pick(r, banques.conflit));
-  var financement = T(_pick(r, banques.financement));
-  var conclusion = _pickN(r, banques.conclusion, 2).map(T).join(" ");
-
-  var refs = banques.refs_fixes.slice(0, 3);
-  var exercises = exam.exercises || [];
-  if (exercises.length >= 1) {
-    refs.push("[" + (refs.length + 1) + "] Id., \\textit{" + escapeTex(exercises[0].title) + "}, in " +
-      escapeTex(nomDS || "le DS") + ", résultats partiels.");
-  }
-  if (exercises.length >= 2 && refs.length < 5) {
-    var autre = _pick(r, exercises);
-    refs.push("[" + (refs.length + 1) + "] Id., \\textit{" + escapeTex(autre.title) + "}, ibid., non concluant.");
-  }
-  refs = refs.slice(0, 5);
-
-  return { resume, motsCles, intro, methode, resultats, discussion, limites, remerciements, conflit, financement, conclusion, refs };
 }
 
 // ─── Gabarit papier (article de recherche, deux colonnes) ────────
 
 export function genererGabaritPapier(nomDS, dateDS, etab, theme) {
   var e = etab || ETABLISSEMENT;
-  var piedPage = [e.nom, e.classe, e.matricule].filter(Boolean).join(" - ");
+  var piedPage = [e.nom, e.classe, e.matricule].filter(Boolean).map(escapeTex).join(" - ");
   var t = LATEX_THEMES[theme] || LATEX_THEMES.cobalt;
   return `\\documentclass[a4paper,10pt,twocolumn]{article}
 \\usepackage[top=1.8cm,bottom=1.4cm,left=1.4cm,right=1.4cm,headheight=20pt]{geometry}
@@ -883,41 +1000,29 @@ export function genererGabaritPapier(nomDS, dateDS, etab, theme) {
 \\usepackage{graphicx}
 \\usepackage{xcolor}
 \\definecolor{accent}{RGB}{${t.accent}}
+\\definecolor{reussiteHaute}{HTML}{2A7A3A}
+\\definecolor{reussiteMoyenne}{HTML}{C07A10}
+\\definecolor{reussiteBasse}{HTML}{B03A2E}
 ${defCompColorsTex()}
 \\usepackage{tikz}
+\\usetikzlibrary{babel}
 \\usepackage{pgfplots}\\pgfplotsset{compat=newest}
-\\usepgfplotslibrary{polar}
-\\usepackage{tcolorbox}\\tcbuselibrary{skins,raster,breakable}
+\\usepgfplotslibrary{polar,statistics}
+\\usepackage{tcolorbox}\\tcbuselibrary{skins,breakable}
 \\usepackage{tabularray}\\UseTblrLibrary{booktabs}
-\\usepackage{lastpage}
+\\DefTblrTemplate{contfoot-text}{default}{Suite page suivante}
+\\DefTblrTemplate{conthead-text}{default}{(suite)}
 \\usepackage{fancyhdr}
-\\usepackage[colorlinks=true,urlcolor=accent!70!black]{hyperref}
+\\usepackage[colorlinks=true,urlcolor=accent!70!black,linkcolor=accent!70!black,citecolor=accent!70!black]{hyperref}
 \\usepackage{subcaption}
 \\usepackage{float}
-\\usepackage{multicol}
-\\usepackage{abstract}
-\\abstitlestyle{\\bfseries\\sffamily}
-\\setlength{\\absleftindent}{0pt}
-
-% — barre de plage min–moy–max pour un KPI (#1 min, #2 valeur élève, #3 max ; 0..1) —
-\\newcommand{\\rangebar}[3]{\\begin{tikzpicture}[baseline=-0.6ex]
-  \\draw[black!15,line width=3pt,line cap=round] (0,0)--(3.4,0);
-  \\draw[black!35] (#1*3.4,-1.6mm)--(#1*3.4,1.6mm);
-  \\draw[black!35] (#3*3.4,-1.6mm)--(#3*3.4,1.6mm);
-  \\fill[accent] (#2*3.4,0) circle (2.4pt);
-\\end{tikzpicture}}
-
-% — barre horizontale colorée (#1 label, #2 valeur 0..1, #3 couleur) —
-\\newcommand{\\compbar}[3]{\\makebox[2.7cm][l]{#1}%
-  \\begin{tikzpicture}[baseline=-0.4ex]
-    \\fill[black!8] (0,0) rectangle (6,0.26);
-    \\fill[#3]      (0,0) rectangle (#2*6,0.26);
-  \\end{tikzpicture}\\;\\small$#2$}
+\\raggedbottom
 
 \\pagestyle{fancy}
 \\fancyhf{}
-\\rfoot{${nomDS} du ${dateDS}}
+\\rfoot{${escapeTex(nomDS || "")}${dateDS ? " du " + escapeTex(dateDS) : ""}}
 \\lfoot{${piedPage}}
+\\cfoot{\\thepage}
 \\renewcommand{\\headrulewidth}{0.6pt}
 \\renewcommand{\\footrulewidth}{0.6pt}
 \\setlength{\\headheight}{15pt}
@@ -927,359 +1032,447 @@ ${defCompColorsTex()}
 `;
 }
 
-// ─── Rapport d'un élève — gabarit papier (article de recherche) ──
+// ─── Article de classe (un document pour toute la classe) ────────
 
-export function genererRapportElevePapier({
-  student, exam, grades, remarks, absents, allStudents, nomDS, dateDS,
-  seuils, seuilDifficile, seuilReussite, seuilPiege,
-  getNote20, rankMap, stats, malusPaliers, malusManuel,
-  commentaires, allRemarques,
-  soundLinksEnabled, soundBaseUrl, soundAudioExt,
-  bonusCompletConfig, clampQuestion = true,
-  features,
-  baremeLatex = true,
-  papierTextes,
+function _signe(d, precision) {
+  var p = precision === undefined ? 1 : precision;
+  return (d >= 0 ? "+" : "$-$") + num(Math.abs(d), p);
+}
+
+// Nom court (« DS 05 ») rendu insécable pour éviter « DS / 05 » en fin de ligne
+function _insecable(txt) {
+  return txt.length <= 14 ? txt.replace(/ /g, "~") : txt;
+}
+
+// « 1~exercice », « 3~exercices »
+function _pluriel(n, singulier, pluriel) {
+  return n + "~" + (n > 1 ? pluriel : singulier);
+}
+
+// Liste à la française : « A », « A et B », « A, B et C »
+function _listeFr(arr) {
+  if (arr.length <= 1) return arr.join("");
+  return arr.slice(0, -1).join(", ") + " et " + arr[arr.length - 1];
+}
+
+function _nomAuteur(s) {
+  var p = (s.prenom || "").trim(), n = (s.nom || "").trim();
+  if (!p && !n) return "co-auteur non identifié";
+  if (!n) return escapeTex(p);
+  return (p ? escapeTex(p) + "~" : "") + "\\textsc{" + escapeTex(n) + "}";
+}
+
+// Titre et revue d'un DS de la série : même rotation que dans son propre
+// article, ce qui permet de citer exactement l'article du DS précédent.
+function _enteteArticle(ctx, banques, vars) {
+  return {
+    titre: _tpl(_rot(ctx, banques, "titre"), vars),
+    revue: _rot(ctx, banques, "revue"),
+    type: _rot(ctx, banques, "type"),
+  };
+}
+
+/**
+ * Article pseudo-scientifique de classe pour un DS : document LaTeX complet
+ * (gabarit papier deux colonnes), compilable avec xelatex (deux passes).
+ * Aucune note ni aucun rang individuel ; seuls les co-auteurs honoraires
+ * (rang ≤ 5, ex-aequo inclus) sont nommés, par ordre alphabétique.
+ * absents : store complet { examId__studentId } ; allRemarques : toutes les
+ * remarques (fixes + personnalisées), comme pour le calcul des notes.
+ */
+export function genererArticleClasse({
+  exams, examId, students, grades, absents, groupes, remarks, malusManuel, allRemarques,
+  etablissement, nomDS, dateDS, commentaire, config, articleTextes, theme,
 }) {
-  var ft = features || { competences: true, coefficients: true, questionBonus: true, bonusComplet: true, malusAuto: true, questionPiege: true };
-  const noteNorm = getNote20(student.id);
-  const rang = rankMap[student.id] || "—";
-  const presents = allStudents.filter(s => !absents[s.id]);
-  const effectif = presents.length;
-  const compP = competencePct(grades, student.id, exam);
-  const e = ETABLISSEMENT;
+  var exam = (exams || []).find(function(x) { return x.id === examId; });
+  if (!exam) return "";
+  var cfg = Object.assign({ commentaire: true, parCompetence: true, parExercice: true, coauteurs: true, evolution: true, annexe: false, tirages: {} }, config || {});
+  var e = etablissement || ETABLISSEMENT;
+  var ft = Object.assign({}, DEFAULT_FEATURES, exam.features || {});
+  var B = _mergeBanques(_banquesArticleDefaut(), articleTextes);
+  var S = ARTICLE_SEUILS;
 
-  // Nombre de questions traitées / total (pour le moteur de texte)
-  const totalQuestions = exam.exercises.reduce((s, ex) => s + ex.questions.length, 0);
-  const nTraitees = exam.exercises.reduce((s, ex) => s + ex.questions.filter(q =>
-    q.items.some(it => grades[`${student.id}__${it.id}`]) || grades["treated_" + student.id + "_" + q.id]
-  ).length, 0);
-
-  // ── Observations chiffrées pour le moteur de texte ──
-  const moyClasse = presents.length ? presents.reduce((a, s) => a + getNote20(s.id), 0) / presents.length : 0;
-  const just = ratioJustesse(grades, student.id, exam);
-  const effi = ratioEfficacite(grades, student.id, exam);
-
-  // Rendement par exercice (part des points obtenus), pour le relief
-  const exPerf = [];
-  exam.exercises.forEach((ex) => {
-    const exT = ex.questions.reduce((s, q) =>
-      s + q.items.reduce((si, it) => it.negative ? si : si + (parseFloat(it.points) || 0), 0), 0);
-    const copies = presents.filter(s =>
-      ex.questions.some(q => q.items.some(it => grades[`${s.id}__${it.id}`]))).length;
-    if (!exT || !copies) return;
-    exPerf.push({ title: ex.title, pct: exerciseScore(grades, student.id, ex, bonusCompletConfig).earned / exT });
-  });
-  exPerf.sort((a, b) => b.pct - a.pct);
-
-  // Réussites sur questions difficiles (mêmes critères que le marqueur ★)
-  let nEtoiles = 0;
-  exam.exercises.forEach((ex) => ex.questions.forEach((q) => {
-    const sc = questionScore(grades, student.id, q, clampQuestion);
-    const aTraite = q.items.some(it => grades[`${student.id}__${it.id}`])
-      || grades["treated_" + student.id + "_" + q.id];
-    if (!aTraite) return;
-    const nbTraitants = presents.filter(s =>
-      q.items.some(it => grades[`${s.id}__${it.id}`])
-      || grades["treated_" + s.id + "_" + q.id]
-    ).length;
-    const taux = presents.length > 0 ? (nbTraitants / presents.length) * 100 : 0;
-    if (taux < seuilDifficile && sc.total > 0 && (sc.earned / sc.total) * 100 >= seuilReussite) nEtoiles++;
-  }));
-
-  // Compétence forte / faible (si le preset les affiche et le profil est contrasté)
-  let compForte = null, compFaible = null;
-  if (ft.competences) {
-    const cvals = COMPETENCES.map(c => ({ label: c.label, v: typeof compP[c.id] === "number" ? compP[c.id] : 0 }));
-    cvals.sort((a, b) => b.v - a.v);
-    if (cvals.length >= 2 && cvals[0].v - cvals[cvals.length - 1].v >= 0.15) {
-      compForte = cvals[0].label;
-      compFaible = cvals[cvals.length - 1].label;
-    }
+  var base = { students: students, grades: grades, absents: absents, groupes: groupes, remarks: remarks, malusManuel: malusManuel, allRemarques: allRemarques };
+  var cur = statsDS(Object.assign({ exam: exam }, base));
+  var nomCur = (nomDS !== undefined && nomDS !== null && nomDS !== "") ? nomDS : cur.nomDS;
+  var dateCur = (dateDS !== undefined && dateDS !== null && dateDS !== "") ? dateDS : cur.dateDS;
+  var doc = genererGabaritPapier(nomCur, dateCur, e, theme);
+  if (!cur.nCorriges) {
+    return doc + "Aucune copie corrigée pour ce DS : l'article attendra des données.\n\\end{document}\n";
   }
 
-  // Tranche de performance (tiers de la cohorte), pilote le ton de la discussion
-  const rangNum = typeof rang === "number" ? rang : Math.ceil(effectif / 2);
-  const tranche = effectif >= 3
-    ? (rangNum <= Math.ceil(effectif / 3) ? "haute"
-      : (rangNum > effectif - Math.floor(effectif / 3) ? "basse" : "moyenne"))
-    : "moyenne";
+  // La série (DS antérieurs corrigés) fixe toujours le numéro, la rotation
+  // des textes et la référence au numéro précédent ; les comparaisons
+  // (prev, evo) n'existent que si l'étude longitudinale est cochée.
+  var serie = serieDS(Object.assign({ exams: exams, examId: examId }, base));
+  var precedent = serie.length ? serie[serie.length - 1] : null;
+  var prev = cfg.evolution ? precedent : null;
+  var evo = prev ? evolution(prev, cur) : null;
+  var tirages = cfg.tirages || {};
+  var graine = (exams[0] && exams[0].id) || examId;
+  var ctx = { graine: graine, pas: serie.length, tirage: tirages[examId] || 0 };
 
-  // Label unique par élève : évite les \label dupliqués entre rapports
-  const figOverview = "fig:ov" + _graine(student.id + (nomDS || ""));
+  // ── Observations qui pilotent le ton ──
+  var niveau = cur.brut.moy >= S.niveauHaut ? "haute" : (cur.brut.moy < S.niveauBas ? "basse" : "moyenne");
+  var dispersion = cur.brut.sigma < S.sigmaHomogene ? "homogene" : (cur.brut.sigma > S.sigmaHeterogene ? "heterogene" : null);
+  var tendance = evo ? (evo.dMoyBrut > S.tendance ? "hausse" : (evo.dMoyBrut < -S.tendance ? "baisse" : "stable")) : null;
+  var stabilite = evo && evo.rho !== null
+    ? (evo.rho >= S.rhoStable ? "stable" : (evo.rho < S.rhoBrassage ? "brassage" : "modere")) : null;
+  var ecartStrat = cur.justesse - cur.efficacite;
+  var strategie = ecartStrat > S.strategie ? "tireurs" : (ecartStrat < -S.strategie ? "ratisseurs" : "equilibre");
 
-  const obs = {
-    contraste: exPerf.length >= 2
-      ? (exPerf[0].pct - exPerf[exPerf.length - 1].pct >= 0.25 ? "fort" : "homogene")
-      : null,
-    meilleurEx: exPerf.length ? escapeTex(exPerf[0].title) : "",
-    pctMeilleur: exPerf.length ? pct(exPerf[0].pct) : "",
-    pireEx: exPerf.length ? escapeTex(exPerf[exPerf.length - 1].title) : "",
-    pctPire: exPerf.length ? pct(exPerf[exPerf.length - 1].pct) : "",
-    nEtoiles,
-    just: pct(just), effi: pct(effi),
-    equilibre: just - effi > 0.1 ? "justesse" : (effi - just > 0.1 ? "efficacite" : "equilibre"),
-    compForte: compForte ? escapeTex(compForte) : null,
-    compFaible: compFaible ? escapeTex(compFaible) : null,
-    tranche,
-    figOverview,
+  var exIndex = {};
+  exam.exercises.forEach(function(ex, i) { exIndex[ex.id] = i + 1; });
+  function qRef(q) { return "question~" + escapeTex(q.label) + " de l'exercice~" + exIndex[q.exId]; }
+
+  var exOk = cur.exercices.filter(function(x) { return x.max > 0 && x.moyPct !== null; });
+  var exTries = exOk.slice().sort(function(a, b) { return b.moyPct - a.moyPct; });
+  var meilleur = exTries[0], pire = exTries[exTries.length - 1];
+  var contraste = exTries.length >= 2 ? (meilleur.moyPct - pire.moyPct >= S.contraste ? "fort" : "homogene") : null;
+
+  var qOk = cur.questions.filter(function(q) { return q.max > 0 && !q.bonus; });
+  var qReussie = qOk.filter(function(q) { return q.tauxTraitement >= 0.3 && q.tauxReussite !== null; })
+    .sort(function(a, b) { return b.tauxReussite - a.tauxReussite; })[0] || null;
+  var qDelaissee = qOk.filter(function(q) { return q.delaissee; })
+    .sort(function(a, b) { return a.tauxTraitement - b.tauxTraitement; })[0] || null;
+  var qPieges = ft.questionPiege ? qOk.filter(function(q) { return q.piege; }) : [];
+  var qDiscri = qOk.filter(function(q) { return q.discrimination !== null && q.tauxTraitement >= 0.2 && q.discrimination >= 0.3; })
+    .sort(function(a, b) { return b.discrimination - a.discrimination; })[0] || null;
+
+  var afficherComp = ft.competences && cfg.parCompetence;
+  var compsEval = COMPETENCES.filter(function(c) { return cur.comp[c.id] !== null; });
+  var compsTriees = compsEval.slice().sort(function(a, b) { return cur.comp[b.id] - cur.comp[a.id]; });
+  var compForte = null, compFaible = null;
+  if (compsTriees.length >= 2 && cur.comp[compsTriees[0].id] - cur.comp[compsTriees[compsTriees.length - 1].id] >= S.compContraste) {
+    compForte = compsTriees[0]; compFaible = compsTriees[compsTriees.length - 1];
+  }
+  var ftPrev = prev ? Object.assign({}, DEFAULT_FEATURES, (exams.find(function(x) { return x.id === prev.examId; }) || {}).features || {}) : null;
+  var compPrecDispo = !!(prev && ftPrev && ftPrev.competences);
+
+  var afficherCo = cfg.coauteurs && cur.nCorriges >= S.coauteursMin && cur.coauteurs.length > 0;
+  var coPrecAffiches = !!(prev && prev.nCorriges >= S.coauteursMin);
+  var nomsCo = cur.coauteurs.map(_nomAuteur);
+
+  var normMethod = cur.settings.normMethod || "none";
+  var np = cur.settings.normParams || {};
+  var nQuestions = exam.exercises.reduce(function(s, ex) { return s + ex.questions.length; }, 0);
+  var nItems = exam.exercises.reduce(function(s, ex) { return s + ex.questions.reduce(function(sq, q) { return sq + (q.items || []).length; }, 0); }, 0);
+  var classe = escapeTex(e.classe || "") || "la classe";
+
+  var vars = {
+    classe: classe,
+    ds: _insecable(escapeTex(nomCur || "DS")),
+    n: String(cur.nCorriges),
+    nEx: String(exam.exercises.length),
+    nExTxt: _pluriel(exam.exercises.length, "exercice", "exercices"),
+    nQ: String(nQuestions),
+    rangDS: String(serie.length + 1),
+    moyenne: num(cur.norm.moy), mediane: num(cur.norm.med), sigma: num(cur.norm.sigma),
+    moyBrute: num(cur.brut.moy), sigmaBrut: num(cur.brut.sigma),
+    partSup10: pct(cur.norm.partSup10),
+    dsPrec: precedent ? _insecable(escapeTex(precedent.nomDS || "DS précédent")) : "",
+    refPrec: precedent ? "\\cite{refprec}" : "",
+    nPrec: String(serie.length),
+    nPrecTxt: _pluriel(serie.length, "campagne préliminaire", "campagnes préliminaires"),
+    delta: evo ? _signe(evo.dMoyBrut) : "",
+    deltaAbs: evo ? num(Math.abs(evo.dMoyBrut)) : "",
+    moyCible: num(np.moyenneCible || 0), maxCible: num(np.maxCible || 20), sigmaCible: num(np.sigmaCible || 0),
+    nAbsents: String(cur.nAbsents),
+    nAbsentsTxt: _pluriel(cur.nAbsents, "sujet", "sujets"),
+    attrition: pct(cur.nInscrits ? cur.nAbsents / cur.nInscrits : 0),
+    meilleurEx: meilleur ? escapeTex(meilleur.title) : "", pctMeilleur: meilleur ? pct(meilleur.moyPct) : "",
+    pireEx: pire ? escapeTex(pire.title) : "", pctPire: pire ? pct(pire.moyPct) : "",
+    qReussie: qReussie ? qRef(qReussie) : "", pctReussie: qReussie ? pct(qReussie.tauxReussite) : "",
+    qDelaissee: qDelaissee ? qRef(qDelaissee) : "", pctDelaissee: qDelaissee ? pct(qDelaissee.tauxTraitement) : "",
+    qPieges: _listeFr(qPieges.map(qRef)), nPieges: String(qPieges.length),
+    nPiegesTxt: _pluriel(qPieges.length, "question piège", "questions pièges"),
+    qDiscri: qDiscri ? qRef(qDiscri) : "", rDiscri: qDiscri ? num(qDiscri.discrimination, 2) : "",
+    compForte: compForte ? escapeTex(compForte.label) : "", compFaible: compFaible ? escapeTex(compFaible.label) : "",
+    just: pct(cur.justesse), effi: pct(cur.efficacite),
+    rho: evo && evo.rho !== null ? num(evo.rho, 2) : "", nCommuns: evo ? String(evo.nCommuns) : "",
+    entrants: evo ? _listeFr(evo.entrants.map(_nomAuteur)) : "",
+    secRes: "section~\\ref{sec:resultats}",
+    tirage: String(ctx.tirage),
   };
+  var T = function(s) { return _tpl(s, vars); };
+  var R = function(cle) { return T(_rot(ctx, B, cle)); };
+  var RN = function(cle, n) { return _rotN(ctx, B, cle, n).map(T); };
 
-  const banques = _mergeBanques(papierTextes);
-  const textStats = {
-    note: num(noteNorm),
-    rang: typeof rang === "number" ? num(rang, 0) : rang,
-    effectif: num(effectif, 0),
-    moyenne: num(moyClasse),
-    nTraitees, totalQuestions,
-  };
-  const textes = _assemblerTextes(student, exam, nomDS, textStats, banques, obs);
+  var entete = _enteteArticle(ctx, B, vars);
+  var dateTxt = dateCur ? escapeTex(dateCur) : "le jour de l'épreuve";
+  var etabLigne = escapeTex([e.nom, e.classe].filter(Boolean).join(", "));
+  var tex = "";
 
-  let tex = "";
-  tex += `\\clearpage\n`;
-  // Remise à zéro des compteurs + numérotation arabe : chaque rapport est un
-  // article autonome, et le \appendix du rapport précédent ne doit pas fuir.
-  tex += `\\setcounter{section}{0}\\setcounter{figure}{0}\\setcounter{table}{0}\n`;
-  tex += `\\renewcommand{\\thesection}{\\arabic{section}}\n`;
-  tex += `\\lhead{${escapeTex(student.prenom)} ${escapeTex(student.nom)}}\n`;
+  // ── En-têtes de page ──
+  tex += `\\lhead{\\small\\sffamily ${classe} \\textperiodcentered\\ ${vars.ds}}\n`;
+  tex += `\\rhead{\\small\\sffamily\\itshape ${escapeTex(entete.revue)}}\n`;
 
-  // ── Titre + résumé pleine largeur ──
+  // ── Figure 1 : panneaux de la vue d'ensemble ──
+  var panneaux = [];
+  var notesFinales = cur.ids.map(function(id) { return cur.notes[id].norm; });
+  panneaux.push({ tex: _histoClasseTex(notesFinales, cur.norm.moy, cur.norm.med), leg: "Distribution des notes" });
+  var legendes = ["(a) distribution des notes /20 (trait plein : moyenne ; pointillés : médiane)"];
+  if (afficherComp && compsEval.length) {
+    panneaux.push({ tex: _radarCompetencesTex(cur.comp, compPrecDispo ? prev.comp : null), leg: "Par compétence" });
+    legendes.push("(" + "abc"[panneaux.length - 1] + ") taux de réussite par compétence" + (compPrecDispo ? " (pointillés gris : " + vars.dsPrec + ")" : ""));
+  }
+  if (prev) {
+    panneaux.push({ tex: _boitesSerieTex(serie.concat([cur]), nomCur), leg: "Campagnes successives" });
+    legendes.push("(" + "abc"[panneaux.length - 1] + ") notes brutes par campagne (boîtes : quartiles ; moustaches : 10\\textsuperscript{e} et 90\\textsuperscript{e} centiles ; losanges : moyennes)");
+  }
+  var largeur = panneaux.length === 3 ? "0.31" : (panneaux.length === 2 ? "0.46" : "0.6");
+
+  // ── Bloc titre pleine largeur ──
   tex += `\\twocolumn[{%\n`;
   tex += `  \\centering\n`;
-  tex += `  {\\fontsize{13}{15}\\selectfont\\bfseries\n`;
-  tex += `    \\'Etude exp\\'erimentale des performances de ${escapeTex(student.prenom)}~\\textsc{${escapeTex(student.nom)}}\\par}\n`;
-  tex += `  \\smallskip\n`;
+  tex += `  {\\footnotesize\\sffamily\\color{accent!75!black}\\textsc{${escapeTex(entete.revue)}} \\textperiodcentered\\ ${escapeTex(entete.type)} \\textperiodcentered\\ Vol.~${escapeTex(e.anneeScolaire || "1")}, n\\textsuperscript{o}~${serie.length + 1} \\textperiodcentered\\ {\\NoAutoSpacing doi:10.0000/check.${_graine(examId + "#" + ctx.tirage) % 100000}}\\par}\n`;
+  tex += `  \\vspace{1mm}\\rule{\\textwidth}{0.4pt}\\par\\medskip\n`;
+  tex += `  {\\fontsize{15}{18}\\selectfont\\bfseries ${entete.titre}\\par}\n`;
+  tex += `  \\medskip\n`;
   tex += `  {\\small S.~\\textsc{Correcteur}\\textsuperscript{1,$\\ast$}\\par}\n`;
-  tex += `  {\\footnotesize\\itshape \\textsuperscript{1}${escapeTex(e.nom)}, ${escapeTex(e.classe)}\\par}\n`;
+  if (afficherCo) {
+    tex += `  {\\footnotesize\\itshape avec la participation remarquée de\\par}\n`;
+    tex += `  {\\small ${nomsCo.map(function(x) { return x + "\\textsuperscript{2}"; }).join(", ")}\\par}\n`;
+  }
   tex += `  \\smallskip\n`;
-  tex += `  {\\scriptsize Re\\c{c}u~: ${escapeTex(dateDS || "")} \\textperiodcentered\\ Accept\\'e~: ${escapeTex(dateDS || "")} (proc\\'edure acc\\'el\\'er\\'ee) \\textperiodcentered\\ Publi\\'e~: le soir m\\^eme\\par}\n`;
-  tex += `  {\\scriptsize \\textsuperscript{$\\ast$}Auteur correspondant~: ${escapeTex(e.matricule || e.nom)}\\par}\n`;
+  tex += `  {\\footnotesize\\itshape \\textsuperscript{1}${etabLigne}${afficherCo ? `\\quad \\textsuperscript{2}Cohorte ${classe}, co-auteurs honoraires (ordre alphabétique)` : ""}\\par}\n`;
+  tex += `  {\\scriptsize Reçu~: ${dateTxt} \\textperiodcentered\\ Accepté~: ${dateTxt} (procédure accélérée) \\textperiodcentered\\ Publié~: le soir même\\par}\n`;
+  tex += `  {\\scriptsize \\textsuperscript{$\\ast$}Auteur correspondant~: ${escapeTex(e.matricule || e.nom || "")}\\par}\n`;
   tex += `  \\smallskip\n`;
   tex += `  \\rule{0.85\\linewidth}{0.4pt}\\par\\smallskip\n`;
+
+  // Résumé : ouverture + protocole + résultat + évolution + verdict
+  var resume = [R("ouverture"), R("resume_protocole"), R("resume_resultat")];
+  if (evo) resume.push(R("resume_evolution_" + tendance));
+  resume.push("Ces résultats sont " + R("verdict") + ".");
+  var mots = ["docimologie", "étude de cohorte"];
+  if (prev) mots.push("étude longitudinale");
+  exam.exercises.forEach(function(ex) {
+    var w = (ex.title || "").replace(/^\s*exercice\s*\d*\s*[:.\-–—]?\s*/i, "").trim().split(/\s+/).slice(0, 3).join(" ");
+    if (w) mots.push(w);
+  });
+  if (afficherComp) compsEval.forEach(function(c) { mots.push(c.label); });
+  mots = mots.filter(function(m, i) { return mots.indexOf(m) === i; }).slice(0, 6);
+
   tex += `  \\begin{minipage}{0.85\\linewidth}\n`;
-  tex += `    \\small\\textbf{R\\'esum\\'e.}\\ \\itshape ${textes.resume}\\par\n`;
+  tex += `    \\small\\textbf{Résumé.}\\ \\itshape ${resume.join(" ")}\\par\n`;
   tex += `    \\smallskip\n`;
-  tex += `    \\upshape\\textbf{Mots-cl\\'es~:}\\ ${textes.motsCles}\n`;
+  tex += `    \\upshape\\textbf{Mots-clés~:}\\ ${mots.map(escapeTex).join(" ; ")}\n`;
   tex += `  \\end{minipage}\\par\\medskip\n`;
-  // Figure d'ensemble non flottante, dans le bloc pleine largeur du titre :
-  // placement garanti sous le résumé (figure* n'accepte pas [H] en twocolumn).
+  // Figure d'ensemble non flottante dans le bloc titre (placement garanti)
   tex += `  \\begin{minipage}{\\textwidth}\n`;
-  if (ft.competences) {
-    tex += `  \\begin{minipage}[b]{0.30\\textwidth}\\centering\n${_radarCompetencesTex(compP)}\\\\[1mm]{\\footnotesize (a) Par comp\\'etence}\\end{minipage}\\hfill\n`;
-    tex += `  \\begin{minipage}[b]{0.33\\textwidth}\\centering\n${_distributionTex(presents, getNote20, noteNorm)}\\\\[1mm]{\\footnotesize (b) Distribution des notes}\\end{minipage}\\hfill\n`;
-    tex += `  \\begin{minipage}[b]{0.33\\textwidth}\\centering\n${_rankBarTex(presents, getNote20, student.id)}\\\\[1mm]{\\footnotesize (c) Classement}\\end{minipage}\n`;
-  } else {
-    tex += `  \\begin{minipage}[b]{0.48\\textwidth}\\centering\n${_distributionTex(presents, getNote20, noteNorm)}\\\\[1mm]{\\footnotesize (a) Distribution des notes}\\end{minipage}\\hfill\n`;
-    tex += `  \\begin{minipage}[b]{0.48\\textwidth}\\centering\n${_rankBarTex(presents, getNote20, student.id)}\\\\[1mm]{\\footnotesize (b) Classement}\\end{minipage}\n`;
-  }
+  panneaux.forEach(function(p, i) {
+    tex += `  \\begin{minipage}[b]{${largeur}\\textwidth}\\centering\n${p.tex}\\\\[1mm]{\\footnotesize (${"abc"[i]}) ${p.leg}}\\end{minipage}`;
+    tex += i < panneaux.length - 1 ? `\\hfill\n` : `\n`;
+  });
   tex += `  \\par\\smallskip\n`;
-  tex += `  \\captionof{figure}{Vue d'ensemble des performances du sujet relativement \\\`a la cohorte.}\n`;
-  tex += `  \\label{${figOverview}}\n`;
+  tex += `  \\captionof{figure}{Vue d'ensemble de la campagne : ${legendes.join(" ; ")}.}\n`;
+  tex += `  \\label{fig:ensemble}\n`;
   tex += `  \\end{minipage}\\par\\medskip\n`;
   tex += `}]\n`;
 
-  // ── Introduction ──
-  tex += `\\section{Introduction}\n${textes.intro}\n\n`;
+  // ── Points clés ──
+  var points = [];
+  points.push(`Moyenne de cohorte~: ${vars.moyenne}/20 (médiane ${vars.mediane}/20)` +
+    (evo ? `, soit ${vars.delta}~pt de moyenne brute depuis le ${vars.dsPrec}.` : "."));
+  if (contraste) points.push(`Exercice le mieux réussi~: \\og ${vars.meilleurEx}\\fg{} (${vars.pctMeilleur}).`);
+  if (cfg.parExercice) {
+    if (qPieges.length) points.push(`${vars.nPiegesTxt[0].toUpperCase() + vars.nPiegesTxt.slice(1)}~: ${vars.qPieges}.`);
+    else if (qDelaissee) points.push(`Question la plus délaissée~: ${vars.qDelaissee} (${vars.pctDelaissee} de traitement).`);
+  }
+  if (afficherComp && compForte) points.push(`Compétence la plus solide~: ${vars.compForte}~; la plus fragile~: ${vars.compFaible}.`);
+  if (evo && evo.rho !== null) points.push(`Stabilité du classement~: $\\rho$~=~${vars.rho}.`);
+  tex += `\\begin{tcolorbox}[colback=accent!4, colframe=accent!70!black, boxrule=0.5pt, arc=2pt, left=3pt, right=3pt, top=2pt, bottom=2pt,\n`;
+  tex += `  title={Points clés}, fonttitle=\\bfseries\\sffamily\\small, coltitle=white, colbacktitle=accent!75!black]\n`;
+  tex += `\\small\\begin{itemize}\\setlength{\\itemsep}{1pt}\\setlength{\\parskip}{0pt}\n`;
+  points.slice(0, 4).forEach(function(p) { tex += `\\item ${p}\n`; });
+  tex += `\\end{itemize}\n\\end{tcolorbox}\n\n`;
 
-  // ── Matériel et méthodes ──
-  tex += `\\section{Mat\\'eriel et m\\'ethodes}\n${textes.methode}\n\n`;
-
-  // ── Résultats ──
-  tex += `\\section{R\\'esultats}\n${textes.resultats}\n\n`;
-
-  // ── Tableaux par exercice (logique identique au gabarit bento) ──
-  // Les histogrammes sont collectés ici puis émis en une seule figure*
-  // pleine largeur après les tableaux (option C1).
-  var legendeEmise = false;
-  var histFigs = [];
-  exam.exercises.forEach((ex) => {
-    const exT = ex.questions.reduce((s, q) =>
-      s + q.items.reduce((si, it) => it.negative ? si : si + (parseFloat(it.points) || 0), 0), 0);
-    const copies = presents.filter(s =>
-      ex.questions.some(q => q.items.some(it => grades[`${s.id}__${it.id}`]))).length;
-    if (copies === 0) return;
-
-    const enotes = presents.map(s => exerciseScore(grades, s.id, ex, bonusCompletConfig).earned);
-    const emoy = enotes.reduce((a, b) => a + b, 0) / enotes.length;
-    const emin = Math.min(...enotes);
-    const emax = Math.max(...enotes);
-    const stuExScore = exerciseScore(grades, student.id, ex, bonusCompletConfig).earned;
-
-    const nbBins = Math.ceil(exT) + 1;
-    const histBins = Array.from({ length: nbBins }, () => 0);
-    enotes.forEach(n => histBins[Math.min(nbBins - 1, Math.floor(n))]++);
-    const maxBin = Math.max(...histBins, 1);
-
-    if (!legendeEmise) {
-      tex += `\\smallskip\\noindent{\\footnotesize\\sffamily\\textbf{L\\'egende~:}\\quad `;
-      tex += `$\\bigstar$~r\\'eussite sur question difficile\\quad `;
-      if (ft.questionPiege) tex += `$\\triangle$~question pi\\\`ege\\quad `;
-      tex += `$\\dagger$~question bonus}\\par\\smallskip\n`;
-      legendeEmise = true;
-    }
-
-    tex += `\\begin{table}[H]\n`;
-    tex += `\\caption{${escapeTex(ex.title)} \\textemdash\\ ${num(stuExScore)}\\,/\\,${num(exT)}}\n`;
-    tex += `\\centering\n`;
-    tex += `\\begin{tblr}{colspec={Q[l,wd=2.1cm]Q[c,wd=1.4cm]X[l]},\n`;
-    tex += `  row{1}={font=\\bfseries\\footnotesize}, row{odd}={bg=black!3},\n`;
-    tex += `  rowsep=2pt, hline{1,2,Z}={0.4pt,black!40}}\n`;
-    tex += `Q. & Note & Commentaire \\\\\n`;
-
-    ex.questions.forEach(q => {
-      const sc = questionScore(grades, student.id, q, clampQuestion);
-      const aTraite = q.items.some(it => grades[`${student.id}__${it.id}`])
-        || grades["treated_" + student.id + "_" + q.id];
-      if (!aTraite) return;
-
-      const nbTraitants = presents.filter(s =>
-        q.items.some(it => grades[`${s.id}__${it.id}`])
-        || grades["treated_" + s.id + "_" + q.id]
-      ).length;
-      const tauxTraitement = presents.length > 0 ? (nbTraitants / presents.length) * 100 : 0;
-      const estDifficile = tauxTraitement < seuilDifficile;
-      const estPiege = tauxTraitement >= 50 && sc.total > 0 && (sc.earned / sc.total) * 100 < (seuilPiege || 30);
-
-      const pctReussite = sc.total > 0 ? (sc.earned / sc.total) * 100 : 0;
-      const estReussie = pctReussite >= seuilReussite;
-      const marqueurEtoile = estDifficile && estReussie ? " \\textbf{$\\bigstar$}" : "";
-      const marqueurPiege = (ft.questionPiege && estPiege) ? " \\textbf{$\\triangle$}" : "";
-      const marqueurBonus = q.bonus ? " \\textbf{$\\dagger$}" : "";
-
-      const bold = estDifficile ? "\\bfseries " : estPiege ? "\\color{orange}\\bfseries " : "";
-      const remKey = `${student.id}__${q.id}`;
-
-      var qLabelTex;
-      if (soundLinksEnabled && soundBaseUrl) {
-        var audioUrl = soundBaseUrl + buildAudioFilename(nomDS, student.nom, ex.title, q.label, soundAudioExt || "webm");
-        qLabelTex = `\\href{${audioUrl}}{\\textcolor{blue!50!black}{${escapeTex(q.label)}}}`;
-      } else {
-        qLabelTex = escapeTex(q.label);
-      }
-      const badges = ft.competences && q.competences && q.competences.length
-        ? `\\;${_compBadgesTex(q.competences)}` : "";
-      tex += `${bold}${qLabelTex}${marqueurBonus}${marqueurEtoile}${marqueurPiege}${badges} & ${num(sc.earned)}/${num(sc.total)} & ${encodeRemarks(remarks[remKey], allRemarques)} \\\\\n`;
-    });
-
-    tex += `\\end{tblr}\n`;
-    tex += `\\end{table}\n\n`;
-
-    histFigs.push({ title: ex.title, nbBins, histBins, maxBin, stuExScore, copies, emin, emax, emoy });
-  });
-
-  // ── Histogrammes par exercice, regroupés en une figure pleine largeur ──
-  if (histFigs.length > 0) {
-    tex += `\\begin{figure*}[!tp]\n\\centering\n`;
-    histFigs.forEach((h, i) => {
-      tex += `\\begin{subfigure}[t]{0.31\\textwidth}\\centering\n`;
-      tex += `\\begin{tikzpicture}\n`;
-      tex += `\\begin{axis}[\n`;
-      tex += `  ybar, bar width=0.7,\n`;
-      tex += `  ymin=0, ymax=${h.maxBin + 2},\n`;
-      tex += `  xmin=-0.5, xmax=${h.nbBins - 0.5},\n`;
-      tex += `  xlabel={Note}, ylabel={Effectif},\n`;
-      tex += `  label style={font=\\footnotesize},\n`;
-      tex += `  tick label style={font=\\scriptsize},\n`;
-      tex += `  width=\\linewidth, height=3.8cm,\n`;
-      tex += `  area style\n`;
-      tex += `]\n`;
-      tex += `\\addplot+[ybar interval,mark=no,fill=accent!35,draw=accent!60] coordinates {`;
-      for (let k = 0; k < h.nbBins; k++) tex += `(${k},${h.histBins[k]})`;
-      tex += `(${h.nbBins},0)};\n`;
-      tex += `\\draw[red, thick, dashed] (axis cs:${h.stuExScore.toFixed(1)},0) -- (axis cs:${h.stuExScore.toFixed(1)},${h.maxBin + 1});\n`;
-      tex += `\\end{axis}\n`;
-      tex += `\\end{tikzpicture}\n`;
-      tex += `\\caption{${escapeTex(h.title)} \\textemdash\\ moy~${num(h.emoy)}, min~${num(h.emin)}, max~${num(h.emax)} (${h.copies}~copies)}\n`;
-      tex += `\\end{subfigure}`;
-      tex += (i === histFigs.length - 1) ? `\n` : (i % 3 === 2 ? `\\\\[4mm]\n` : `\\hfill\n`);
-    });
-    tex += `\\caption{Scores par exercice au sein de la cohorte ; le trait pointill\\'e rouge marque le score du sujet.}\n`;
-    tex += `\\end{figure*}\n\n`;
+  // ── Note de l'éditeur (commentaire du DS) ──
+  var com = (commentaire || "").trim();
+  if (cfg.commentaire && com) {
+    tex += `\\begin{tcolorbox}[colback=black!3, colframe=black!35, boxrule=0.4pt, arc=2pt, left=3pt, right=3pt, top=2pt, bottom=2pt,\n`;
+    tex += `  title={Note de l'éditeur}, fonttitle=\\bfseries\\sffamily\\small, coltitle=black, colbacktitle=black!10]\n`;
+    tex += `\\small\\itshape ${escapeTex(com).split(/\n+/).join("\\par ")}\n`;
+    tex += `\\end{tcolorbox}\n\n`;
   }
 
-  // ── Discussion ──
-  tex += `\\section{Discussion}\n`;
-  tex += `\\subsection{Interpr\\'etation}\n${textes.discussion}\n\n`;
-  tex += `\\subsection{Limites de l'\\'etude}\n${textes.limites}\n\n`;
+  // ── 1. Introduction ──
+  tex += `\\section{Introduction}\n${RN("intro", 2).join(" ")} ${R(precedent ? "intro_serie" : "intro_premiere")}\n\n`;
 
-  // ── Conclusion ──
-  tex += `\\section{Conclusion et perspectives}\n${textes.conclusion}\n\n`;
+  // ── 2. Matériel et méthodes ──
+  tex += `\\section{Matériel et méthodes}\n`;
+  var pop = `\\paragraph{Population.} La population étudiée compte ${cur.nInscrits}~sujets inscrits, dont ${cur.nPresents}~présents le jour de l'épreuve ; ${cur.nCorriges}~copies ont été analysées`;
+  pop += cur.nCorriges < cur.nPresents ? ` (les copies non encore corrigées sont exclues de l'analyse). ` : `. `;
+  pop += cur.nAbsents > 0 ? R("methode_attrition") : R("methode_complet");
+  tex += pop + `\n\n`;
+  var coeffs = exam.exercises.some(function(ex) { return ex.coeff !== undefined && ex.coeff !== 1; });
+  var bonus = exam.exercises.some(function(ex) { return ex.questions.some(function(q) { return q.bonus; }); });
+  var proto = `\\paragraph{Protocole.} L'épreuve comporte ${vars.nExTxt}, ${_pluriel(nQuestions, "question", "questions")} et ${_pluriel(nItems, "item", "items")}, pour un barème total de ${num(examTotalWeighted(exam))}~points`;
+  proto += coeffs ? ` après pondération des exercices par des coefficients.` : `.`;
+  if (bonus) proto += ` Des questions bonus, hors barème, permettent aux sujets les plus audacieux de dépasser le maximum théorique.`;
+  tex += `${proto} ${R("methode")}\n\n`;
+  var trait = `\\paragraph{Traitement des données.} ${R("methode_norm_" + (B["methode_norm_" + normMethod] ? normMethod : "none"))}`;
+  if (ft.malusAuto && (cur.settings.malusPaliers || []).length) {
+    trait += ` Les manquements à la présentation sont sanctionnés par un malus appliqué ${cur.settings.malusMode === "avant" ? "avant" : "après"} la normalisation, conformément au règlement intérieur de la revue.`;
+  }
+  trait += ` Une question est dite \\textit{délaissée} lorsqu'elle est traitée par moins de ${pct(cur.settings.seuilDifficile / 100)} des sujets`;
+  trait += ft.questionPiege
+    ? `, et \\textit{piège} lorsqu'elle est traitée par au moins la moitié d'entre eux mais réussie à moins de ${pct(cur.settings.seuilPiege / 100)}.`
+    : `.`;
+  tex += trait + `\n\n`;
 
-  // ── Remerciements / conflit / financement ──
-  tex += `\\section*{Remerciements}\n${textes.remerciements}\n\n`;
-  tex += `\\section*{Conflit d'int\\'er\\^ets}\n${textes.conflit}\n\n`;
-  tex += `\\section*{Financement}\n${textes.financement}\n\n`;
+  // ── 3. Résultats ──
+  tex += `\\section{Résultats}\\label{sec:resultats}\n`;
+  tex += `\\subsection{Distribution des notes}\n`;
+  var dist = `La moyenne de cohorte s'établit à ${vars.moyenne}/20 (médiane ${vars.mediane}/20, écart-type ${vars.sigma}~pt, quartiles ${num(cur.norm.q1)} et ${num(cur.norm.q3)}) ; ${vars.partSup10} des copies atteignent ou dépassent 10/20 (figure~\\ref{fig:ensemble}a).`;
+  if (normMethod !== "none") dist += ` Avant normalisation, la moyenne brute était de ${vars.moyBrute}/20.`;
+  dist += ` ${R("res_niveau_" + niveau)}`;
+  if (dispersion) dist += ` ${R("res_dispersion_" + dispersion)}`;
+  tex += dist + `\n\n`;
 
-  // ── Bibliographie ──
+  if (cfg.parExercice) {
+    tex += `\\subsection{Analyse par exercice}\n`;
+    tex += `Le tableau~\\ref{tab:exercices} résume les indicateurs par exercice et la figure~\\ref{fig:questions} en détaille la réussite question par question.`;
+    if (contraste === "fort") tex += ` ${R("res_contraste")}`;
+    else if (contraste === "homogene") tex += ` ${R("res_homogene")}`;
+    tex += `\n\n`;
+    tex += `\\begin{table}[H]\n\\centering\n\\caption{Indicateurs par exercice (moyenne : part du barème obtenue ; traitement : part des copies ayant abordé l'exercice).}\\label{tab:exercices}\n`;
+    tex += `\\begin{tblr}{colspec={X[l]Q[c]Q[c]Q[c]}, width=\\linewidth, rows={font=\\footnotesize}, row{1}={font=\\bfseries\\footnotesize},\n`;
+    tex += `  row{even}={bg=black!3}, rowsep=1.5pt, hline{1,2,Z}={0.4pt,black!40}}\n`;
+    tex += `Exercice & Barème & Moyenne & Traitement \\\\\n`;
+    cur.exercices.forEach(function(x) {
+      var bareme = num(x.max) + (x.coeff !== 1 ? `\\,($\\times$${num(x.coeff, 1)})` : "");
+      tex += `${escapeTex(x.title)} & ${bareme} & ${x.moyPct !== null ? pct(x.moyPct) : "--"} & ${pct(x.tauxTraitement)} \\\\\n`;
+    });
+    tex += `\\end{tblr}\n\\end{table}\n\n`;
+
+    tex += `\\subsection{Questions remarquables}\n`;
+    var remarquables = [];
+    if (qReussie) remarquables.push(R("res_reussie"));
+    if (qDelaissee) remarquables.push(R("res_delaissee"));
+    if (qPieges.length) remarquables.push(R("res_piege"));
+    if (qDiscri) remarquables.push(R("res_discriminante"));
+    tex += (remarquables.length ? remarquables.join(" ") : "Aucune question ne se distingue suffisamment pour mériter une mention, ce qui constitue en soi une forme de distinction.") + `\n\n`;
+
+    // Figure 2 : réussite par question, un panneau par exercice
+    var parEx = exam.exercises.map(function(ex) {
+      return { title: ex.title || "", qs: cur.questions.filter(function(q) { return q.exId === ex.id; }) };
+    }).filter(function(x) { return x.qs.length > 0; });
+    if (parEx.length) {
+      tex += `\\begin{figure*}[!tp]\n\\centering\n`;
+      parEx.forEach(function(x, i) {
+        tex += `\\begin{subfigure}[t]{0.48\\textwidth}\\centering\n${_barresQuestionsTex(x.qs, ft)}\\caption{${escapeTex(x.title)}}\n\\end{subfigure}`;
+        tex += i === parEx.length - 1 ? `\n` : (i % 2 === 1 ? `\\\\[3mm]\n` : `\\hfill\n`);
+      });
+      tex += `\\caption{Réussite par question. Barres : part des points obtenus par les sujets ayant abordé la question ; losanges : taux de traitement. $\\bullet$~question délaissée${ft.questionPiege ? " ; $\\triangle$~question piège" : ""} ; $\\dagger$~question bonus.}\\label{fig:questions}\n`;
+      tex += `\\end{figure*}\n\n`;
+    }
+  }
+
+  if (afficherComp && compsEval.length) {
+    tex += `\\subsection{Profil de compétences}\n`;
+    tex += `Les taux de réussite par compétence (figure~\\ref{fig:ensemble}b) s'établissent comme suit~: ${_listeFr(compsEval.map(function(c) { return escapeTex(c.label) + " " + pct(cur.comp[c.id]); }))}. `;
+    tex += (compForte ? R("res_comp") : R("res_comp_equilibre")) + `\n\n`;
+  }
+
+  tex += `\\subsection{Stratégies de composition}\n`;
+  tex += `La figure~\\ref{fig:phase} représente chaque copie dans le plan efficacité--justesse~: l'efficacité mesure la part du barème abordée, la justesse la part des points obtenus sur ce qui a été abordé. En moyenne, la cohorte aborde ${vars.effi} du sujet avec une justesse de ${vars.just}. ${R("res_strategie_" + strategie)}\n\n`;
+  tex += `\\begin{figure}[H]\n\\centering\n${_phaseTex(cur.strategies, cur.justesse, cur.efficacite)}`;
+  tex += `\\caption{Diagramme de phase justesse--efficacité~: un point par copie, anonyme ; pointillés~: moyennes de la cohorte.}\\label{fig:phase}\n\\end{figure}\n\n`;
+
+  // ── 4. Étude longitudinale ──
+  if (prev) {
+    tex += `\\section{Étude longitudinale}\n`;
+    var longi = `Le tableau~\\ref{tab:serie} rassemble les indicateurs des ${serie.length + 1}~campagnes disponibles ; la figure~\\ref{fig:ensemble}${"abc"[panneaux.length - 1]} en donne une représentation graphique. `;
+    longi += `Entre le ${vars.dsPrec} et le ${vars.ds}, la moyenne brute passe de ${num(prev.brut.moy)} à ${vars.moyBrute}/20 (${vars.delta}~pt) et la couverture moyenne du sujet de ${pct(prev.efficacite)} à ${vars.effi}.`;
+    if (normMethod !== "none" || (prev.settings.normMethod || "none") !== "none") {
+      longi += ` En notes normalisées, l'écart est de ${_signe(evo.dMoyNorm)}~pt.`;
+    }
+    longi += ` ${R("evo_prudence")}`;
+    if (afficherComp && compPrecDispo) {
+      var dComps = COMPETENCES.filter(function(c) { return evo.dComp[c.id] !== null; })
+        .sort(function(a, b) { return Math.abs(evo.dComp[b.id]) - Math.abs(evo.dComp[a.id]); });
+      if (dComps.length && Math.abs(evo.dComp[dComps[0].id]) >= 0.05) {
+        longi += ` Côté compétences, l'évolution la plus marquée concerne ${escapeTex(dComps[0].label)} (${_signe(evo.dComp[dComps[0].id] * 100, 0)}~points de pourcentage).`;
+      }
+    }
+    tex += longi + `\n\n`;
+    if (stabilite) tex += `${R("evo_classement_" + stabilite)}\n\n`;
+    if (afficherCo && coPrecAffiches) {
+      tex += `${evo.retenus}~des ${evo.nCoauteursPrec}~co-auteurs honoraires du numéro précédent conservent leur signature.`;
+      if (evo.entrants.length) tex += ` ${R("evo_entrants")}`;
+      tex += `\n\n`;
+    }
+    tex += `\\begin{table}[H]\n\\centering\n\\caption{Indicateurs des campagnes successives (notes brutes /20 ; couverture : part du barème abordée).}\\label{tab:serie}\n`;
+    tex += `\\begin{tblr}{colspec={X[l]Q[c]Q[c]Q[c]Q[c]Q[c]}, width=\\linewidth, rows={font=\\footnotesize}, row{1}={font=\\bfseries\\footnotesize},\n`;
+    tex += `  row{Z}={font=\\bfseries\\footnotesize}, rowsep=1.5pt, hline{1,2,Z}={0.4pt,black!40}}\n`;
+    tex += `DS & $n$ & Moy. & Méd. & $\\sigma$ & Couv. \\\\\n`;
+    serie.concat([cur]).forEach(function(st, i) {
+      var nom = i === serie.length ? nomCur : st.nomDS;
+      tex += `${escapeTex(nom || "DS")} & ${st.nCorriges} & ${num(st.brut.moy)} & ${num(st.brut.med)} & ${num(st.brut.sigma)} & ${pct(st.efficacite)} \\\\\n`;
+    });
+    tex += `\\end{tblr}\n\\end{table}\n\n`;
+  }
+
+  // ── 5. Discussion ──
+  tex += `\\section{Discussion}\n${R("disc_" + (tendance || (precedent ? "neutre" : "premiere")))}\n\n`;
+  tex += `\\subsection{Limites de l'étude}\n${RN("limites", 3).join("\\par\\smallskip\\noindent ")}\n\n`;
+
+  // ── 6. Conclusion ──
+  tex += `\\section{Conclusion et perspectives}\n${RN("conclusion", 2).join(" ")}\n\n`;
+
+  // ── Fin d'article (mentions compactes, comme dans une revue) ──
+  var mention = function(titre, texte) { return `\\noindent\\textbf{${titre}.}~${texte}\\par\\smallskip\n`; };
+  tex += `\\par\\medskip\\noindent\\rule{\\columnwidth}{0.4pt}\\par\\smallskip\n{\\small\n`;
+  tex += mention("Remerciements", `L'auteur remercie les ${cur.nCorriges}~sujets de la cohorte pour leur participation à l'étude, ainsi que ${R("remerciements_divers")}`);
+  tex += mention("Contributions des auteurs", `S.~\\textsc{Correcteur}~: conceptualisation, méthodologie, correction, rédaction, café.${afficherCo ? " " + R("credit_coauteurs") : ""}`);
+  tex += mention("Conflit d'intérêts", R("conflit"));
+  tex += mention("Financement", R("financement"));
+  tex += mention("Disponibilité des données", R("donnees"));
+  tex += mention("Rapport du relecteur n\\textsuperscript{o}~2", R("relecteur2"));
+  if (ctx.tirage > 0) tex += mention("Erratum", R("erratum"));
+  tex += `}\n\n`;
+
+  // ── Références ──
   tex += `\\begin{thebibliography}{9}\n`;
-  textes.refs.forEach(ref => {
-    const m = ref.match(/^\[(\d+)\]\s*(.*)$/);
-    // Clé unique par élève : évite les \bibitem dupliqués entre rapports
-    if (m) tex += `\\bibitem[${m[1]}]{ref${m[1]}x${_graine(student.id + (nomDS || ""))}} ${m[2]}\n`;
-  });
+  RN("refs_fixes", 2).forEach(function(ref, i) { tex += `\\bibitem{reffixe${i + 1}} ${ref}\n`; });
+  if (precedent) {
+    var ctxPrec = { graine: graine, pas: serie.length - 1, tirage: tirages[precedent.examId] || 0 };
+    var varsPrec = Object.assign({}, vars, { ds: _insecable(escapeTex(precedent.nomDS || "DS")), n: String(precedent.nCorriges) });
+    var entetePrec = _enteteArticle(ctxPrec, B, varsPrec);
+    tex += `\\bibitem{refprec} S.~\\textsc{Correcteur}, \\og ${entetePrec.titre}\\fg, \\textit{${escapeTex(entetePrec.revue)}}, vol.~${escapeTex(e.anneeScolaire || "1")}, n\\textsuperscript{o}~${serie.length}.\n`;
+  }
+  if (exam.exercises.length) {
+    tex += `\\bibitem{refex} S.~\\textsc{Correcteur}, \\textit{${escapeTex(exam.exercises[0].title || "Exercice 1")}}, in ${vars.ds}, résultats partiels.\n`;
+  }
   tex += `\\end{thebibliography}\n`;
 
-  // ── Annexe : barème détaillé (hors twocolumn pour le longtblr) ──
-  const tousItems = exam.exercises.flatMap(ex => {
-    const qItems = ex.questions.flatMap(q => {
-      const aTraite = q.items.some(it => grades[`${student.id}__${it.id}`])
-        || grades["treated_" + student.id + "_" + q.id];
-      if (!aTraite) return [];
-      return q.items
-        .filter(it => !it.negative || !!grades[`${student.id}__${it.id}`])
-        .map(it => ({
-          exTitle: ex.title,
-          qLabel: q.label,
-          bonus: q.bonus,
-          label: it.label,
-          earned: grades[`${student.id}__${it.id}`] ? (parseFloat(it.points) || 0) : 0,
-          total: parseFloat(it.points) || 0,
-          negative: !!it.negative,
-          isBonusComplet: false,
-        }));
-    });
-    if (ex.bonusComplet && bonusCompletConfig) {
-      const bonusPts = bonusCompletPoints(grades, student.id, ex, bonusCompletConfig);
-      if (bonusPts > 0) {
-        qItems.push({
-          exTitle: ex.title, qLabel: null, bonus: false,
-          label: "Bonus exercice complet",
-          earned: bonusPts, total: bonusPts, isBonusComplet: true,
-        });
+  // ── Annexe : indicateurs par question, groupés par exercice ──
+  if (cfg.annexe && cur.questions.length) {
+    var nCol = ft.competences ? 6 : 5;
+    tex += `\\onecolumn\n\\appendix\n\\section{Données supplémentaires}\n`;
+    tex += `Le tableau~\\ref{tab:annexe} détaille les indicateurs de chaque question. Le traitement est la part des copies ayant abordé la question ; la réussite, la part des points obtenus par les sujets qui l'ont abordée. $\\bullet$~question délaissée${ft.questionPiege ? " ; $\\triangle$~question piège" : ""} ; $\\dagger$~question bonus.\n\n`;
+    tex += `\\begin{longtblr}[caption={Indicateurs par question.}, label={tab:annexe}]{colspec={Q[l]${ft.competences ? "Q[l]" : ""}Q[c]Q[c]Q[c]Q[c]},\n`;
+    tex += `  rowhead=1, row{1}={font=\\bfseries\\footnotesize, bg=accent!12}, rows={font=\\footnotesize},\n`;
+    tex += `  rowsep=1.5pt, hline{1,2,Z}={0.4pt,black!40}}\n`;
+    tex += `Question & ${ft.competences ? "Comp. & " : ""}Barème & Traitement & Réussite & \\\\\n`;
+    var exCourant = null;
+    cur.questions.forEach(function(q) {
+      if (q.exId !== exCourant) {
+        exCourant = q.exId;
+        tex += `\\SetCell[c=${nCol}]{l, bg=accent!8} \\textbf{${escapeTex(q.exTitle)}}${" &".repeat(nCol - 1)} \\\\\n`;
       }
-    }
-    return qItems;
-  });
-
-  if (baremeLatex && tousItems.length > 0) {
-    tex += `\\newpage\\onecolumn\n`;
-    tex += `\\appendix\n`;
-    tex += `\\section{Bar\\\`eme d\\'etaill\\'e}\n`;
-    tex += `\\begin{longtblr}{colspec={X[l]Q[c,wd=1.4cm]Q[c,wd=1.4cm]},\n`;
-    tex += `  rowhead=1, row{1}={font=\\bfseries\\footnotesize, bg=accent!12},\n`;
-    tex += `  row{even}={bg=black!3}, rowsep=1.5pt, hline{1,2,Z}={0.4pt,black!40}}\n`;
-    tex += `{\\footnotesize Item} & {\\footnotesize /pts} & {\\footnotesize obt.} \\\\\n`;
-    let lastEx = null;
-    tousItems.forEach(it => {
-      if (it.exTitle !== lastEx) {
-        tex += `\\SetCell[c=3]{l, bg=accent!8} {\\footnotesize\\textbf{${escapeTex(it.exTitle)}}} & & \\\\\n`;
-        lastEx = it.exTitle;
-      }
-      if (it.isBonusComplet) {
-        tex += `{\\footnotesize \\textcolor{green!50!black}{\\textbf{$\\bigstar$\\ ${escapeTex(it.label)}}}} & {\\footnotesize +${num(it.total)}} & {\\footnotesize \\textcolor{green!50!black}{+${num(it.earned)}}} \\\\\n`;
-      } else if (it.negative) {
-        tex += `{\\footnotesize \\textcolor{red!60!black}{$-$\\ [Q.${escapeTex(it.qLabel)}] ${escapeTex(it.label)}}} & {\\footnotesize \\textcolor{red!60!black}{${num(it.total, 1)}}} & {\\footnotesize \\textcolor{red!60!black}{${num(it.earned, 1)}}} \\\\\n`;
-      } else {
-        const bonusMark = it.bonus ? " {\\small$\\dagger$}" : "";
-        const check = it.earned > 0 ? "$\\surd$\\ " : "\\phantom{$\\surd$}\\ ";
-        tex += `{\\footnotesize ${check}[Q.${escapeTex(it.qLabel)}${bonusMark}] ${escapeTex(it.label)}} & {\\footnotesize ${num(it.total)}} & {\\footnotesize ${num(it.earned)}} \\\\\n`;
-      }
+      var marques = [];
+      if (q.delaissee) marques.push("$\\bullet$");
+      if (ft.questionPiege && q.piege) marques.push("$\\triangle$");
+      if (q.bonus) marques.push("$\\dagger$");
+      tex += `${escapeTex(q.label)} & ${ft.competences ? _compBadgesTex(q.competences) + " & " : ""}${num(q.max)} & ${pct(q.tauxTraitement)} & ${q.tauxReussite !== null ? pct(q.tauxReussite) : "--"} & ${marques.join("\\,")} \\\\\n`;
     });
     tex += `\\end{longtblr}\n`;
-    tex += `\\twocolumn\n`;
   }
 
-  tex += `\\newpage\n`;
-  return tex;
+  return doc + tex + `\\end{document}\n`;
 }
 
 // ─── Helpers privés ───────────────────────────────────────────────
@@ -1288,7 +1481,8 @@ export function genererRapportElevePapier({
 // Convention alignée sur Charts.jsx : ordre COMPETENCES, premier axe à midi,
 // sens horaire. En polaire pgfplots, l'angle 90° = midi ; on décrémente de
 // 360/n par compétence pour le sens horaire. Échelle 0..1.
-function _radarCompetencesTex(compP) {
+// compPrec (optionnel) : profil de référence (DS précédent), en pointillés gris.
+function _radarCompetencesTex(compP, compPrec) {
   const R = 1.85;    // rayon en cm (rempli à la hauteur de la colonne KPI)
   const pad = 0.55;  // distance des labels au-delà du rayon
   const n = COMPETENCES.length;
@@ -1306,6 +1500,11 @@ function _radarCompetencesTex(compP) {
   COMPETENCES.forEach((_, i) => {
     s += `\\draw[black!15, line width=0.3pt] (0,0) -- ${P(i, 1)};\n`;
   });
+  // polygone de référence (DS précédent)
+  if (compPrec) {
+    const ref = COMPETENCES.map((c, i) => P(i, typeof compPrec[c.id] === "number" ? compPrec[c.id] : 0)).join(" -- ");
+    s += `\\draw[black!45, dashed, line width=0.8pt] ${ref} -- cycle;\n`;
+  }
   // polygone de données
   const data = COMPETENCES.map((c, i) => {
     const v = (typeof compP[c.id] === "number" ? compP[c.id] : 0);
@@ -1406,4 +1605,139 @@ function _buildRankAndStats(presents, getNote20) {
   };
 
   return { rankMap, stats };
+}
+
+// Histogramme des notes /20 de la classe (classes de largeur 1), avec la
+// moyenne (trait plein) et la médiane (pointillés) — aucun marqueur individuel.
+function _histoClasseTex(notes, moy, med) {
+  const bins = Array.from({ length: 20 }, () => 0);
+  notes.forEach(nt => { bins[Math.max(0, Math.min(19, Math.floor(nt)))]++; });
+  const maxBin = Math.max(...bins, 1);
+
+  let s = "";
+  s += `\\begin{tikzpicture}\n`;
+  s += `\\begin{axis}[\n`;
+  s += `  ybar interval, xmajorgrids=false, width=0.97\\linewidth, height=5.2cm,\n`;
+  s += `  xmin=0, xmax=20, ymin=0, ymax=${maxBin + 1},\n`;
+  s += `  xtick={0,2,4,6,8,10,12,14,16,18,20},\n`;
+  s += `  ytick=\\empty, axis y line=none,\n`;
+  s += `  xlabel={Note /20}, xlabel style={font=\\footnotesize},\n`;
+  s += `  tick label style={font=\\scriptsize},\n`;
+  s += `  axis x line=bottom,\n`;
+  s += `]\n`;
+  s += `\\addplot+[ybar interval, mark=no, fill=accent!35, draw=accent!60]\n`;
+  s += `  coordinates {`;
+  for (let k = 0; k < 20; k++) s += `(${k},${bins[k]})`;
+  s += `(20,0)};\n`;
+  s += `\\draw[accent!80!black, thick] (axis cs:${moy.toFixed(2)},0) -- (axis cs:${moy.toFixed(2)},${maxBin + 0.6});\n`;
+  s += `\\draw[black!60, thick, dashed] (axis cs:${med.toFixed(2)},0) -- (axis cs:${med.toFixed(2)},${maxBin + 0.6});\n`;
+  s += `\\end{axis}\n`;
+  s += `\\end{tikzpicture}\n`;
+  return s;
+}
+
+// Boîtes à moustaches des notes brutes /20 par campagne (quartiles,
+// moustaches aux 10e et 90e centiles), moyennes en losanges. La campagne
+// courante (dernière de la série) est mise en valeur.
+function _boitesSerieTex(serie, nomCur) {
+  const N = serie.length;
+  const labels = serie.map((st, i) => {
+    const nom = (i === N - 1 ? (nomCur || st.nomDS) : st.nomDS) || "DS";
+    return "{" + escapeTex(String(nom).slice(0, 10)) + "}";
+  }).join(",");
+
+  let s = "";
+  s += `\\begin{tikzpicture}\n`;
+  s += `\\begin{axis}[\n`;
+  s += `  width=0.97\\linewidth, height=5.2cm,\n`;
+  s += `  ymin=0, ymax=20, ytick={0,5,10,15,20},\n`;
+  s += `  xmin=0.4, xmax=${(N + 0.6).toFixed(1)}, xtick={${serie.map((_, i) => i + 1).join(",")}}, xticklabels={${labels}},\n`;
+  s += `  x tick label style={font=\\scriptsize, rotate=30, anchor=north east, inner sep=1pt},\n`;
+  s += `  y tick label style={font=\\scriptsize},\n`;
+  s += `  ylabel={Note brute /20}, ylabel style={font=\\footnotesize},\n`;
+  s += `  axis x line=bottom, axis y line=left, boxplot/draw direction=y,\n`;
+  s += `]\n`;
+  serie.forEach((st, i) => {
+    const b = st.brut;
+    const actif = i === N - 1;
+    s += `\\addplot[boxplot prepared={draw position=${i + 1}, lower whisker=${b.p10.toFixed(2)}, lower quartile=${b.q1.toFixed(2)}, median=${b.med.toFixed(2)}, upper quartile=${b.q3.toFixed(2)}, upper whisker=${b.p90.toFixed(2)}, box extend=0.5}, draw=accent!${actif ? "90" : "60"}!black, fill=accent!${actif ? "40" : "15"}] coordinates {};\n`;
+  });
+  s += `\\addplot[only marks, mark=diamond*, mark size=2pt, color=red!70!black] coordinates {`;
+  serie.forEach((st, i) => { s += `(${i + 1},${st.brut.moy.toFixed(2)})`; });
+  s += `};\n`;
+  s += `\\end{axis}\n`;
+  s += `\\end{tikzpicture}\n`;
+  return s;
+}
+
+// Réussite par question d'un exercice : barres colorées selon le taux de
+// réussite des traitants (≥ 75 % vert, ≥ 50 % orange, sinon rouge),
+// losanges pour le taux de traitement ; marqueurs • délaissée, △ piège,
+// † bonus dans les étiquettes.
+function _barresQuestionsTex(qs, ft) {
+  const n = qs.length;
+  const serre = n > 8;
+  const labels = qs.map(q => {
+    let l = escapeTex(String(q.label || "").slice(0, 6));
+    if (q.bonus) l += "$^{\\dagger}$";
+    if (q.delaissee) l += "\\,$\\bullet$";
+    if (ft.questionPiege && q.piege) l += "\\,$\\triangle$";
+    return "{" + l + "}";
+  }).join(",");
+  const classes = { reussiteHaute: [], reussiteMoyenne: [], reussiteBasse: [] };
+  qs.forEach((q, i) => {
+    if (q.tauxReussite === null) return;
+    const t = Math.max(0, Math.min(1, q.tauxReussite));
+    const c = t >= 0.75 ? "reussiteHaute" : (t >= 0.5 ? "reussiteMoyenne" : "reussiteBasse");
+    classes[c].push(`(${i + 1},${t.toFixed(3)})`);
+  });
+
+  let s = "";
+  s += `\\begin{tikzpicture}\n`;
+  s += `\\begin{axis}[\n`;
+  s += `  bar width=0.6, width=\\linewidth, height=3.8cm,\n`;
+  s += `  ymin=0, ymax=1.08, ytick={0,0.5,1}, yticklabels={0,50,100}, ylabel={\\%},\n`;
+  s += `  xmin=0.4, xmax=${(n + 0.6).toFixed(1)}, xtick={${qs.map((_, i) => i + 1).join(",")}}, xticklabels={${labels}},\n`;
+  s += `  x tick label style={font=${serre ? "\\tiny, rotate=45, anchor=north east, inner sep=1pt" : "\\scriptsize"}},\n`;
+  s += `  y tick label style={font=\\scriptsize}, ylabel style={font=\\footnotesize},\n`;
+  s += `  axis x line*=bottom, axis y line*=left,\n`;
+  s += `]\n`;
+  Object.keys(classes).forEach(c => {
+    if (classes[c].length) s += `\\addplot[ybar, bar shift=0pt, fill=${c}!70, draw=${c}] coordinates {${classes[c].join("")}};\n`;
+  });
+  s += `\\addplot[only marks, mark=diamond*, mark size=1.6pt, color=black!65] coordinates {`;
+  qs.forEach((q, i) => { s += `(${i + 1},${q.tauxTraitement.toFixed(3)})`; });
+  s += `};\n`;
+  s += `\\end{axis}\n`;
+  s += `\\end{tikzpicture}\n`;
+  return s;
+}
+
+// Diagramme de phase justesse × efficacité : un point par copie (anonyme),
+// moyennes de la cohorte en pointillés, quadrants nommés.
+function _phaseTex(points, moyJ, moyE) {
+  const c = v => Math.max(0, Math.min(1, v)).toFixed(3);
+
+  let s = "";
+  s += `\\begin{tikzpicture}\n`;
+  s += `\\begin{axis}[\n`;
+  s += `  width=\\linewidth, height=6.2cm,\n`;
+  s += `  xmin=0, xmax=1, ymin=0, ymax=1.05,\n`;
+  s += `  xtick={0,0.25,0.5,0.75,1}, xticklabels={0,25,50,75,100},\n`;
+  s += `  ytick={0,0.25,0.5,0.75,1}, yticklabels={0,25,50,75,100},\n`;
+  s += `  xlabel={Efficacité (\\%)}, ylabel={Justesse (\\%)},\n`;
+  s += `  label style={font=\\footnotesize}, tick label style={font=\\scriptsize},\n`;
+  s += `]\n`;
+  s += `\\draw[black!35, dashed] (axis cs:${c(moyE)},0) -- (axis cs:${c(moyE)},1.05);\n`;
+  s += `\\draw[black!35, dashed] (axis cs:0,${c(moyJ)}) -- (axis cs:1,${c(moyJ)});\n`;
+  s += `\\addplot[only marks, mark=*, mark size=1.5pt, mark options={fill=accent!45, draw=accent!85!black}] coordinates {`;
+  points.forEach(p => { s += `(${c(p.efficacite)},${c(p.justesse)})`; });
+  s += `};\n`;
+  s += `\\node[font=\\tiny\\itshape, text=black!55, anchor=north west] at (axis cs:0.02,1.03) {tireurs d'élite};\n`;
+  s += `\\node[font=\\tiny\\itshape, text=black!55, anchor=north east] at (axis cs:0.98,1.03) {stratèges};\n`;
+  s += `\\node[font=\\tiny\\itshape, text=black!55, anchor=south east] at (axis cs:0.98,0.02) {ratisseurs};\n`;
+  s += `\\node[font=\\tiny\\itshape, text=black!55, anchor=south west] at (axis cs:0.02,0.02) {explorateurs prudents};\n`;
+  s += `\\end{axis}\n`;
+  s += `\\end{tikzpicture}\n`;
+  return s;
 }

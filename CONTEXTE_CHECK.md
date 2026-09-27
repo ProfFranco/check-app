@@ -56,11 +56,13 @@ check-app/
         ├── calculs.test.js    ← Tests unitaires calculs (71 tests, 10 blocs)
         ├── db.js              ← Couche persistance IndexedDB (open, load, save, profiles)
         ├── helpers.js         ← Utilitaires partagés (slugify, buildAudioFilename)
-        ├── latex.js           ← Générateur de rapports LaTeX individuels
+        ├── latex.js           ← Générateur LaTeX : rapports individuels (bento) + article de classe (genererArticleClasse)
         ├── html.js            ← Générateur de rapports HTML autonomes + rapport classe
         ├── starmap.js         ← Visualisation canvas carte stellaire (renderStarMap, createAnimatedStarMap)
         ├── sync.js            ← Synchronisation inter-appareils (adapter GitHub, hash, push/pull, snapshots)
         ├── sync.test.js       ← Tests unitaires sync (13 tests, node:test / Jest)
+        ├── statsClasse.js     ← Statistiques de classe pures (statsDS, serieDS, evolution, spearman) pour l'article de classe
+        ├── statsClasse.test.js ← Tests unitaires statsClasse (16 tests, Jest)
         ├── backup.js          ← Sauvegarde/restauration multi-profils : wrapBackup, parseBackup, validateBackup, collectAllProfiles, restoreReplace, restoreMerge
         ├── backup.test.js     ← Tests unitaires backup (15 tests, node:test)
         ├── filelink.js        ← Fichier lié auto-réécrit (P2-b) : isFileLinkSupported, displayName, saveHandle, loadHandle, clearHandle, queryPermission, requestPermission, pickSaveFile, writeToLinkedFile
@@ -78,7 +80,7 @@ check-app/
 - **Onglet Résultats individuels** (🧑) : sélecteur enrichi avec option **"📊 Toute la classe"** en tête (affiche le rapport de classe dans l'iframe) + séparateur + liste élèves triée alphabétiquement. Quand mode classe actif : panel de checkboxes de configuration visible sous le sélecteur. Quand un élève est sélectionné : note et rang affichés. Aperçu live via `<iframe key="preview-iframe" srcdoc=...>` (clé fixe pour éviter rechargement au changement d'onglet). `htmlSrc` et `htmlClasseSrc` mémoïsés via `useMemo`. L'élève sélectionné est persisté en IndexedDB (`htmlStudentId`, valeur `"__classe__"` valide). Panneau Résultats en `height: "100%"` (plus de `calc(100vh - 52px)` hardcodé) — l'iframe remplit toute la hauteur disponible quel que soient les barres conditionnelles au-dessus (η). **Bouton "⊞ Mise en page"** (mode individuel uniquement) : ouvre `showLayoutModal` — réordonnancement ▲▼ et toggle Plein/Demi, **2 blocs seulement** : Stats élève/classe et ✦ Carte Stellaire (les 3 "blocs fantômes" Compétences/Commentaire/Histogramme — jamais câblés dans `BLOC_RENDERERS` de `html.js` — ont été retirés de la modale en η ; ces blocs s'affichent toujours, dans un ordre fixe, sous la zone réordonnable). Note explicative sous la liste. Bouton "⚙ Réglages export" dans le modal → ouvre SettingsModal sur l'onglet export.
 - **Onglet Vue d'ensemble** (📋) : tableau croisé élèves × questions (toggle items), en-tête 2 niveaux (exercice fusionné + question), colonnes Nom et Total sticky, code couleur ratio pts/max (≥75% vert / ≥50% orange / <50% rouge), tri par clic, bulles de navigation par exercice, clic sur cellule → bascule vers Correction positionné sur l'élève et l'exercice. **Toggle "✓ Corrigés seulement"** : bouton dans la barre de contrôles, `hideUncorrected` (useState false) ; quand actif, filtre `presents` via `isStudentCorrected(studentId)` (vérifie clé `treated_` ou `studentId__itemId` dans `grades`) → `filteredPresents` appliqué avant le tri ; label affiche `(N/Total)` quand actif.
 - **Onglet Stats** : distribution /20 (traits moy/médiane), compétences, stats par exercice et par question (taux de réussite, questions difficiles en rouge, questions pièges en orange ⚠️), classement avec radar exercices (vert), tri par rang ou alphabétique. **Sous-onglet Progression** : courbe note élève (trait plein) + moyenne classe (pointillés) par DS, ou radar multi-DS ; toggle brut/normalisé ; bascule automatique vers courbe si n > 8 DS.
-- **Onglet Export** — sections déroulables (animation `max-height`), dans cet ordre : 📄 **Pour les élèves** (HTML individuel, ZIP HTML, `.tex` individuel, ZIP `.tex` + script) · 🗂️ **Pour l'enseignant** (`.tex` complet, CSV récapitulatif, gabarit LaTeX, sous-accordéon **📊 Rapport de classe** : textarea commentaire DS + checkboxes blocs + bouton HTML) · 📊 **Synthèse multi-DS** (CSV cumulatif). **ZIP HTML enrichi (η)** : en plus des rapports individuels, contient `IMPRIMER_TOUT.html` (document unique pour impression groupée, `genererHtmlTousPrintable`) + `convertir_en_pdf.sh` / `convertir_en_pdf.py` (scripts weasyprint, `genererScriptsConversionPdf`).
+- **Onglet Export** — sections déroulables (animation `max-height`), dans cet ordre : 📄 **Pour les élèves** (HTML individuel, ZIP HTML, `.tex` individuel, ZIP `.tex` + script) · 🗂️ **Pour l'enseignant** (`.tex` complet, CSV récapitulatif, gabarit LaTeX, sous-accordéon **📊 Rapport de classe** : textarea commentaire DS + checkboxes blocs + bouton HTML + groupe **📰 Article de classe (LaTeX)** : cases co-auteurs / étude longitudinale / annexe, ligne d'état copies corrigées · DS précédents, boutons « ⬇️ Article .tex » et « 🎲 Autre tirage ») · 📊 **Synthèse multi-DS** (CSV cumulatif). **ZIP HTML enrichi (η)** : en plus des rapports individuels, contient `IMPRIMER_TOUT.html` (document unique pour impression groupée, `genererHtmlTousPrintable`) + `convertir_en_pdf.sh` / `convertir_en_pdf.py` (scripts weasyprint, `genererScriptsConversionPdf`).
 - **Onglet Sauvegarde** (☁️, onglet dédié dans la nav principale) — sections déroulables : ☁️ **Synchronisation** (sauvegarde/restauration JSON via API GitHub REST, boutons Sauvegarder/Charger, statut/date dernier sync, toggle snapshots quotidiens + bouton "Voir les snapshots disponibles") · 💾 **Sauvegarde & restauration** (filet local multi-profils, indépendant de GitHub : bouton "Sauvegarde complète" + bouton "Restaurer une sauvegarde") · 🔗 **Fichier lié (sauvegarde automatique)** (Chrome/Edge uniquement via `showSaveFilePicker` ; sur Safari/Firefox : section absente, dégradation silencieuse).
 - **Persistance** : IndexedDB multi-profils, sauvegarde/chargement JSON, PWA hors ligne. **Filet universel (P2-a)** : bouton "Sauvegarde complète" dans AccueilTab et SauvegardeTab (section "Sauvegarde & restauration") → télécharge un `.json` horodaté couvrant **tous les profils** (`_checkBackup` + tableau `profiles`). Restauration via bouton "Restaurer une sauvegarde" : modale de choix Remplacer (efface tout) / Fusionner (last-write-wins par id). Rétrocompatible avec l'ancien format mono-profil (délégation vers `restoreState` + garde-fou vide). Module `backup.js` : fonctions pures (`wrapBackup`, `parseBackup`, `validateBackup`, `backupFilename`, `genProfileId`) + agrégation (`collectAllProfiles`, `restoreReplace`, `restoreMerge`). État `backupRestoreModal` (≠ `showRestoreModal` qui est pour les snapshots sync). **Fichier lié (P2-b)** : handle `FileSystemFileHandle` persisté dans une IDB dédiée `"check-app-filelink"` (séparée de `db.js`). Disponible uniquement sur Chrome/Edge desktop (`showSaveFilePicker`). 4 états UI transitoires : `linkedFileHandle`, `linkedFileName`, `linkedFilePerm`, `linkedFileBusy` — **exclus de `buildAppState` et des deps du useEffect de save**. Écriture silencieuse branchée dans le setTimeout du debounce de save (après `saveDB`), uniquement si `linkedFilePerm === "granted"`. Rechargement du handle au démarrage via `useEffect([dbLoaded])` + `queryPermission` (sans user gesture). Indicateur discret dans AccueilTab, section accordéon complète dans SauvegardeTab.
 - **Normalisation** : aucune / proportionnelle (moy) / proportionnelle (max) / affine (moy+σ) / affine (max+σ) / gaussienne — avec infobulles contextuelles.
@@ -144,13 +146,17 @@ htmlConfig          : { theme, noteNorm, noteBrute, rang,
                         commentaire, detailExercices, bareme, histogramme,
                         starMap,            ← bool, rendu PNG offscreen via starmap.js
                         blockOrder: ["stats","starMap"],   ← seuls blocs réordonnables (η)
-                        blockLayout: { stats, starMap }
-                        }                   ← "full" | "half" par bloc
+                        blockLayout: { stats, starMap },   ← "full" | "half" par bloc
+                        baremeLatex,        ← barème détaillé en fin de rapport LaTeX individuel
+                        articleTextes       ← null | { cle: [phrases] } surcharges des banques de l'article de classe
+                        }
 htmlPresets         : [{ name, config }]
 htmlStudentId       : string | null         ← "__classe__" pour rapport de classe
 commentaireDS       : { [examId]: string }  ← commentaire enseignant par DS
 rapportClasseConfig : { commentaire, statsGlobales, distribution,
-                        parCompetence, parExercice }
+                        parCompetence, parExercice,
+                        coauteurs, evolution, annexe,   ← article de classe LaTeX uniquement
+                        tirages: { [examId]: n } }      ← « 🎲 Autre tirage » des textes de l'article
 csvConfig           : { sep, dec, cols: { rang, nom, prenom, absent, note,
                         noteNorm, groupe, competences, malus } }
 synthese            : [{ examId, dsNom, dsDate, studentId, nom, prenom, groupe,
@@ -359,6 +365,8 @@ Chaque `exam` possède `exam.nomDS` et `exam.dateDS`. Dans `App()`, `examNomDS`/
 - `normaliser(notes, method, params)` → tableau normalisé (6 méthodes)
 - `validateState(d)` → `{ valid, data, warnings, errors }` — validation imports JSON/GitHub
 - `treatedKey(studentId, questionId)` → clé pour case "traitée 0pt"
+- `copieCorrigee(grades, studentId, exam)` → au moins un item coché ou une case « traitée » sur le DS
+- `notesDS(exam, corriges, grades, settings, groupes, remarks, malusManuel, allRemarques)` → `{ [sid]: { brut, norm } }` : pipeline complet des notes /20 d'un DS (pondération, bonus 🏆, tiers-temps, malus avant/après, normalisation). Partagé par `normData` (App.jsx, DS actif) et l'article de classe (DS précédents). Passer `allRemarquesBase` (toutes les remarques), pas `allRemarques` filtré.
 - `absentKey(examId, studentId)` → clé composée `"examId__studentId"` pour le store `absents`
 - `examAbsents(absents, examId)` → `{ studentId: true }` filtré sur le DS — variable `examAbsentsFlat` dans App.jsx via `useMemo`
 
@@ -369,7 +377,7 @@ Chaque `exam` possède `exam.nomDS` et `exam.dateDS`. Dans `App()`, `examNomDS`/
 **Exports :**
 
 - `DEFAULT_HTML_CONFIG` — config rapports individuels
-- `DEFAULT_RAPPORT_CLASSE_CONFIG` — `{ commentaire, statsGlobales, distribution, parCompetence, parExercice }` tous `true`
+- `DEFAULT_RAPPORT_CLASSE_CONFIG` — `{ commentaire, statsGlobales, distribution, parCompetence, parExercice }` tous `true` + clés de l'article LaTeX `{ coauteurs: true, evolution: true, annexe: false, tirages: {} }`
 - `genererHtmlEleve(opts)` — rapport individuel HTML autonome
 - `genererHtmlTous(opts)` — ZIP tous élèves
 - `genererHtmlTousPrintable(opts)` — document HTML unique, tous les rapports élèves concaténés, séparés par `page-break-after` (classe `.page-eleve`) ; un seul bouton 🖨️ global (les boutons individuels sont retirés du body extrait par regex) ; sert à imprimer toute la classe en une seule opération navigateur (η)
@@ -447,6 +455,10 @@ createAnimatedStarMap(canvas, exam, gradesForStudent, classRates, theme, options
 - Question piège : `\color{orange}\bfseries` + marqueur ⚠️
 - Si `features.competences = false` : tableau 2 colonnes (Note + Rang)
 - **Items négatifs** : items avec `negative: true` filtrés dans `tousItems` (seul l'item cochable apparaît) ; rendu longtable avec `\textcolor{red!60!black}{$-$\ [...]}` ; `clampQuestion` propagé depuis `genererDocumentComplet`/`genererDocumentsIndividuels` → `genererRapportEleve` → `questionScore`.
+- **Rapports individuels** : gabarit bento uniquement (le mode « papier » individuel a été remplacé par l'article de classe, F2-b).
+- **Article de classe** (`genererArticleClasse`) : document complet (gabarit `genererGabaritPapier`, A4 deux colonnes), compilable avec xelatex en **deux passes** (renvois, `\cite`). Données via `statsClasse.js` (copies corrigées uniquement, réglages propres à chaque DS). DS précédents = ceux qui précèdent le DS actif dans `exams` (ordre du tableau, `dateDS` étant du texte libre) avec au moins une copie corrigée ; la série fixe toujours le n° et la rotation des textes, les comparaisons ne dépendent que de `rapportClasseConfig.evolution`.
+  - **Confidentialité** : aucune note ni rang individuel, aucun min/max chiffré (moustaches P10–P90), nuage justesse × efficacité anonyme et trié. Seuls noms : les **co-auteurs honoraires** (rang ≤ 5 sur la note finale, ex-aequo inclus, ordre alphabétique, affichés si ≥ 6 copies corrigées) et, dans l'étude longitudinale, ceux qui « font leur entrée » (jamais les sortants). Jamais passés au générateur : notesPrivees, perles, commentaires individuels. `groupes` et `remarks` n'y servent qu'au calcul des notes (coefficient tiers-temps, malus), jamais à l'affichage.
+  - **Moteur de variations** : banques `_banquesArticleDefaut()` + placeholders `_tpl`. Rotation sans répétition `_rot`/`_rotN` : permutation fixe par (id du premier DS du profil + clé de banque), lecture à l'indice (rang du DS + tirage) → deux DS consécutifs ne tirent jamais la même phrase, un même DS redonne le même texte, « 🎲 Autre tirage » décale d'un cran (et ajoute un erratum). Ton piloté par `ARTICLE_SEUILS` (niveau sur la moyenne brute, dispersion, tendance ±1 pt, stabilité ρ de Spearman, stratégie justesse/efficacité). Banques personnalisables listées dans `ARTICLE_TEXTES_EDITABLES` (Réglages → Export LaTeX → `htmlConfig.articleTextes`).
 
 ### Synchronisation inter-appareils (depuis Z1, étendu en Z2)
 
@@ -520,6 +532,7 @@ check_sync_{profileId}_deviceName          ← "Appareil XXXX", éditable dans R
 - **Rapport HTML — thèmes** → `light`, `dark`, `young`
 - **Rapport HTML — compétences** → `"grid"` ou `"none"`
 - **Rapport classe** → projection paysage, aucun nom d'élève, blocs bento configurables, compétences en barres horizontales, exercices en histogrammes verticaux pleine largeur
+- **Article de classe LaTeX** (F2-b) → faux article de recherche A4 deux colonnes, un par DS pour toute la classe, ton pseudo-scientifique à variations ; exception au « aucun nom » : top 5 en **co-auteurs honoraires** (ordre alphabétique, sans note) ; étude longitudinale recalculée depuis les DS du profil (pas depuis la synthèse multi-DS)
 - **Duplication d'exercice/question** → écarté (avril 2026)
 - **`useReducer`** → différé indéfiniment
 - **Preset par défaut** à la création d'un DS → `"standard"`. DS existants sans `features` → merge défensif vers `"complet"`.
@@ -540,7 +553,7 @@ check_sync_{profileId}_deviceName          ← "Appareil XXXX", éditable dans R
 
 ### Nouvelles fonctionnalités planifiées
 
-**F2-b — Rapport de classe LaTeX** Fonction `genererRapportClasseTex(...)` dans `latex.js`. Même structure que le HTML : paysage, blocs `tcolorbox`, histogrammes `pgfplots`, barres compétences `tikz`. Bouton `.tex` dans le sous-accordéon ExportTab existant (clé `"rapportClasse"`).
+~~**F2-b — Rapport de classe LaTeX**~~ ✅ Livré sous forme d'**article de classe** pseudo-scientifique (`genererArticleClasse`, A4 deux colonnes) plutôt que de bento paysage — voir historique.
 
 **Autres items en attente**
 
@@ -642,6 +655,7 @@ Les données élèves ne transitent par GitHub que dans le dépôt **privé** de
 | **ε** ✅     | calculs.js, App.jsx, SettingsModal.jsx, ExportTab.jsx, html.js, latex.js, theme.js, settings.js  | **Items négatifs** : `negative: bool` sur les items — soustrait des points quand coché, exclu du barème total de la question/exercice/exam. Bouton `−` en Préparation (toggle polarity, inverse signe des points auto). Champ points contraint `min=0`/`max=0` + clamp `onChange`. UI Correction : bordure/fond rouge (`negBg/negBorder/negCheckBg/negText` dans les 3 thèmes). "Tout cocher" n'active que les items positifs. Exports HTML/LaTeX : items négatifs filtrés/colorés. `clampQuestion: bool` dans `exam.settings` (défaut `true`) : toggle dans SettingsModal → Notes → DS actif. `questionScore`/`exerciseScore`/`studentTotalWeighted` mis à jour avec paramètre `clampQuestion`. Palettes `paletteTheme()` : ajout `negBg/negBorder/negText/negCheckBg` dans les 3 thèmes + `ruledLine` corrigé pour dark et light. |
 | **ζ** ✅     | ExportTab.jsx, SettingsModal.jsx, App.jsx                                                         | **Déplacement checkbox barème LaTeX** : la checkbox "Inclure le barème détaillé par items (dernière page LaTeX)" retirée de l'onglet Export (ExportTab) et déplacée dans Réglages → Export → nouvel accordéon "📄 Export LaTeX" (entre HTML et Liens audio). Même état `htmlConfig.baremeLatex`, aucun changement de persistance (déjà dans `buildAppState`/deps). `exportOpen.latex: false` ajouté à l'état initial (accordéon fermé par défaut, comme `sound`). |
 | **η** ✅     | App.jsx, html.js, ExportTab.jsx                                                                   | **Impression / PDF** : scroll Résultats corrigé (`height:"100%"` au lieu de `calc(100vh - 52px)` hardcodé) · modale "Mise en page" nettoyée (3 blocs fantômes jamais câblés retirés, ne reste que Stats + Carte Stellaire, note explicative) · boutons 🖨️ réduits à l'icône seule (tooltip consignes) sur les 3 générateurs HTML · `break-inside:avoid` sur les cartes exercice · nouvelle fonction `genererHtmlTousPrintable` (document unique, page-break par élève) · nouvelle fonction `genererScriptsConversionPdf` (scripts bash/Python weasyprint) · ZIP HTML enrichi (`IMPRIMER_TOUT.html` + scripts) · compatibilité weasyprint : `@page{size:A4;margin:0}` (sinon contenu 210mm déborde des marges par défaut), anneau de progression `svgRingGauge` réécrit en rotation SVG native (le `transform:rotate()` CSS et `inset:0` étaient mal supportés), texte "cliquer pour basculer" passé en `no-print`. Setup environnement Samuel : Homebrew + Pango installés, `DYLD_LIBRARY_PATH` dans `~/.zshenv` pour que `weasyprint` fonctionne en CLI. |
+| **F2-b** ✅  | calculs.js, statsClasse.js (nouveau), statsClasse.test.js (nouveau), latex.js, App.jsx, ExportTab.jsx, SettingsModal.jsx, html.js | **Article de classe LaTeX** : le rapport « papier » individuel est remplacé par un faux article de recherche unique par DS pour toute la classe (A4 deux colonnes). `notesDS` + `copieCorrigee` extraits dans calculs.js (pipeline unique avec `normData`, 15 tests de non-régression). `statsClasse.js` : agrégats par DS, série des DS précédents, évolution (Spearman, co-auteurs retenus/entrants). Article : revue/type/titre tournants, co-auteurs honoraires (top 5, alphabétique, sans note), résumé, points clés, note de l'éditeur (`commentaireDS`), méthodes, résultats (distribution, exercices, questions remarquables, compétences, diagramme justesse × efficacité), étude longitudinale (boîtes à moustaches par DS, ρ), discussion, mentions (CRediT, relecteur n°2…), références (dont le numéro précédent), annexe optionnelle. Rotation des banques sans répétition + « 🎲 Autre tirage » (`rapportClasseConfig.tirages`). Réglages → Export LaTeX : case papier retirée, éditeur `htmlConfig.articleTextes`. Aucun nouvel état persisté. |
 
 ---
 
@@ -653,4 +667,4 @@ Les données élèves ne transitent par GitHub que dans le dépôt **privé** de
 - Fournis des patches chirurgicaux (blocs AVANT / APRÈS) plutôt que le fichier complet, sauf si les modifications sont trop nombreuses.
 - **Les snippets de code doivent inclure l'indentation réelle** telle qu'elle apparaîtra dans le fichier.
 - Je valide les changements en remplaçant le fichier et en observant le résultat dans le navigateur (`npm start` tourne en permanence).
-- **Priorité du moment :** η livré (impression/PDF, weasyprint opérationnel). Prochaine session probable : révision UI Mise en page (drag-and-drop ☰), F2-b (rapport classe LaTeX) ou session PWA (B5/F11/F12).
+- **Priorité du moment :** F2-b livré (article de classe LaTeX). Idées ouvertes : relire/enrichir les banques de phrases, version HTML de l'étude longitudinale. Prochaine session probable : révision UI Mise en page (drag-and-drop ☰) ou session PWA (B5/F11/F12).

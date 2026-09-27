@@ -40,8 +40,7 @@ export const DEFAULT_HTML_CONFIG = {
   detailExercices: true,
   bareme: false,
   baremeLatex: true,
-  papierLatex: false,
-  papierTextes: null,
+  articleTextes: null,   // surcharges des banques de l'article de classe LaTeX
   histogramme: true,
   starMap: false,
   blockOrder: ["stats", "starMap"],
@@ -57,6 +56,11 @@ export const DEFAULT_RAPPORT_CLASSE_CONFIG = {
   distribution:  true,
   parCompetence: true,
   parExercice:   true,
+  // Article de classe LaTeX uniquement
+  coauteurs:     true,   // top 5 en co-auteurs honoraires (sans note)
+  evolution:     true,   // étude longitudinale (DS précédents)
+  annexe:        false,  // indicateurs par question en annexe
+  tirages:       {},     // { examId: n } — « 🎲 Autre tirage » des textes
 };
 
 // ─── Palettes de thème ────────────────────────────────────────────

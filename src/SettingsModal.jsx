@@ -5,6 +5,7 @@
 import { useState, useEffect } from "react";
 import { REMARQUES, TT_GROUPE, DEFAULT_EXAM_SETTINGS } from "./config/settings";
 import { DEFAULT_HTML_CONFIG } from "./utils/html";
+import { ARTICLE_TEXTES_EDITABLES } from "./utils/latex";
 import { setDeviceName } from "./utils/sync";
 
 export default function SettingsModal({
@@ -750,7 +751,7 @@ export default function SettingsModal({
               {SectionHeader("latex", "📄", "Export LaTeX")}
               {exportOpen.latex && <div style={{ marginBottom: 16 }}>
                 <div style={{ fontSize: 10, color: th.textMuted, fontFamily: FONT_B, marginBottom: 8, lineHeight: 1.5 }}>
-                  {"Options appliquées à tous les exports LaTeX (rapports individuels et document complet)."}
+                  {"Options des rapports LaTeX individuels (rapport par élève et document complet)."}
                 </div>
                 <label style={{ display: "flex", alignItems: "center", gap: 7, marginBottom: 5, cursor: "pointer", fontSize: 11, fontFamily: FONT_B, color: htmlConfig.baremeLatex !== false ? th.text : th.textMuted }}>
                   <input type="checkbox"
@@ -759,48 +760,34 @@ export default function SettingsModal({
                   />
                   {"Inclure le tableau complet des items (dernière page)"}
                 </label>
-                <label style={{ display: "flex", alignItems: "center", gap: 7, marginBottom: 5, cursor: "pointer", fontSize: 11, fontFamily: FONT_B, color: htmlConfig.papierLatex === true ? th.text : th.textMuted }}>
-                  <input type="checkbox"
-                    checked={htmlConfig.papierLatex === true}
-                    onChange={function(e) { setHtmlConfig(Object.assign({}, htmlConfig, { papierLatex: e.target.checked })); }}
-                  />
-                  {"Mode article de recherche (faux papier académique, deux colonnes)"}
-                </label>
-                {htmlConfig.papierLatex && <div style={{ marginTop: 10, paddingTop: 10, borderTop: "1px solid " + th.border }}>
+                <div style={{ marginTop: 10, paddingTop: 10, borderTop: "1px solid " + th.border }}>
+                  <div style={{ fontSize: 11, fontWeight: 700, fontFamily: FONT_B, color: th.text, marginBottom: 4 }}>{"📰 Textes de l'article de classe"}</div>
                   <div style={{ fontSize: 10, color: th.textMuted, fontFamily: FONT_B, marginBottom: 8, lineHeight: 1.5 }}>
-                    {"Personnalisez les phrases tirées aléatoirement (une entrée par ligne). Laissez vide pour garder les textes par défaut. Écrivez des phrases complètes ; les données s'insèrent via les placeholders {sujet}, {ds}, {note}, {rang}, {effectif}, {nTraitees}, {totalQuestions}, {moyenne}. Exception : les verdicts complètent « Ces résultats sont … »."}
+                    {"Personnalisez les phrases tirées au fil des DS (une entrée par ligne). Laissez vide pour garder les textes par défaut. Écrivez des phrases complètes ; les données s'insèrent via les placeholders {classe}, {ds}, {n} (copies analysées), {nExTxt}, {nQ}, {rangDS}, {moyenne}, {mediane}, {sigma}, {moyBrute}, {partSup10}, {dsPrec}. Exceptions : les verdicts complètent « Ces résultats sont … » et les remerciements « … ainsi que … »."}
                   </div>
-                  {[
-                    ["ouverture", "Phrases d'ouverture du résumé"],
-                    ["verdict", "Verdicts du résumé"],
-                    ["limites", "Limites de l'étude"],
-                    ["conflit", "Conflit d'intérêts"],
-                    ["financement", "Financement"],
-                    ["remerciements_divers", "Remerciements divers"],
-                    ["conclusion", "Conclusions"],
-                  ].map(function(entry) {
+                  {ARTICLE_TEXTES_EDITABLES.map(function(entry) {
                     var cle = entry[0], label = entry[1];
                     return (
                       <div key={cle} style={{ marginBottom: 8 }}>
                         <div style={{ fontSize: 10, fontFamily: FONT_B, color: th.textMuted, marginBottom: 3 }}>{label}</div>
                         <textarea
-                          key={cle + (htmlConfig.papierTextes ? "-custom" : "-default")}
-                          defaultValue={(htmlConfig.papierTextes && htmlConfig.papierTextes[cle] || []).join("\n")}
+                          key={cle + (htmlConfig.articleTextes ? "-custom" : "-default")}
+                          defaultValue={(htmlConfig.articleTextes && htmlConfig.articleTextes[cle] || []).join("\n")}
                           onChange={function(e) {
                             var lignes = e.target.value.split("\n").map(function(l) { return l.trim(); }).filter(Boolean);
-                            var newPapierTextes = Object.assign({}, htmlConfig.papierTextes || {}, { [cle]: lignes });
-                            setHtmlConfig(Object.assign({}, htmlConfig, { papierTextes: newPapierTextes }));
+                            var newTextes = Object.assign({}, htmlConfig.articleTextes || {}, { [cle]: lignes });
+                            setHtmlConfig(Object.assign({}, htmlConfig, { articleTextes: newTextes }));
                           }}
                           style={{ width: "100%", background: th.surface, border: "1px solid " + th.border, color: th.text, borderRadius: 4, padding: "5px 8px", fontSize: 11, fontFamily: MONO, minHeight: 60, resize: "vertical" }}
                         />
                       </div>
                     );
                   })}
-                  <button onClick={function() { setHtmlConfig(Object.assign({}, htmlConfig, { papierTextes: null })); }}
+                  <button onClick={function() { setHtmlConfig(Object.assign({}, htmlConfig, { articleTextes: null })); }}
                     style={{ fontSize: 10, padding: "3px 9px", borderRadius: th.radiusSm, cursor: "pointer", fontFamily: FONT_B, background: "transparent", border: "1px solid " + th.warning, color: th.warning }}>
                     {"↺ Réinitialiser les textes"}
                   </button>
-                </div>}
+                </div>
               </div>}
 
               {/* ── Liens audio ── */}

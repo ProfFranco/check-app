@@ -683,3 +683,78 @@ describe("validateState", function() {
     expect(v.data.malusPaliers).toBeUndefined();
   });
 });
+
+// ═════════════════════════════════════════════════════════════════
+// NOTES D'UN DS (pipeline complet) — copieCorrigee, notesDS
+// ═════════════════════════════════════════════════════════════════
+
+import { copieCorrigee, notesDS, studentTotalWeighted as stw, examTotalWeighted as etw, clamp as clp, noteSur20 as ns20, normaliser as norm, malusTotal as mt } from "./calculs";
+import { TT_COEFF, DEFAULT_EXAM_SETTINGS } from "../config/settings";
+
+describe("Notes d'un DS (notesDS)", function() {
+  // Référence : corps de normData tel qu'il était écrit dans App.jsx
+  // avant l'extraction — notesDS doit le reproduire à l'identique.
+  function ancienNormData(examen, corriges, grades, st, groupes, remarks, malusManuel, allRem) {
+    var etW = etw(examen);
+    var raw20 = corriges.map(function(s) {
+      var totalPondere = stw(grades, s.id, examen, st.bonusCompletConfig, st.clampQuestion);
+      var note = etW > 0 ? ns20(totalPondere, etW) : 0;
+      if ((groupes.tt || []).indexOf(s.id) >= 0) note = clp(note * TT_COEFF, 0, 20);
+      return note;
+    });
+    var getMT = function(sid) { return mt(remarks, sid, examen, st.malusPaliers, malusManuel, allRem); };
+    var preNorm = st.malusMode === "avant" ? raw20.map(function(nn, i) { return clp(nn * (1 - getMT(corriges[i].id) / 100), 0, 20); }) : raw20;
+    var normed = norm(preNorm, st.normMethod, st.normParams);
+    var final2 = st.malusMode === "apres" ? normed.map(function(nn, i) { return clp(nn * (1 - getMT(corriges[i].id) / 100), 0, 20); }) : normed;
+    var map = {};
+    corriges.forEach(function(s, i) { map[s.id] = { brut: raw20[i], norm: final2[i] }; });
+    return map;
+  }
+
+  var ELEVES = [{ id: "s1" }, { id: "s2" }, { id: "s3" }, { id: "s4" }];
+  var GRADES = {
+    "s1__a": true, "s1__b": true, "s1__c": true, "s1__d": true,
+    "s2__a": true, "s2__c": true,
+    "s3__d": true, "s3__e": true,
+    "s4__b": true,
+  };
+  var GROUPES = { tt: ["s3"] };
+  var REMARKS = { "s1__q1": ["r", "h"], "s2__q2": ["r"], "s4__q3": ["s", "u", "r"] };
+  var MALUS_MANUEL = { s2: 5 };
+  var PALIERS = [{ seuil: 2, pct: 10 }, { seuil: 3, pct: 20 }];
+
+  test("copieCorrigee — item coché, case traitée, copie vide", function() {
+    expect(copieCorrigee({ "s1__a": true }, "s1", EXAM)).toBe(true);
+    expect(copieCorrigee({ "treated_s1_q3": true }, "s1", EXAM)).toBe(true);
+    expect(copieCorrigee({}, "s1", EXAM)).toBe(false);
+  });
+
+  ["none", "proportional", "proportional_max", "affine", "affine_max", "gaussienne"].forEach(function(methode) {
+    ["avant", "apres"].forEach(function(mode) {
+      test("reproduit l'ancien normData — " + methode + ", malus " + mode, function() {
+        var st = Object.assign({}, DEFAULT_EXAM_SETTINGS, {
+          normMethod: methode,
+          normParams: { moyenneCible: 11, maxCible: 19, sigmaCible: 3 },
+          malusMode: mode, malusPaliers: PALIERS,
+        });
+        var attendu = ancienNormData(EXAM, ELEVES, GRADES, st, GROUPES, REMARKS, MALUS_MANUEL, REMARQUES);
+        var obtenu = notesDS(EXAM, ELEVES, GRADES, st, GROUPES, REMARKS, MALUS_MANUEL, REMARQUES);
+        expect(obtenu).toEqual(attendu);
+      });
+    });
+  });
+
+  test("tiers-temps : brut multiplié par 4/3, borné à 20", function() {
+    var st = Object.assign({}, DEFAULT_EXAM_SETTINGS, { normMethod: "none", malusPaliers: [] });
+    var r = notesDS(EXAM, [{ id: "s3" }], GRADES, st, GROUPES, {}, {}, REMARQUES);
+    // s3 : 4 pts / 10 → 8/20 → × 4/3
+    expect(r.s3.brut).toBeCloseTo(8 * 4 / 3, 6);
+  });
+
+  test("aucune copie → objet vide ; groupes/remarques/malus absents tolérés", function() {
+    var st = Object.assign({}, DEFAULT_EXAM_SETTINGS);
+    expect(notesDS(EXAM, [], GRADES, st)).toEqual({});
+    var r = notesDS(EXAM, [{ id: "s1" }], GRADES, st);
+    expect(r.s1.brut).toBeCloseTo(16, 6);
+  });
+});

@@ -14,19 +14,19 @@ import {
   APP_VERSION, COMPETENCES, REMARQUES, TYPES_GROUPES, TT_GROUPE, FEATURE_PRESETS, DEFAULT_FEATURES,
   DEFAULT_SEUILS, DEFAULT_SEUIL_DIFFICILE, DEFAULT_SEUIL_PIEGE,
   DEFAULT_MALUS_PALIERS, DEFAULT_MALUS_MODE,
-  DEFAULT_NORM, TT_COEFF, DEFAULT_REMARQUES_ACTIVES, ETABLISSEMENT,
+  DEFAULT_NORM, DEFAULT_REMARQUES_ACTIVES, ETABLISSEMENT,
   DEFAULT_BONUS_COMPLET, DEFAULT_EXAM_SETTINGS,
 } from "./config/settings";
 import { lightTheme, darkTheme, youngTheme, FONT_TITLE, FONT_BODY, FONT_MONO, FONTS_URL } from "./config/theme";
 import {
-  uid, gradeKey, remarkKey, clamp, compColor,
-  questionScore, exerciseScore, bonusCompletPoints, studentTotal, examTotal, noteSur20,
-  studentTotalWeighted, examTotalWeighted,
+  uid, gradeKey, remarkKey, compColor,
+  questionScore, exerciseScore, bonusCompletPoints, studentTotal, examTotal,
+  examTotalWeighted,
   ratioJustesse, ratioEfficacite,
   notesParCompetence, competencePct,
   exercisePctAbsolute, exercisePctRelative,
   countMalusRemarks, malusAuto, malusTotal,
-  normaliser, importCSV, downloadFile, treatedKey, validateState, absentKey, examAbsents
+  importCSV, downloadFile, treatedKey, validateState, absentKey, examAbsents, notesDS
 } from "./utils/calculs";
 import { genererGabarit, genererDocumentComplet, genererDocumentsIndividuels, genererScriptCompilation } from "./utils/latex";
 import { genererHtmlEleve, genererHtmlTous, DEFAULT_HTML_CONFIG, DEFAULT_RAPPORT_CLASSE_CONFIG, genererRapportClasse } from "./utils/html";
@@ -448,7 +448,7 @@ export default function App() {
   var _showDebug = useState(false); var setShowDebug = _showDebug[1]; var showDebug = _showDebug[0];
   var _csvConfig = useState({ sep: ";", dec: ",", cols: { rang: true, nom: true, prenom: true, absent: true, note: true, noteNorm: true, groupe: false, competences: false, malus: false } }); var setCsvConfig = _csvConfig[1]; var csvConfig = _csvConfig[0];
   var _htmlPresets = useState([]); var setHtmlPresets = _htmlPresets[1]; var htmlPresets = _htmlPresets[0];
-  var _htmlConfig = useState({ theme: "light", noteNorm: true, noteBrute: false, rang: true, statsEleve: { justesse: true, efficacite: true, malus: true }, statsClasse: { moy: true, minMax: true, sigma: false }, competences: "grid", commentaire: true, detailExercices: true, bareme: false, histogramme: true, starMap: false, baremeLatex: true, papierLatex: false, papierTextes: null }); var setHtmlConfig = _htmlConfig[1]; var htmlConfig = _htmlConfig[0];  var _htmlStudentId = useState(null); var setHtmlStudentId = _htmlStudentId[1]; var htmlStudentId = _htmlStudentId[0];
+  var _htmlConfig = useState({ theme: "light", noteNorm: true, noteBrute: false, rang: true, statsEleve: { justesse: true, efficacite: true, malus: true }, statsClasse: { moy: true, minMax: true, sigma: false }, competences: "grid", commentaire: true, detailExercices: true, bareme: false, histogramme: true, starMap: false, baremeLatex: true, articleTextes: null }); var setHtmlConfig = _htmlConfig[1]; var htmlConfig = _htmlConfig[0];  var _htmlStudentId = useState(null); var setHtmlStudentId = _htmlStudentId[1]; var htmlStudentId = _htmlStudentId[0];
   var _commentaireDS = useState({}); var setCommentaireDS = _commentaireDS[1]; var commentaireDS = _commentaireDS[0];
   var _rapportClasseConfig = useState(DEFAULT_RAPPORT_CLASSE_CONFIG); var setRapportClasseConfig = _rapportClasseConfig[1]; var rapportClasseConfig = _rapportClasseConfig[0];
   var _soundLinksEnabled = useState(false); var setSoundLinksEnabled = _soundLinksEnabled[1]; var soundLinksEnabled = _soundLinksEnabled[0];
@@ -811,8 +811,6 @@ export default function App() {
         statsClasse: Object.assign({}, DEFAULT_HTML_CONFIG.statsClasse, sc.statsClasse),
         blockLayout: Object.assign({}, DEFAULT_HTML_CONFIG.blockLayout, sc.blockLayout),
         blockOrder:  Array.isArray(sc.blockOrder) && sc.blockOrder.length ? sc.blockOrder : DEFAULT_HTML_CONFIG.blockOrder,
-        papierLatex: sc.papierLatex !== undefined ? sc.papierLatex : DEFAULT_HTML_CONFIG.papierLatex,
-        papierTextes: sc.papierTextes ? sc.papierTextes : DEFAULT_HTML_CONFIG.papierTextes,
       }));
     }
     if (d.commentaireDS) setCommentaireDS(d.commentaireDS);
@@ -1392,21 +1390,8 @@ export default function App() {
   // ─── Normalised notes ───
   var normData = useMemo(function() {
     if (!exam || !corriges.length) return { map: {} };
-    var etW = examTotalWeighted(exam);
-    var raw20 = corriges.map(function(s) {
-      // Score pondéré incluant le bonus exercice complet
-      var totalPondere = studentTotalWeighted(grades, s.id, exam, activeExamSettings.bonusCompletConfig, activeExamSettings.clampQuestion);
-      var note = etW > 0 ? noteSur20(totalPondere, etW) : 0;
-      if ((groupes.tt || []).indexOf(s.id) >= 0) note = clamp(note * TT_COEFF, 0, 20);
-      return note;
-    });
-    var getMT = function(sid) { return malusTotal(remarks, sid, exam, activeExamSettings.malusPaliers, malusManuel, allRemarquesBase); };
-    var preNorm = activeExamSettings.malusMode === "avant" ? raw20.map(function(nn, i) { return clamp(nn * (1 - getMT(corriges[i].id) / 100), 0, 20); }) : raw20;
-    var normed = normaliser(preNorm, activeExamSettings.normMethod, activeExamSettings.normParams);
-    var final2 = activeExamSettings.malusMode === "apres" ? normed.map(function(nn, i) { return clamp(nn * (1 - getMT(corriges[i].id) / 100), 0, 20); }) : normed;
-    var map = {};
-    corriges.forEach(function(s, i) { map[s.id] = { brut: raw20[i], norm: final2[i] }; });
-    return { map: map };
+    // Pipeline partagé avec l'article de classe (DS précédents) : calculs.js › notesDS
+    return { map: notesDS(exam, corriges, grades, activeExamSettings, groupes, remarks, malusManuel, allRemarquesBase) };
   }, [exam, corriges, grades, et, activeExamSettings, groupes, malusManuel, remarks]);
 
   function getNote20(sid) { var e = normData.map[sid]; return e ? e.norm : 0; }
@@ -3150,6 +3135,7 @@ function retirerDsSynthese(examId) {
           examNomDS={examNomDS} examDateDS={examDateDS}
           presents={presents} corriges={corriges}
           students={students} grades={grades} remarks={remarks} absents={examAbsentsFlat}
+          exams={exams} absentsAll={absents} groupes={groupes} allRemarquesBase={allRemarquesBase}
           seuils={activeExamSettings.seuilsComp} seuilDifficile={activeExamSettings.seuilDifficile} seuilReussite={activeExamSettings.seuilReussite} seuilPiege={activeExamSettings.seuilPiege} bonusCompletConfig={activeExamSettings.bonusCompletConfig} clampQuestion={activeExamSettings.clampQuestion}
           features={ft}
           malusPaliers={activeExamSettings.malusPaliers} malusManuel={malusManuel}
