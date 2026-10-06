@@ -2010,7 +2010,7 @@ function retirerDsSynthese(examId) {
           error={syncHook.error}
           toast={syncHook.toast}
           onPush={function() { syncHook.push({ manual: true }); }}
-          onPull={syncHook.pull}
+          onPull={function() { syncHook.pull({ manual: true }); }}
           onCheck={syncHook.checkNow}
           onResolveConflict={function() { setShowConflictModal(true); }}
           onGoToSauvegarde={function() { setMode("sauvegarde"); }}
