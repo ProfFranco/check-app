@@ -33,8 +33,11 @@ export function contentHash(snapshot) {
 }
 
 export function diagnoseSyncStatus(localHash, lastKnownVersion, lastPushedHash, remoteVersion) {
+  // Jamais poussé depuis cet appareil : sans remote, tout le local reste à
+  // envoyer. "synced" ici bloquait l'auto-save pour toujours (seul local-ahead
+  // le déclenche) — le cas du profil vierge est filtré par syncCheck.
   if (lastKnownVersion === null) {
-    return remoteVersion === null ? "synced" : "remote-ahead";
+    return remoteVersion === null ? "local-ahead" : "remote-ahead";
   }
   const localDiverged  = (localHash !== lastPushedHash);
   const remoteDiverged = (remoteVersion !== lastKnownVersion);
@@ -272,13 +275,40 @@ export function clearLocalSyncState(profileId) {
     .forEach(function(k) { localStorage.removeItem(p + k); });
 }
 
+// ─── Version héritée d'un autre backend ──────────────────────────
+//
+// Le state localStorage est indexé par profil, pas par backend : un profil
+// synchronisé via GitHub puis basculé sur Sycomore garde un SHA comme
+// lastKnownVersion. Les deux formes ne se recouvrent pas (SHA hexadécimal de
+// 40 caractères contre entier en chaîne), on reconnaît donc l'intrus à sa
+// forme. Backend inconnu (adapter de test) : jamais étranger.
+export function isForeignVersion(backend, version) {
+  if (version === null || version === undefined) return false;
+  if (backend === "sycomore") return !/^\d+$/.test(version);
+  if (backend === "github") return /^\d+$/.test(version);
+  return false;
+}
+
+function isEmptyState(state) {
+  return !(state.exams && state.exams.length) && !(state.students && state.students.length);
+}
+
 // ─── Opérations async ────────────────────────────────────────────
 
 export async function syncCheck(adapter, localState, profileId) {
-  const { lastKnownVersion, lastPushedHash } = getLocalSyncState(profileId);
+  const local = getLocalSyncState(profileId);
+  const foreign = isForeignVersion(adapter.backend, local.lastKnownVersion);
+  const lastKnownVersion = foreign ? null : local.lastKnownVersion;
   const { version: remoteVersion } = await adapter.head(profileId);
   const localHash = contentHash(localState);
-  const status = diagnoseSyncStatus(localHash, lastKnownVersion, lastPushedHash, remoteVersion);
+  let status = diagnoseSyncStatus(localHash, lastKnownVersion, local.lastPushedHash, remoteVersion);
+  // Profil vierge jamais poussé : rien à sauvegarder, pas de blob vide créé
+  // sur le serveur à chaque nouvel appareil ou nouveau profil.
+  if (status === "local-ahead" && lastKnownVersion === null && isEmptyState(localState)) status = "synced";
+  // Version étrangère + remote existant : le local a peut-être du travail
+  // jamais envoyé sur CE backend. L'auto-pull de remote-ahead l'écraserait ;
+  // la modale de conflit laisse trancher (invariant : jamais de résolution auto).
+  if (foreign && status === "remote-ahead") status = "conflict";
   return { status, remoteVersion, lastKnownVersion, remoteMeta: null };
 }
 
@@ -307,8 +337,10 @@ export async function syncPush(adapter, localState, profileId, options) {
     },
   });
 
+  // Version d'un autre backend : sans valeur ici, on pousse comme un premier
+  // envoi (le serveur renvoie un conflit s'il a déjà une sauvegarde).
   // Force : récupérer le SHA courant pour écraser sans conflit
-  let expectedVersion = lastKnownVersion;
+  let expectedVersion = isForeignVersion(adapter.backend, lastKnownVersion) ? null : lastKnownVersion;
   if (options.force) {
     const head = await adapter.head(profileId);
     expectedVersion = head.version;

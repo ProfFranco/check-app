@@ -79,6 +79,9 @@ export default function SyncIndicator({ status, remoteMeta, lastSyncAt, error, o
         <div style={{ fontSize: 12, color: th.text, fontWeight: 600 }}>{"Synchronisé"}</div>
         {lastSyncAt && <div style={{ fontSize: 11, color: th.textMuted, marginTop: 2 }}>{"Dernière synchro " + formatAgo(lastSyncAt)}</div>}
         <button style={btnStyle} onClick={function() { showFeedback("Vérification lancée…"); onCheck && onCheck(); setOpen(false); }}>{"⟳ Vérifier maintenant"}</button>
+        {/* Porte de sortie si le diagnostic se trompe : push normal, sous verrou
+            de version — un remote divergent donne un conflit, jamais un écrasement. */}
+        <button style={Object.assign({}, btnStyle, { background: "transparent", border: "1px solid " + th.border, color: th.textMuted })} onClick={function() { showFeedback("Envoi en cours…"); onPush && onPush(); setOpen(false); }}>{"☁️ Forcer l'envoi"}</button>
       </div>
     );
 

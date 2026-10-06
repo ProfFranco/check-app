@@ -10,7 +10,7 @@
 import assert from "assert";
 import { webcrypto } from "crypto";
 import { TextDecoder, TextEncoder } from "util";
-import { contentHash, createSyncAdapter, diagnoseSyncStatus } from "./sync";
+import { contentHash, createSyncAdapter, diagnoseSyncStatus, isForeignVersion, syncCheck, syncPush } from "./sync";
 
 // jsdom n'expose ni WebCrypto ni TextEncoder/TextDecoder (cf. crypto.test.js) :
 // rustine d'environnement de test uniquement, les navigateurs les fournissent.
@@ -20,8 +20,9 @@ if (!globalThis.TextDecoder) globalThis.TextDecoder = TextDecoder;
 
 // ─── diagnoseSyncStatus ──────────────────────────────────────────
 
-test("diagnose: jamais synchronisé, pas de remote → synced", function() {
-  assert.strictEqual(diagnoseSyncStatus("abc", null, null, null), "synced");
+test("diagnose: jamais synchronisé, pas de remote → local-ahead", function() {
+  // "synced" ici bloquait l'auto-save pour toujours (seul local-ahead le déclenche)
+  assert.strictEqual(diagnoseSyncStatus("abc", null, null, null), "local-ahead");
 });
 
 test("diagnose: jamais synchronisé, remote existe → remote-ahead", function() {
@@ -209,4 +210,90 @@ test("adapter sycomore: pull sur profil vide → null", async function() {
   const adapter = createSyncAdapter(SYCO_CONFIG);
   mockFetch(function() { return { ok: false, status: 404 }; });
   assert.strictEqual(await adapter.pull("p1"), null);
+});
+
+// ─── Premier envoi et version héritée d'un autre backend ────────
+
+const SHA_GITHUB = "3f786850e387550fdab836ed7e6dc881de23001b";
+const ETAT_PLEIN = { exams: [{ id: "e1" }], students: [{ id: "s1" }] };
+const ETAT_VIERGE = { exams: [], students: [] };
+
+function poserEtatLocal(profileId, lastKnownVersion, lastPushedHash) {
+  localStorage.clear();
+  const p = "check_sync_" + profileId + "_";
+  if (lastKnownVersion !== null) localStorage.setItem(p + "lastKnownVersion", lastKnownVersion);
+  if (lastPushedHash !== null) localStorage.setItem(p + "lastPushedHash", lastPushedHash);
+}
+
+function headSycomore(version) {
+  return mockFetch(function(url, options) {
+    if (url.endsWith("/head")) return { json: function() { return Promise.resolve({ version: version }); } };
+    return { status: 201, json: function() { return Promise.resolve({ version: version + 1 }); } };
+  });
+}
+
+test("isForeignVersion: reconnaît un SHA sous Sycomore et un entier sous GitHub", function() {
+  assert.strictEqual(isForeignVersion("sycomore", SHA_GITHUB), true);
+  assert.strictEqual(isForeignVersion("sycomore", "12"), false);
+  assert.strictEqual(isForeignVersion("github", "12"), true);
+  assert.strictEqual(isForeignVersion("github", SHA_GITHUB), false);
+  assert.strictEqual(isForeignVersion("sycomore", null), false);
+  assert.strictEqual(isForeignVersion(undefined, SHA_GITHUB), false);
+});
+
+test("syncCheck: profil jamais poussé, serveur vide → local-ahead (auto-save)", async function() {
+  poserEtatLocal("p1", null, null);
+  headSycomore(0);
+  const r = await syncCheck(createSyncAdapter(SYCO_CONFIG), ETAT_PLEIN, "p1");
+  assert.strictEqual(r.status, "local-ahead");
+});
+
+test("syncCheck: profil vierge jamais poussé → synced (pas de blob vide)", async function() {
+  poserEtatLocal("p1", null, null);
+  headSycomore(0);
+  const r = await syncCheck(createSyncAdapter(SYCO_CONFIG), ETAT_VIERGE, "p1");
+  assert.strictEqual(r.status, "synced");
+});
+
+test("syncCheck: profil jamais poussé, serveur rempli → remote-ahead (nouvel appareil)", async function() {
+  poserEtatLocal("p1", null, null);
+  headSycomore(3);
+  const r = await syncCheck(createSyncAdapter(SYCO_CONFIG), ETAT_PLEIN, "p1");
+  assert.strictEqual(r.status, "remote-ahead");
+});
+
+test("syncCheck: SHA GitHub hérité, serveur Sycomore vide → local-ahead", async function() {
+  poserEtatLocal("p1", SHA_GITHUB, contentHash(ETAT_PLEIN));
+  headSycomore(0);
+  const r = await syncCheck(createSyncAdapter(SYCO_CONFIG), ETAT_PLEIN, "p1");
+  assert.strictEqual(r.status, "local-ahead");
+});
+
+test("syncCheck: SHA GitHub hérité, serveur Sycomore rempli → conflict, jamais d'auto-pull", async function() {
+  poserEtatLocal("p1", SHA_GITHUB, contentHash(ETAT_PLEIN));
+  headSycomore(4);
+  const r = await syncCheck(createSyncAdapter(SYCO_CONFIG), ETAT_PLEIN, "p1");
+  assert.strictEqual(r.status, "conflict");
+});
+
+test("syncPush: premier envoi → expected_version 0, version mémorisée", async function() {
+  poserEtatLocal("p1", null, null);
+  const calls = headSycomore(0);
+  const r = await syncPush(createSyncAdapter(SYCO_CONFIG), ETAT_PLEIN, "p1");
+  assert.strictEqual(r.ok, true);
+  assert.strictEqual(JSON.parse(calls[0].options.body).expected_version, 0);
+  assert.strictEqual(localStorage.getItem("check_sync_p1_lastKnownVersion"), "1");
+});
+
+test("syncPush: SHA GitHub hérité → poussé comme un premier envoi (expected_version 0)", async function() {
+  poserEtatLocal("p1", SHA_GITHUB, "ancien");
+  const calls = headSycomore(0);
+  const r = await syncPush(createSyncAdapter(SYCO_CONFIG), ETAT_PLEIN, "p1");
+  assert.strictEqual(r.ok, true);
+  assert.strictEqual(JSON.parse(calls[0].options.body).expected_version, 0);
+  // Après l'envoi, plus de SHA étranger : le cycle normal reprend
+  assert.strictEqual(localStorage.getItem("check_sync_p1_lastKnownVersion"), "1");
+  headSycomore(1);
+  const apres = await syncCheck(createSyncAdapter(SYCO_CONFIG), ETAT_PLEIN, "p1");
+  assert.strictEqual(apres.status, "synced");
 });
