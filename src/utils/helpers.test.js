@@ -12,9 +12,12 @@ import {
   cleIdentite,
   dateIsoDepuisSaisie,
   deshydraterEtat,
+  expirationJeton,
   identiteTrousseau,
   iosInstallationRecommandee,
   messageRefusSycomore,
+  optionsRattachement,
+  rattacherEleve,
   rehydraterEtat,
 } from "./helpers";
 
@@ -245,4 +248,52 @@ test("messageRefusSycomore: non inscrits → noms retrouvés, repli sur l'id", f
 test("messageRefusSycomore: détail inattendu ou absent → message générique", function() {
   assert.strictEqual(messageRefusSycomore("Autre refus", {}), "Envoi refusé par le serveur : Autre refus");
   assert.strictEqual(messageRefusSycomore(undefined, {}), "Envoi refusé par le serveur.");
+});
+
+// ─── expirationJeton ─────────────────────────────────────────────
+
+function jetonAvec(charge) {
+  const b64url = Buffer.from(JSON.stringify(charge)).toString("base64").replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+  return "eyJhbGciOiJIUzI1NiJ9." + b64url + ".signature";
+}
+
+test("expirationJeton: lit exp (secondes) et le rend en millisecondes", function() {
+  assert.strictEqual(expirationJeton(jetonAvec({ sub: "samuel", exp: 1791348139 })), 1791348139000);
+});
+
+test("expirationJeton: jeton absent, malformé ou sans exp → null", function() {
+  assert.strictEqual(expirationJeton(""), null);
+  assert.strictEqual(expirationJeton(null), null);
+  assert.strictEqual(expirationJeton("pas-un-jwt"), null);
+  assert.strictEqual(expirationJeton("a.@@@.c"), null);
+  assert.strictEqual(expirationJeton(jetonAvec({ sub: "samuel" })), null);
+});
+
+// ─── rattacherEleve ──────────────────────────────────────────────
+
+test("rattacherEleve: rattache en entier sans toucher aux autres", function() {
+  assert.deepStrictEqual(rattacherEleve({ a: 1 }, "b", "2"), { a: 1, b: 2 });
+});
+
+test("rattacherEleve: un etudiant_id déjà pris est retiré à l'autre élève (jamais deux notes)", function() {
+  assert.deepStrictEqual(rattacherEleve({ a: 1, b: 2 }, "c", "2"), { a: 1, c: 2 });
+});
+
+test("rattacherEleve: valeur vide → détache", function() {
+  assert.deepStrictEqual(rattacherEleve({ a: 1, b: 2 }, "b", ""), { a: 1 });
+});
+
+// ─── optionsRattachement ─────────────────────────────────────────
+
+test("optionsRattachement: triées par nom, ligne de l'élève qui porte déjà l'identité", function() {
+  const trousseau = { identities: {
+    "1": { nom: "Curie", prenom: "Marie" },
+    "2": { nom: "Arago", prenom: "François" },
+    "3": { nom: "Dirac", prenom: "Paul" },
+  } };
+  const students = [{ id: "x" }, { id: "y" }];
+  // "z" : rattachement orphelin (élève supprimé) — l'identité 3 reste libre
+  const opts = optionsRattachement(trousseau, { y: 1, z: 3 }, students);
+  assert.deepStrictEqual(opts.map(function(o) { return o.label; }), ["Arago François", "Curie Marie", "Dirac Paul"]);
+  assert.deepStrictEqual(opts.map(function(o) { return o.ligne; }), [null, 2, null]);
 });

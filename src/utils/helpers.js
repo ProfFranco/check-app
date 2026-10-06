@@ -253,3 +253,56 @@ export function messageRefusSycomore(detail, nomsParEtudiantId) {
   }
   return "Envoi refusé par le serveur" + (texte ? " : " + texte : ".");
 }
+
+/**
+ * Instant d'expiration (ms) d'un jeton JWT Sycomore, lu dans sa charge utile
+ * — sans vérification de signature : sert uniquement à l'affichage de l'état
+ * de connexion, le serveur reste seul juge (401). null si illisible ou sans exp.
+ */
+export function expirationJeton(jeton) {
+  try {
+    var partie = String(jeton || "").split(".")[1];
+    if (!partie) return null;
+    var b64 = partie.replace(/-/g, "+").replace(/_/g, "/");
+    while (b64.length % 4) b64 += "=";
+    var charge = JSON.parse(atob(b64));
+    return typeof charge.exp === "number" ? charge.exp * 1000 : null;
+  } catch (_e) { return null; }
+}
+
+/**
+ * Rattache l'élève CHECK studentId à l'etudiant_id Sycomore (vide = détacher).
+ * Unicité garantie : un etudiant_id déjà pris par un autre élève CHECK lui est
+ * retiré — sinon le même élève Sycomore recevrait deux notes au même DS.
+ */
+export function rattacherEleve(map, studentId, etudiantId) {
+  var id = parseInt(etudiantId, 10);
+  var res = {};
+  Object.keys(map || {}).forEach(function(k) {
+    if (k === studentId) return;
+    if (!isNaN(id) && Number(map[k]) === id) return;
+    res[k] = map[k];
+  });
+  if (!isNaN(id)) res[studentId] = id;
+  return res;
+}
+
+/**
+ * Choix proposés pour rattacher un élève à la main : toutes les identités du
+ * trousseau, triées par nom, chacune avec la ligne (1-based, ordre de la liste
+ * Préparation) de l'élève CHECK qui la porte déjà, ou null si libre. Un
+ * rattachement orphelin (élève supprimé) ne compte pas comme pris.
+ */
+export function optionsRattachement(trousseau, map, students) {
+  var identities = (trousseau && trousseau.identities) || {};
+  var ligneParEtudiant = {};
+  (students || []).forEach(function(st, i) {
+    var eid = (map || {})[st.id];
+    if (eid !== undefined && eid !== null) ligneParEtudiant[String(eid)] = i + 1;
+  });
+  return Object.keys(identities).map(function(eid) {
+    var ident = identities[eid] || {};
+    var label = ((ident.nom || "") + " " + (ident.prenom || "")).trim() || ("id " + eid);
+    return { etudiantId: eid, label: label, ligne: ligneParEtudiant[eid] || null };
+  }).sort(function(a, b) { return a.label.localeCompare(b.label, "fr"); });
+}

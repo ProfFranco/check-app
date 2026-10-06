@@ -3,7 +3,7 @@
 // ═══════════════════════════════════════════════════════════════════
 
 import { useState } from "react";
-import { iosInstallationRecommandee } from "./utils/helpers";
+import { expirationJeton, iosInstallationRecommandee, optionsRattachement } from "./utils/helpers";
 
 export default function SauvegardeTab({
   th, FONT, FONT_B,
@@ -119,8 +119,18 @@ export default function SauvegardeTab({
             color: principal ? th.accent : th.text, opacity: actif ? 1 : 0.5,
           };
         };
-        var nbMappes = Object.keys(s.sycomoreMap || {}).length;
-        var connecte = !!s.sycomoreToken;
+        // Élèves réellement rattachés — pas les clés de sycomoreMap, qui peuvent
+        // survivre à un élève supprimé et gonfler le compteur.
+        var nonRattaches = (s.students || []).map(function(st, i) { return { st: st, ligne: i + 1 }; })
+          .filter(function(x) { return !(s.sycomoreMap || {})[x.st.id]; });
+        var nbMappes = (s.students || []).length - nonRattaches.length;
+        var choixRattachement = s.sycomoreTrousseauPack
+          ? optionsRattachement(s.sycomoreTrousseauPack, s.sycomoreMap, s.students) : null;
+        // Le jeton Sycomore expire (12 h) : sa simple présence ne dit pas qu'on
+        // est connecté. exp illisible → on garde l'ancien comportement.
+        var expJeton = expirationJeton(s.sycomoreToken);
+        var sessionExpiree = !!s.sycomoreToken && expJeton !== null && expJeton <= Date.now();
+        var connecte = !!s.sycomoreToken && !sessionExpiree;
         var estSycomore = syncBackend === "sycomore";
 
         return (
@@ -162,7 +172,10 @@ export default function SauvegardeTab({
                   }}>
                   {s.sycomoreBusy ? "⏳…" : connecte ? "🔄 Se reconnecter" : "🔑 Se connecter"}
                 </button>
-                {connecte && <span style={{ fontSize: 11, color: th.success, fontFamily: FONT_B }}>{"✓ connecté"}</span>}
+                {connecte && <span style={{ fontSize: 11, color: th.success, fontFamily: FONT_B }}>
+                  {"✓ connecté" + (expJeton ? " jusqu'à " + new Date(expJeton).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" }) : "")}
+                </span>}
+                {sessionExpiree && <span style={{ fontSize: 11, color: th.warning, fontFamily: FONT_B }}>{"⚠ session expirée — reconnectez-vous"}</span>}
                 {/* Historique des versions (P-H5) : remplace les boutons Sauvegarder/
                     Charger et la case "snapshots quotidiens" de l'ancienne section
                     ☁️ — la rétention est gérée par le serveur, il n'y a rien à activer. */}
@@ -242,21 +255,38 @@ export default function SauvegardeTab({
               <div style={{ fontSize: 11, fontFamily: FONT_B, color: nbMappes ? th.success : th.textDim }}>
                 {nbMappes + " élève(s) rapproché(s) sur " + (s.students || []).length}
               </div>
-              {s.sycomoreAppariement && s.sycomoreAppariement.nonApparies.length > 0 && (
+              {/* Calculée à chaque rendu depuis l'état courant (et non depuis le
+                  résultat figé de l'appariement automatique) : un élève rattaché
+                  sort aussitôt de la liste, un homonyme non tranché y apparaît. */}
+              {(s.sycomoreAppariement || nbMappes > 0) && nonRattaches.length > 0 && (
                 <div style={{ marginTop: 8 }}>
                   <div style={{ fontSize: 10, color: th.warning, fontFamily: FONT_B, marginBottom: 4 }}>
-                    {"Sans correspondance automatique — à associer à la main :"}
+                    {choixRattachement
+                      ? "Non rattaché(s) — choisissez l'élève Sycomore correspondant :"
+                      : "Sans correspondance automatique — à associer à la main :"}
                   </div>
-                  {s.sycomoreAppariement.nonApparies.map(function(el) {
+                  {nonRattaches.map(function(x) {
+                    var nom = ((x.st.prenom || "") + " " + (x.st.nom || "")).trim();
                     return (
-                      <div key={el.id} style={{ display: "flex", gap: 6, alignItems: "center", marginBottom: 4 }}>
-                        <span style={{ fontSize: 11, fontFamily: FONT_B, color: th.text, flex: 1 }}>
-                          {(el.prenom || "") + " " + (el.nom || "")}
+                      <div key={x.st.id} style={{ display: "flex", gap: 6, alignItems: "center", marginBottom: 4 }}>
+                        <span style={{ fontSize: 11, fontFamily: FONT_B, color: nom ? th.text : th.textMuted, fontStyle: nom ? "normal" : "italic", flex: 1 }}>
+                          {nom || ("élève sans nom, ligne " + x.ligne)}
                         </span>
-                        <input type="number" placeholder="id Sycomore"
-                          defaultValue={s.sycomoreMap[el.id] || ""}
-                          onBlur={function(e) { s.sycomoreDefinirMapping(el.id, e.target.value); }}
-                          style={Object.assign({}, champ, { width: 110, padding: "5px 8px", fontSize: 11 })} />
+                        {choixRattachement ? (
+                          <select value="" onChange={function(e) { if (e.target.value) s.sycomoreDefinirMapping(x.st.id, e.target.value); }}
+                            style={Object.assign({}, champ, { width: 240, padding: "5px 8px", fontSize: 11 })}>
+                            <option value="">{"— choisir —"}</option>
+                            {choixRattachement.map(function(o) {
+                              return <option key={o.etudiantId} value={o.etudiantId}>
+                                {o.label + (o.ligne ? " · déjà associé (ligne " + o.ligne + ")" : "")}
+                              </option>;
+                            })}
+                          </select>
+                        ) : (
+                          <input type="number" placeholder="id Sycomore"
+                            onBlur={function(e) { if (e.target.value) s.sycomoreDefinirMapping(x.st.id, e.target.value); }}
+                            style={Object.assign({}, champ, { width: 110, padding: "5px 8px", fontSize: 11 })} />
+                        )}
                       </div>
                     );
                   })}

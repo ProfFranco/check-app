@@ -31,7 +31,7 @@ import {
 import { genererGabarit, genererDocumentComplet, genererDocumentsIndividuels, genererScriptCompilation } from "./utils/latex";
 import { genererHtmlEleve, genererHtmlTous, DEFAULT_HTML_CONFIG, DEFAULT_RAPPORT_CLASSE_CONFIG, genererRapportClasse } from "./utils/html";
 import { renderStarMap, createAnimatedStarMap } from "./utils/starmap";
-import { apparierIdentites, buildAudioFilename, dateIsoDepuisSaisie, deshydraterEtat, messageRefusSycomore, rehydraterEtat } from "./utils/helpers";
+import { apparierIdentites, buildAudioFilename, dateIsoDepuisSaisie, deshydraterEtat, messageRefusSycomore, rattacherEleve, rehydraterEtat } from "./utils/helpers";
 import { loadDB, saveDB, loadMeta, saveMeta, initProfiles, profileDBName, openNamedDB } from "./utils/db";
 import { RadarChart, MiniRadarEx, Histo, PBar, ProgressionChart, ProgressionRadar } from "./components/Charts";
 import AudioRecorder from "./components/AudioRecorder";
@@ -1058,8 +1058,11 @@ export default function App() {
         return r.json();
       })
       .then(function(inscrits) {
+        // Depuis la liste d'élèves, pas depuis les clés de sycomoreMap : un
+        // rattachement orphelin (élève supprimé) ne doit pas empêcher de
+        // réimporter l'inscrit correspondant.
         var dejaMappes = {};
-        Object.keys(sycomoreMap).forEach(function(checkId) { dejaMappes[sycomoreMap[checkId]] = checkId; });
+        students.forEach(function(st) { if (sycomoreMap[st.id]) dejaMappes[sycomoreMap[st.id]] = st.id; });
 
         var nouveaux = [];
         var fusion = Object.assign({}, sycomoreMap);
@@ -1166,9 +1169,7 @@ export default function App() {
   }
 
   function sycomoreDefinirMapping(studentId, etudiantId) {
-    var fusion = Object.assign({}, sycomoreMap);
-    if (etudiantId) fusion[studentId] = parseInt(etudiantId, 10);
-    else delete fusion[studentId];
+    var fusion = rattacherEleve(sycomoreMap, studentId, etudiantId);
     setSycomoreMap(fusion);
     saveDB(buildPersistedState({ sycomoreMap: fusion }), activeProfileId);
   }
@@ -1182,9 +1183,12 @@ export default function App() {
     if (nonMappes.length) {
       setSycomoreMsg({
         type: "error",
-        texte: "Envoi bloqué — " + nonMappes.length + " élève(s) non rapproché(s) : "
-          + nonMappes.slice(0, 5).map(function(s) { return (s.prenom || "") + " " + (s.nom || ""); }).join(", ")
-          + (nonMappes.length > 5 ? "…" : ""),
+        texte: "Envoi bloqué — " + nonMappes.length + " élève(s) non rattaché(s) : "
+          + nonMappes.slice(0, 5).map(function(s) {
+            return ((s.prenom || "") + " " + (s.nom || "")).trim() || ("élève sans nom, ligne " + (students.indexOf(s) + 1));
+          }).join(", ")
+          + (nonMappes.length > 5 ? "…" : "")
+          + ". Rattachez-les dans « 🔗 Rapprochement des élèves » ci-dessus.",
       });
       return;
     }
@@ -2446,7 +2450,7 @@ function retirerDsSynthese(examId) {
                     var inG = (groupes[g.id] || []).indexOf(st.id) >= 0;
                     return <button key={g.id} onClick={function() { var cur = groupes[g.id] || []; var n2 = {}; for (var k in groupes) n2[k] = groupes[k]; n2[g.id] = inG ? cur.filter(function(id) { return id !== st.id; }) : cur.concat([st.id]); setGroupes(n2); }} style={{ padding: "0px 5px", fontSize: 8, fontWeight: 700, borderRadius: 3, cursor: "pointer", fontFamily: FONT_B, border: "1px solid " + (inG ? compColor(g, dark) + "55" : th.border), background: inG ? compColor(g, dark) + "22" : "transparent", color: inG ? compColor(g, dark) : th.textDim }}>{g.label}</button>;
                   })}
-                  <button onClick={function() { askConfirm((st.prenom + " " + st.nom).trim() || "cet élève", function() { setStudents(students.filter(function(_, j) { return j !== idx; })); }); }} style={{ background: "none", border: "none", color: th.textDim, cursor: "pointer", fontSize: 10 }}>{"\u2715"}</button>
+                  <button onClick={function() { askConfirm((st.prenom + " " + st.nom).trim() || "cet élève", function() { setStudents(students.filter(function(_, j) { return j !== idx; })); if (sycomoreMap[st.id] !== undefined) { var m = Object.assign({}, sycomoreMap); delete m[st.id]; setSycomoreMap(m); } }); }} style={{ background: "none", border: "none", color: th.textDim, cursor: "pointer", fontSize: 10 }}>{"\u2715"}</button>
                 </div>
               ); })}
             </div>
@@ -3154,6 +3158,7 @@ function retirerDsSynthese(examId) {
             sycomoreAppariement: sycomoreAppariement,
             sycomoreMap: sycomoreMap,
             sycomoreTrousseauActif: sycomoreTrousseauActif,
+            sycomoreTrousseauPack: sycomoreTrousseauPack,
             trousseauPhraseInput: trousseauPhraseInput, setTrousseauPhraseInput: setTrousseauPhraseInput,
             trousseauDeverrouillageBusy: trousseauDeverrouillageBusy,
             sycomoreDeverrouillerTrousseau: sycomoreDeverrouillerTrousseau,
