@@ -121,7 +121,17 @@ function useSyncStatus({ buildAppState, activeProfileId, syncConfig, restoreStat
 
   function doPull(options) {
     options = options || {};
-    if (inFlightRef.current || !adapter) return Promise.resolve();
+    if (!adapter) return Promise.resolve();
+    if (inFlightRef.current) {
+      // Même règle que doPush : un choix explicite (modale de conflit) est
+      // réessayé, jamais abandonné en silence derrière un heartbeat en cours.
+      if (options.manual) {
+        return new Promise(function(resolve) {
+          setTimeout(function() { resolve(doPull(options)); }, 600);
+        });
+      }
+      return Promise.resolve();
+    }
     inFlightRef.current = true;
     setStatus("pulling");
     return syncPull(adapter, activeProfileId).then(function(result) {
@@ -269,8 +279,10 @@ function useSyncStatus({ buildAppState, activeProfileId, syncConfig, restoreStat
     status: status, remoteMeta: remoteMeta, lastSyncAt: lastSyncAt,
     error: error, toast: toast,
     push: doPush, pull: doPull,
-    forceLocal: function() { return doPush({ force: true }); },
-    forceRemote: function() { return doPull(); },
+    // manual : la modale se ferme aussitôt, un choix perdu laisserait le
+    // conflit en place sans aucun retour (cf. doPush/doPull).
+    forceLocal: function() { return doPush({ force: true, manual: true }); },
+    forceRemote: function() { return doPull({ manual: true }); },
     checkNow: doCheck,
   };
 }
