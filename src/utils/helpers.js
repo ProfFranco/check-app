@@ -201,3 +201,55 @@ export function apparierIdentites(students, pack) {
 
   return { map: map, nonApparies: nonApparies, ambigus: ambigus };
 }
+/**
+ * Convertit la date saisie pour un DS (texte libre, modèle « jj/mm/aaaa »)
+ * au format ISO « aaaa-mm-jj » attendu par l'API Sycomore. Accepte aussi
+ * j/m/aaaa, jj/mm/aa (→ 20aa), les séparateurs - et ., et l'ISO lui-même.
+ * Retourne "" pour une saisie vide, null si illisible ou impossible (31/02) :
+ * à l'appelant de bloquer plutôt que d'envoyer une date fausse.
+ */
+export function dateIsoDepuisSaisie(saisie) {
+  var s = String(saisie || "").trim();
+  if (!s) return "";
+  var a, mo, j;
+  var m = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/);
+  if (m) {
+    a = parseInt(m[1], 10); mo = parseInt(m[2], 10); j = parseInt(m[3], 10);
+  } else {
+    m = s.match(/^(\d{1,2})[/.-](\d{1,2})[/.-](\d{4}|\d{2})$/);
+    if (!m) return null;
+    j = parseInt(m[1], 10); mo = parseInt(m[2], 10); a = parseInt(m[3], 10);
+    if (m[3].length === 2) a += 2000;
+  }
+  var d = new Date(Date.UTC(a, mo - 1, j));
+  if (d.getUTCFullYear() !== a || d.getUTCMonth() !== mo - 1 || d.getUTCDate() !== j) return null;
+  return a + "-" + (mo < 10 ? "0" : "") + mo + "-" + (j < 10 ? "0" : "") + j;
+}
+
+/**
+ * Message lisible pour un refus 422 de l'API Sycomore. Le serveur en produit
+ * deux sortes, que CHECK confondait :
+ *   - detail tableau : validation FastAPI (format d'un champ refusé) ;
+ *   - detail chaîne  : refus métier, dont « non inscrit(s) … : [12, 13] ».
+ * nomsParEtudiantId : { "<etudiant_id>": "Prénom Nom" } pour traduire les
+ * identifiants en noms (repli sur « id N »).
+ */
+export function messageRefusSycomore(detail, nomsParEtudiantId) {
+  var noms = nomsParEtudiantId || {};
+  if (Array.isArray(detail)) {
+    return "Envoi refusé par le serveur : " + detail.map(function(e) {
+      var champ = (e && Array.isArray(e.loc) ? e.loc.filter(function(p) { return p !== "body"; }).join(".") : "") || "?";
+      return champ + " — " + ((e && e.msg) || "valeur invalide");
+    }).join(" ; ");
+  }
+  var texte = typeof detail === "string" ? detail : "";
+  var m = texte.match(/non inscrit.*\[([\d,\s]+)\]/);
+  if (m) {
+    var liste = m[1].split(",").map(function(x) {
+      var id = x.trim();
+      return noms[id] || ("id " + id);
+    });
+    return "Non inscrit(s) dans cette classe Sycomore : " + liste.join(", ") + " — vérifiez la classe choisie.";
+  }
+  return "Envoi refusé par le serveur" + (texte ? " : " + texte : ".");
+}

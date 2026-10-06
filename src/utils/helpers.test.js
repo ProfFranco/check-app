@@ -10,9 +10,11 @@ import assert from "assert";
 import {
   apparierIdentites,
   cleIdentite,
+  dateIsoDepuisSaisie,
   deshydraterEtat,
   identiteTrousseau,
   iosInstallationRecommandee,
+  messageRefusSycomore,
   rehydraterEtat,
 } from "./helpers";
 
@@ -197,4 +199,50 @@ test("deshydrater/rehydrater: état vide ou champs absents, pas d'exception", fu
   assert.strictEqual(rehydraterEtat(vide, TROUSSEAU), vide);
   assert.strictEqual(deshydraterEtat(null, TROUSSEAU), null);
   assert.strictEqual(rehydraterEtat(undefined, TROUSSEAU), undefined);
+});
+
+// ─── dateIsoDepuisSaisie ─────────────────────────────────────────
+
+test("dateIsoDepuisSaisie: formats français et ISO convertis en aaaa-mm-jj", function() {
+  assert.strictEqual(dateIsoDepuisSaisie("06/10/2026"), "2026-10-06");
+  assert.strictEqual(dateIsoDepuisSaisie("6/10/2026"), "2026-10-06");
+  assert.strictEqual(dateIsoDepuisSaisie("06-10-2026"), "2026-10-06");
+  assert.strictEqual(dateIsoDepuisSaisie("06.10.2026"), "2026-10-06");
+  assert.strictEqual(dateIsoDepuisSaisie("6/10/26"), "2026-10-06");
+  assert.strictEqual(dateIsoDepuisSaisie(" 2026-10-06 "), "2026-10-06");
+  assert.strictEqual(dateIsoDepuisSaisie("2026-1-6"), "2026-01-06");
+});
+
+test("dateIsoDepuisSaisie: vide → chaîne vide (date du jour côté appelant)", function() {
+  assert.strictEqual(dateIsoDepuisSaisie(""), "");
+  assert.strictEqual(dateIsoDepuisSaisie("   "), "");
+  assert.strictEqual(dateIsoDepuisSaisie(undefined), "");
+});
+
+test("dateIsoDepuisSaisie: illisible ou impossible → null (envoi bloqué)", function() {
+  assert.strictEqual(dateIsoDepuisSaisie("6 octobre"), null);
+  assert.strictEqual(dateIsoDepuisSaisie("31/02/2026"), null);
+  assert.strictEqual(dateIsoDepuisSaisie("10/13/2026"), null);
+  assert.strictEqual(dateIsoDepuisSaisie("06/10"), null);
+});
+
+// ─── messageRefusSycomore ────────────────────────────────────────
+
+test("messageRefusSycomore: validation FastAPI → champ et raison, pas « non inscrit »", function() {
+  const msg = messageRefusSycomore([{ loc: ["body", "date_ds"], msg: "Input should be a valid date" }], {});
+  assert.strictEqual(msg, "Envoi refusé par le serveur : date_ds — Input should be a valid date");
+  assert.ok(msg.indexOf("inscrit") === -1);
+});
+
+test("messageRefusSycomore: non inscrits → noms retrouvés, repli sur l'id", function() {
+  const msg = messageRefusSycomore(
+    "Étudiant(s) non inscrit(s) dans cette classe : [12, 99]",
+    { "12": "Marie Curie" }
+  );
+  assert.strictEqual(msg, "Non inscrit(s) dans cette classe Sycomore : Marie Curie, id 99 — vérifiez la classe choisie.");
+});
+
+test("messageRefusSycomore: détail inattendu ou absent → message générique", function() {
+  assert.strictEqual(messageRefusSycomore("Autre refus", {}), "Envoi refusé par le serveur : Autre refus");
+  assert.strictEqual(messageRefusSycomore(undefined, {}), "Envoi refusé par le serveur.");
 });

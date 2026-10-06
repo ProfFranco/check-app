@@ -31,7 +31,7 @@ import {
 import { genererGabarit, genererDocumentComplet, genererDocumentsIndividuels, genererScriptCompilation } from "./utils/latex";
 import { genererHtmlEleve, genererHtmlTous, DEFAULT_HTML_CONFIG, DEFAULT_RAPPORT_CLASSE_CONFIG, genererRapportClasse } from "./utils/html";
 import { renderStarMap, createAnimatedStarMap } from "./utils/starmap";
-import { apparierIdentites, buildAudioFilename, deshydraterEtat, rehydraterEtat } from "./utils/helpers";
+import { apparierIdentites, buildAudioFilename, dateIsoDepuisSaisie, deshydraterEtat, messageRefusSycomore, rehydraterEtat } from "./utils/helpers";
 import { loadDB, saveDB, loadMeta, saveMeta, initProfiles, profileDBName, openNamedDB } from "./utils/db";
 import { RadarChart, MiniRadarEx, Histo, PBar, ProgressionChart, ProgressionRadar } from "./components/Charts";
 import AudioRecorder from "./components/AudioRecorder";
@@ -665,7 +665,12 @@ export default function App() {
   // (apparierIdentites + fusion, identique à sycomoreImporterPack ci-dessous).
   useEffect(function() {
     if (!sycomoreTrousseauPack || !dbLoaded || students.length === 0) return;
-    var res = apparierIdentites(students, sycomoreTrousseauPack);
+    // Seuls les élèves pas encore rattachés passent par l'appariement par nom.
+    // Cet effet tourne avant la réhydratation (P-H4) : les élèves rattachés y
+    // sont encore sans nom et seraient listés à tort « sans correspondance » ;
+    // et un rattachement manuel ne doit pas être écrasé par un homonyme.
+    var aApparier = students.filter(function(s) { return !sycomoreMap[s.id]; });
+    var res = apparierIdentites(aApparier, sycomoreTrousseauPack);
     var fusion = Object.assign({}, sycomoreMap, res.map);
     setSycomoreMap(fusion);
     setSycomoreAppariement(res);
@@ -1184,6 +1189,18 @@ export default function App() {
       return;
     }
 
+    // La date se saisit en texte libre (« jj/mm/aaaa ») ; l'API exige l'ISO et
+    // refuse tout le reste en 422. Illisible → on bloque plutôt que d'envoyer
+    // une date fausse ; vide → date du jour, comme avant.
+    var dateIso = dateIsoDepuisSaisie(examDateDS);
+    if (dateIso === null) {
+      setSycomoreMsg({
+        type: "error",
+        texte: "Envoi bloqué — date du DS illisible (« " + examDateDS + " ») : saisissez-la au format jj/mm/aaaa.",
+      });
+      return;
+    }
+
     var ranked = corriges.slice().sort(function(a, b) { return getNote20(b.id) - getNote20(a.id); });
     var rangMap = {};
     ranked.forEach(function(s, i) { rangMap[s.id] = i + 1; });
@@ -1209,13 +1226,21 @@ export default function App() {
       headers: { "Authorization": "Bearer " + sycomoreToken, "Content-Type": "application/json" },
       body: JSON.stringify({
         nom: examNomDS || exam.name || "DS",
-        date_ds: examDateDS || new Date().toISOString().slice(0, 10),
+        date_ds: dateIso || new Date().toISOString().slice(0, 10),
         bareme: examTotal(exam) || null,
         notes: notes,
       }),
     }).then(function(r) {
       if (r.status === 401) throw new Error("Session expirée — reconnectez-vous.");
-      if (r.status === 422) throw new Error("Élève(s) non inscrit(s) dans cette classe Sycomore.");
+      if (r.status === 422) {
+        // Le détail du serveur distingue un format refusé d'un élève non
+        // inscrit : on le lit au lieu de tout résumer en « non inscrit(s) ».
+        var noms = {};
+        corriges.forEach(function(s) { noms[sycomoreMap[s.id]] = ((s.prenom || "") + " " + (s.nom || "")).trim(); });
+        return r.json().catch(function() { return {}; }).then(function(body) {
+          throw new Error(messageRefusSycomore(body && body.detail, noms));
+        });
+      }
       if (!r.ok) throw new Error("Erreur " + r.status);
       return r.json();
     }).then(function() {
